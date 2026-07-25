@@ -93,6 +93,7 @@ The hosted editor can securely pair with the Windows companion for **Build & Tes
 - Rotate or reverse structures and duplicate/copy/paste selected map elements
 - Shift-click or Alt-drag to select several objects, then group, ungroup, lock, hide, transform, copy, or delete them together
 - Choose 16/32/64/128-unit grid snapping, optionally snap to nearby object corners/edges/centers, and measure distance plus angle with the Ruler
+- Use the adaptive grid to reveal finer sub-grid lines while zoomed in and align centered placement previews to nearby geometry
 - Choose beginner-friendly wall and structure materials from real CS/Half-Life WAD textures
 - Choose separate wall, floor, and ceiling materials for each room
 - Assign individual north/east/south/west wall materials and adjust texture offset, rotation, and scale per surface
@@ -130,9 +131,12 @@ The Geometry section also includes **Cylinder**, **Wedge**, **Archway**, and **S
 ## Selection, snapping, and material workflow
 
 - Click objects in either the top-down plan or Orbit preview. **Shift-click** adds or removes objects from the current selection.
+- The plan selector uses the exact cursor position instead of treating a complete 64-unit cell as clicked. Repeated clicks at one position cycle through overlapping structures, zones, and rooms.
 - Hold **Alt** and drag on the plan to draw a selection box. Hold Shift too when the box should add to the existing selection.
 - Use **Group** or `Ctrl+G` to keep objects together; `Ctrl+Shift+G` ungroups them. Locked objects cannot be moved or painted. Hidden objects remain in the project and return with **Show all**.
 - Choose a snap size above the plan. **Objects** adds magnetic alignment to nearby corners, edges, and centers; turn it off when only grid precision is wanted.
+- **Adaptive** refines the preferred snap to 32 or 16 units when zoom and nearby fractional geometry require it. Its visible sub-grid and placement footprint show exactly where the object will land.
+- Rectangle dimensions now measure the exact distance between their start and end grid lines; dragging from line 4 to line 8 creates four squares, not five.
 - Choose **Ruler** or press `U`, then drag between two points. The pinned guide reports GoldSrc distance, X/Y change, and angle without blocking later editing.
 - In the material alignment panel, choose the whole object, room floor, ceiling, or an individual wall. Use **Repeat / tile** for normal building materials or **Fit image once** to stretch one complete image across the face; offsets, rotation, and manual tile scales are shown in Orbit and written to the exported `.map` faces.
 - Choose **Eyedropper**, click a room or structure, then click other surfaces to paint the sampled material.

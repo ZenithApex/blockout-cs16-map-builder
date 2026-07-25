@@ -256,12 +256,14 @@
   let measurement = null;
   let snapUnits = 64;
   let objectSnapEnabled = true;
+  let adaptiveGridEnabled = localStorage.getItem("blockout-adaptive-grid") !== "off";
   let smartConnectionsEnabled = localStorage.getItem("blockout-smart-connections") !== "off";
   let sampledMaterial = null;
   let surfaceTarget = "object";
   let textureLock = localStorage.getItem("blockout-texture-lock") !== "off";
   let previewPickRegions = [];
   let transformDrag = null;
+  let planHitCycle = null;
   let previewTransformHandle = null;
   let elevationAxis = "x";
   let elevationHitRegions = [];
@@ -1030,12 +1032,13 @@
   }
 
   function rectIsInsideSpace(rect) {
-    for (let y = rect.y; y < rect.y + rect.d; y++) {
-      for (let x = rect.x; x < rect.x + rect.w; x++) {
-        if (!isPointInSpace(x + .5, y + .5)) return false;
-      }
-    }
-    return true;
+    const axisSamples=(start,size)=>{
+      const inset=Math.min(.25,size/2),values=[start+inset,start+size/2,start+size-inset];
+      for(let value=start+inset;value<start+size-inset;value+=.5)values.push(value);
+      return [...new Set(values.map((value)=>Math.round(value*1000)/1000))];
+    };
+    const xs=axisSamples(rect.x,rect.w),ys=axisSamples(rect.y,rect.d);
+    return ys.every((y)=>xs.every((x)=>isPointInSpace(x,y)));
   }
 
   function directionFromDrag(start, end) {
@@ -1043,46 +1046,71 @@
     return Math.abs(dx) >= Math.abs(dy) ? (dx >= 0 ? "e" : "w") : (dy >= 0 ? "s" : "n");
   }
 
-  function hitTest(cell) {
+  function polygonEdgeDistance(world,points) {
+    return points.reduce((best,point,index)=>Math.min(best,projectToSegment(world,point,points[(index+1)%points.length]).distance),Infinity);
+  }
+
+  function hitCandidates(world) {
+    const refs=[],lineTolerance=Math.max(.08,8/cellSize),markerTolerance=Math.max(.18,10/cellSize);
     for (let i = state.windows.length - 1; i >= 0; i--) {
       const window = state.windows[i];
       if (window.hidden) continue;
       if (!onPlanLevel("window", window)) continue;
-      const segment=openingSegment(window),hit=projectToSegment({x:cell.x+.5,y:cell.y+.5},segment[0],segment[1]).distance<=.72;
-      if (hit) return { type: "window", id: window.id };
+      const segment=openingSegment(window);
+      if(projectToSegment(world,segment[0],segment[1]).distance<=lineTolerance)refs.push({type:"window",id:window.id});
     }
     for (let i = state.doors.length - 1; i >= 0; i--) {
       const door = state.doors[i];
       if (door.hidden) continue;
       if (!onPlanLevel("door", door)) continue;
-      const segment=openingSegment(door),hit=projectToSegment({x:cell.x+.5,y:cell.y+.5},segment[0],segment[1]).distance<=.72;
-      if (hit) return { type: "door", id: door.id };
+      const segment=openingSegment(door);
+      if(projectToSegment(world,segment[0],segment[1]).distance<=lineTolerance)refs.push({type:"door",id:door.id});
     }
     for (let i = state.entities.length - 1; i >= 0; i--) {
       const entity = state.entities[i];
       if (entity.hidden) continue;
       if (!onPlanLevel("entity", entity)) continue;
-      if (entity.x === cell.x && entity.y === cell.y) return { type: "entity", id: entity.id };
-    }
-    for (let i = state.zones.length - 1; i >= 0; i--) {
-      const zone = state.zones[i];
-      if (zone.hidden) continue;
-      if (!onPlanLevel("zone", zone)) continue;
-      if (pointInProp(cell.x, cell.y, zone)) return { type: "zone", id: zone.id };
+      if(Math.hypot(world.x-(entity.x+.5),world.y-(entity.y+.5))<=markerTolerance)refs.push({type:"entity",id:entity.id});
     }
     for (let i = state.props.length - 1; i >= 0; i--) {
       const prop = state.props[i];
       if (prop.hidden) continue;
       if (!onPlanLevel("prop", prop)) continue;
-      if (pointInProp(cell.x, cell.y, prop)) return { type: "prop", id: prop.id };
+      const points=prop.kind==="diagonal"?diagonalCorners(prop):prop.points;
+      const hit=points?.length
+        ? pointInPolygon(world.x,world.y,points)||polygonEdgeDistance(world,points)<=lineTolerance
+        : world.x>=prop.x-lineTolerance&&world.x<=prop.x+(prop.w||1)+lineTolerance&&world.y>=prop.y-lineTolerance&&world.y<=prop.y+(prop.d||1)+lineTolerance;
+      if(hit)refs.push({type:"prop",id:prop.id});
+    }
+    for (let i = state.zones.length - 1; i >= 0; i--) {
+      const zone = state.zones[i];
+      if (zone.hidden) continue;
+      if (!onPlanLevel("zone", zone)) continue;
+      if(world.x>=zone.x&&world.x<=zone.x+zone.w&&world.y>=zone.y&&world.y<=zone.y+zone.d)refs.push({type:"zone",id:zone.id});
     }
     for (let i = state.rooms.length - 1; i >= 0; i--) {
       const room = state.rooms[i];
       if (room.hidden) continue;
       if (!onPlanLevel("room", room)) continue;
-      if (pointInRoom(cell.x + .5, cell.y + .5, room)) return { type: "room", id: room.id };
+      const points=roomPlanPoints(room);
+      if(pointInRoom(world.x,world.y,room)||polygonEdgeDistance(world,points)<=lineTolerance*.65)refs.push({type:"room",id:room.id});
     }
-    return null;
+    return refs;
+  }
+
+  function hitTest(world) {
+    return hitCandidates(world)[0]||null;
+  }
+
+  function cyclingHitTest(world) {
+    const candidates=hitCandidates(world);
+    if(!candidates.length){planHitCycle=null;return null;}
+    const signature=candidates.map((ref)=>`${ref.type}:${ref.id}`).join("|"),now=performance.now(),threshold=Math.max(.12,7/cellSize);
+    const same=planHitCycle&&planHitCycle.signature===signature&&Math.hypot(world.x-planHitCycle.x,world.y-planHitCycle.y)<=threshold&&now-planHitCycle.time<1100;
+    const index=same?(planHitCycle.index+1)%candidates.length:0;
+    planHitCycle={signature,index,x:world.x,y:world.y,time:now};
+    if(candidates.length>1&&!same)showToast(`${candidates.length} overlapping objects — click again to cycle`);
+    return candidates[index];
   }
 
   function selectedItem() {
@@ -1298,12 +1326,35 @@
     return { x: (point.x - viewOffset.x) / cellSize, y: (point.y - viewOffset.y) / cellSize };
   }
 
-  function snapStep() {
-    return Math.max(.25, snapUnits / GRID);
+  function geometrySnapResolution(world=null) {
+    const values=[];
+    ["room","zone","prop","entity"].forEach((type)=>itemListFor(type).forEach((item)=>{
+      if(item.hidden)return;
+      const bounds=itemBoundsForRef({type,id:item.id});
+      if(world&&bounds){
+        const dx=Math.max(bounds.x-world.x,0,world.x-(bounds.x+bounds.w)),dy=Math.max(bounds.y-world.y,0,world.y-(bounds.y+bounds.d));
+        if(Math.hypot(dx,dy)>6)return;
+      }
+      if(item.points?.length)item.points.forEach(([x,y])=>values.push(x,y));
+      values.push(item.x,item.y,item.w||1,item.d||1,item.x+(item.w||1),item.y+(item.d||1));
+    }));
+    let resolution=1;
+    values.filter(Number.isFinite).forEach((value)=>{
+      if(Math.abs(value*4-Math.round(value*4))>.01)return;
+      if(Math.abs(value*2-Math.round(value*2))>.01)resolution=Math.min(resolution,.25);
+      else if(Math.abs(value-Math.round(value))>.01)resolution=Math.min(resolution,.5);
+    });
+    return resolution;
   }
 
-  function baseSnap(value) {
-    const step = snapStep();
+  function snapStep(world=null) {
+    const manual=Math.max(.25,snapUnits/GRID);
+    if(!adaptiveGridEnabled)return manual;
+    const zoom=cellSize>=36?.25:cellSize>=20?.5:1;
+    return Math.max(.25,Math.min(manual,zoom,geometrySnapResolution(world)));
+  }
+
+  function baseSnap(value,step=snapStep()) {
     return Math.round(value / step) * step;
   }
 
@@ -1320,7 +1371,7 @@
   }
 
   function snapWorldPoint(world, excluded = []) {
-    const snapped = { x:baseSnap(world.x), y:baseSnap(world.y), guides:[] };
+    const step=snapStep(world),snapped = { x:baseSnap(world.x,step), y:baseSnap(world.y,step), guides:[], step };
     if (!objectSnapEnabled) return snapped;
     const tolerance = Math.max(.08, 9 / cellSize);
     const candidates = snapCandidates(excluded);
@@ -1332,8 +1383,14 @@
   }
 
   function normalizeSnappedRect(a, b) {
-    const step = snapStep();
-    return { x:Math.min(a.x,b.x), y:Math.min(a.y,b.y), w:Math.max(step,Math.abs(a.x-b.x)+step), d:Math.max(step,Math.abs(a.y-b.y)+step) };
+    const step = Math.min(a.step||snapStep(a),b.step||snapStep(b));
+    return { x:Math.min(a.x,b.x), y:Math.min(a.y,b.y), w:Math.max(step,Math.abs(a.x-b.x)), d:Math.max(step,Math.abs(a.y-b.y)) };
+  }
+
+  function placementAnchor(world,w=1,d=1) {
+    const raw={x:world.x-w/2,y:world.y-d/2};
+    const snapped=snapWorldPoint(raw,selection);
+    return{x:snapped.x,y:snapped.y};
   }
 
   function drawEditor() {
@@ -1341,6 +1398,21 @@
     ectx.clearRect(0, 0, rect.width, rect.height);
 
     ectx.lineWidth = 1;
+    const adaptiveStep=snapStep(),subPixels=cellSize*adaptiveStep;
+    if(adaptiveStep<1&&subPixels>=5){
+      const subStartX=((viewOffset.x%subPixels)+subPixels)%subPixels,subStartY=((viewOffset.y%subPixels)+subPixels)%subPixels;
+      ectx.strokeStyle="rgba(65,76,58,.095)";
+      for(let x=subStartX;x<rect.width;x+=subPixels){
+        const world=(x-viewOffset.x)/cellSize;
+        if(Math.abs(world-Math.round(world))<.02)continue;
+        ectx.beginPath();ectx.moveTo(x+.5,0);ectx.lineTo(x+.5,rect.height);ectx.stroke();
+      }
+      for(let y=subStartY;y<rect.height;y+=subPixels){
+        const world=(y-viewOffset.y)/cellSize;
+        if(Math.abs(world-Math.round(world))<.02)continue;
+        ectx.beginPath();ectx.moveTo(0,y+.5);ectx.lineTo(rect.width,y+.5);ectx.stroke();
+      }
+    }
     const startX = ((viewOffset.x % cellSize) + cellSize) % cellSize;
     const startY = ((viewOffset.y % cellSize) + cellSize) % cellSize;
     for (let x = startX; x < rect.width; x += cellSize) {
@@ -1502,11 +1574,25 @@
       ectx.restore();
     }
 
-    if (hoverCell && !["select", "polygon", "polyPlatform", "polyFloor", "polyWall"].includes(activeTool) && !drawing) {
-      const p = cellToScreen(hoverCell.x, hoverCell.y);
-      ectx.strokeStyle = "rgba(215,244,90,.55)";
-      ectx.lineWidth = 1;
-      ectx.strokeRect(p.x + 1.5, p.y + 1.5, cellSize - 3, cellSize - 3);
+    if(hoverWorld?.guides?.length){
+      const point=cellToScreen(hoverWorld.x,hoverWorld.y);
+      ectx.save();ectx.strokeStyle="rgba(114,221,236,.5)";ectx.lineWidth=1;ectx.setLineDash([4,4]);
+      if(hoverWorld.guides.includes("x")){ectx.beginPath();ectx.moveTo(point.x+.5,0);ectx.lineTo(point.x+.5,rect.height);ectx.stroke();}
+      if(hoverWorld.guides.includes("y")){ectx.beginPath();ectx.moveTo(0,point.y+.5);ectx.lineTo(rect.width,point.y+.5);ectx.stroke();}
+      ectx.restore();
+    }
+    if (hoverWorld && !["select", "polygon", "polyPlatform", "polyFloor", "polyWall","eyedropper","paint"].includes(activeTool) && !drawing) {
+      const oneClickTools=["crate","ladder","column","prefab","ct","t","bombA","bombB","light","spotlight","hostage","button","teleDest","decal","ambient","pathCorner","targetDummy"];
+      ectx.save();ectx.strokeStyle="rgba(215,244,90,.7)";ectx.fillStyle="rgba(215,244,90,.07)";ectx.lineWidth=1;ectx.setLineDash([4,3]);
+      if(oneClickTools.includes(activeTool)){
+        const [w,d]=activeTool==="prefab"?prefabFootprint(activePrefabId):[1,1],anchor=placementAnchor(hoverWorld,w,d),p=cellToScreen(anchor.x,anchor.y);
+        ectx.fillRect(p.x+1,p.y+1,w*cellSize-2,d*cellSize-2);ectx.strokeRect(p.x+1,p.y+1,w*cellSize-2,d*cellSize-2);
+        const label=`${Math.round(w*GRID)} × ${Math.round(d*GRID)}`;ectx.setLineDash([]);ectx.font="700 7px ui-monospace";ectx.fillStyle="#d7f45a";ectx.fillText(label,p.x+5,p.y+12);
+      }else{
+        const p=cellToScreen(hoverWorld.x,hoverWorld.y),size=5;
+        ectx.setLineDash([]);ectx.beginPath();ectx.moveTo(p.x-size,p.y);ectx.lineTo(p.x+size,p.y);ectx.moveTo(p.x,p.y-size);ectx.lineTo(p.x,p.y+size);ectx.stroke();
+      }
+      ectx.restore();
     }
   }
 
@@ -4000,7 +4086,7 @@
   function placeCrate(cell) {
     const box = { x: cell.x, y: cell.y, w: 1, d: 1 };
     if (!rectIsInsideSpace(box)) { showToast("Place crates on a room floor or map ground"); return; }
-    if (state.props.some((prop) => pointInProp(cell.x, cell.y, prop))) { showToast("That grid cell already has a structure"); return; }
+    if (state.props.some((prop) => prop.kind!=="floorHole"&&rectanglesOverlap(box,prop))) { showToast("That placement overlaps another structure"); return; }
     const hostRoom = state.rooms.find((room) => pointInRoom(cell.x + .5, cell.y + .5, room));
     const before = snapshot();
     const prop = { id: crypto.randomUUID(), kind: "crate", ...box, height: 1, floorLevel: floorLevelAt(cell.x+.5,cell.y+.5), texture: "BCRATE02", direction: "e" };
@@ -4014,7 +4100,7 @@
   function placeLadder(cell) {
     const hostRoom = state.rooms.find((room) => pointInRoom(cell.x + .5, cell.y + .5, room));
     if (!isPointInSpace(cell.x+.5,cell.y+.5)) { showToast("Place ladders on a room floor or map ground"); return; }
-    if (state.props.some((prop) => pointInProp(cell.x, cell.y, prop))) { showToast("That grid cell already has a structure"); return; }
+    if (state.props.some((prop) => prop.kind!=="floorHole"&&rectanglesOverlap({x:cell.x,y:cell.y,w:1,d:1},prop))) { showToast("That placement overlaps another structure"); return; }
     const before = snapshot();
     const prop = {
       id: crypto.randomUUID(), kind: "ladder", x: cell.x, y: cell.y, w: 1, d: 1,
@@ -4036,7 +4122,7 @@
       const angle = Math.PI / 8 + index * Math.PI / 4;
       return [center[0] + Math.cos(angle) * .43, center[1] + Math.sin(angle) * .43];
     });
-    if (!polygonIsInsideSpace(points) || state.props.some((prop) => pointInProp(center[0], center[1], prop))) { showToast("That column needs a free grid cell"); return; }
+    if (!polygonIsInsideSpace(points) || state.props.some((prop) => prop.kind!=="floorHole"&&rectanglesOverlap({x:cell.x,y:cell.y,w:1,d:1},prop))) { showToast("That column needs a free grid cell"); return; }
     const before = snapshot(), bounds = polygonBounds(points);
     const prop = { id:crypto.randomUUID(), kind:"wallPolygon", label:"COLUMN", points, ...bounds, height:Math.min(host?.height || 4,4), floorLevel:floorLevelAt(center[0],center[1]), texture:host?.texture || "CSTRIKE_WR4RGH", direction:"e" };
     state.props.push(prop); selected = {type:"prop", id:prop.id}; commit(before);
@@ -4056,21 +4142,25 @@
     return { id:crypto.randomUUID(), kind, x, y, w, d, height, floorLevel, texture, direction:"e", ...extra };
   }
 
-  function placePrefab(cell) {
-    const prefab = PREFAB_LIBRARY.find((item) => item.id === activePrefabId);
-    if (!prefab || prefab.tool) return;
+  function prefabFootprint(prefabId) {
     const footprints = {
       halfCover:[2,1], doubleCrate:[2,1], crateCorner:[2,2], pillarPair:[4,1], coverLane:[5,3], bombCover:[4,4],
       catwalk:[5,2], rampLanding:[5,2], ladderTower:[3,2], windowNest:[4,3], columnArc:[5,2],
       archFrame:[4,1], cratePyramid:[2,2], tCover:[4,3], zigzag:[7,4], bridge:[6,3], sniperNest:[5,4],
       marketStall:[6,3], bollardRow:[7,1], highLowCover:[5,2], stairTower:[8,4]
     };
-    const [w,d] = footprints[prefab.id] || [1,1];
-    const area = { x:cell.x, y:cell.y, w, d };
+    return footprints[prefabId]||[1,1];
+  }
+
+  function placePrefab(world) {
+    const prefab = PREFAB_LIBRARY.find((item) => item.id === activePrefabId);
+    if (!prefab || prefab.tool) return;
+    const [w,d] = prefabFootprint(prefab.id);
+    const anchor=placementAnchor(world,w,d),area = { x:anchor.x, y:anchor.y, w, d };
     if (!rectIsInsideSpace(area)) { showToast(`Keep the whole ${prefab.name} on a room floor or map ground`); return; }
     if (state.props.some((prop) => rectanglesOverlap(area, prop))) { showToast("That prefab needs a clear area"); return; }
-    const host = state.rooms.find((room) => pointInRoom(cell.x + .5, cell.y + .5, room));
-    const z = floorLevelAt(cell.x+.5,cell.y+.5), x = cell.x, y = cell.y;
+    const host = state.rooms.find((room) => pointInRoom(anchor.x+w/2,anchor.y+d/2,room));
+    const z = floorLevelAt(anchor.x+w/2,anchor.y+d/2), x = anchor.x, y = anchor.y;
     let props = [];
     if (prefab.id === "halfCover") props = [prefabProp("wall",x,y,2,1,.75,z,"BO_CONCRETE")];
     if (prefab.id === "doubleCrate") props = [0,1].map((offset) => prefabProp("crate",x+offset,y,1,1,1,z,"BO_WOOD01"));
@@ -5252,15 +5342,15 @@
     } else if (activeTool === "window") {
       placeWindow(screenToWorld(point));
     } else if (activeTool === "crate") {
-      placeCrate(cell);
+      placeCrate(placementAnchor(world));
     } else if (activeTool === "ladder") {
-      placeLadder(cell);
+      placeLadder(placementAnchor(world));
     } else if (activeTool === "column") {
-      placeColumn(cell);
+      placeColumn(placementAnchor(world));
     } else if (activeTool === "prefab") {
-      placePrefab(cell);
+      placePrefab(world);
     } else if (["eyedropper","paint"].includes(activeTool)) {
-      const hit = hitTest(cell), item = itemForRef(hit);
+      const hit = hitTest(world), item = itemForRef(hit);
       if (!item || !["room","prop"].includes(hit.type)) { showToast("Choose a room or structure surface"); return; }
       if (activeTool === "eyedropper") {
         sampledMaterial = surfaceTextureFor(item,hit.type);
@@ -5305,7 +5395,7 @@
           refresh();return;
         }
       }
-      const hit = hitTest(cell);
+      const hit = cyclingHitTest(world);
       if (!hit) {
         if (!event.shiftKey) { selection=[]; selected=null; }
         marquee = { start:snapped, end:snapped, additive:event.shiftKey };
@@ -5319,7 +5409,7 @@
       } : null;
       refresh();
     } else {
-      placeEntity(cell, activeTool);
+      placeEntity(placementAnchor(world), activeTool);
     }
   });
 
@@ -5327,7 +5417,7 @@
     const point = canvasPoint(event, editor);
     const world = screenToWorld(point);
     const snapped = snapWorldPoint(world, moving?.entries?.map((entry)=>entry.ref) || selection);
-    hoverWorld = { x:snapped.x, y:snapped.y };
+    hoverWorld = { ...snapped };
     if (panning) {
       viewOffset.x = panning.offset.x + point.x - panning.start.x;
       viewOffset.y = panning.offset.y + point.y - panning.start.y;
@@ -5337,7 +5427,7 @@
     }
     const cell = screenToCell(point);
     hoverCell = cell;
-    $("#coordinates").innerHTML = `X ${Math.round(snapped.x * GRID)} &nbsp; Y ${Math.round(snapped.y * GRID)} &nbsp; SNAP ${snapUnits}`;
+    $("#coordinates").innerHTML = `X ${Math.round(snapped.x * GRID)} &nbsp; Y ${Math.round(snapped.y * GRID)} &nbsp; SNAP ${Math.round((snapped.step||snapStep(world))*GRID)}${adaptiveGridEnabled?" AUTO":""}`;
     if (drawing) drawing.end = snapped;
     if (measurement?.active) { measurement.end = snapped; drawEditor(); return; }
     if (marquee) { marquee.end = snapped; drawEditor(); return; }
@@ -5649,8 +5739,15 @@
     refresh();
   });
   $("#ghostLevels").addEventListener("change", (event) => { ghostLevels = event.target.checked; drawEditor(); });
-  $("#snapUnits").addEventListener("change", (event) => { snapUnits = Number(event.target.value) || 64; showToast(`Snap set to ${snapUnits} GoldSrc units`); drawEditor(); });
+  $("#snapUnits").addEventListener("change", (event) => { snapUnits = Number(event.target.value) || 64; showToast(adaptiveGridEnabled?`Preferred snap ${snapUnits} · Adaptive may refine it near geometry`:`Snap set to ${snapUnits} GoldSrc units`); drawEditor(); });
   $("#objectSnap").addEventListener("change", (event) => { objectSnapEnabled = event.target.checked; showToast(objectSnapEnabled ? "Object edge and center snapping enabled" : "Object snapping disabled"); });
+  $("#adaptiveGrid").checked=adaptiveGridEnabled;
+  $("#adaptiveGrid").addEventListener("change",(event)=>{
+    adaptiveGridEnabled=event.target.checked;
+    localStorage.setItem("blockout-adaptive-grid",adaptiveGridEnabled?"on":"off");
+    drawEditor();
+    showToast(adaptiveGridEnabled?`Adaptive grid enabled · current snap ${Math.round(snapStep()*GRID)} units`:`Fixed ${snapUnits}-unit grid enabled`);
+  });
   $("#smartConnections").checked=smartConnectionsEnabled;
   $("#smartConnections").addEventListener("change", (event) => {
     smartConnectionsEnabled=event.target.checked;
@@ -5667,7 +5764,7 @@
   $("#previewZoomIn").addEventListener("click", () => setPreviewZoom(previewZoom * 1.2));
   $("#previewPanButton").addEventListener("click", () => { previewPanMode = !previewPanMode; updatePreviewNavigation(); preview.focus(); });
   $("#previewFitButton").addEventListener("click", fitPreview);
-  $("#gridButton").addEventListener("click", () => showToast(`Major grid: 64 units · current snap: ${snapUnits} units`));
+  $("#gridButton").addEventListener("click", () => showToast(`Major grid 64 · active snap ${Math.round(snapStep()*GRID)} units${adaptiveGridEnabled?" · adaptive":""}`));
   $("#analyzeButton").addEventListener("click", () => { runCompetitiveAnalysis(); $("#analysisDialog").showModal(); });
   $("#closeAnalysisDialog").addEventListener("click", () => $("#analysisDialog").close());
   $("#refreshAnalysis").addEventListener("click", runCompetitiveAnalysis);
@@ -6237,7 +6334,7 @@
     getViewState: () => ({ cellSize, viewOffset: { ...viewOffset }, activeTool }),
     getPreviewView: () => ({ angle: previewAngle, zoom: previewZoom, pan: { ...previewPan }, panMode: previewPanMode, mode: previewMode }),
     getSelectionState: () => ({ primary:selected ? {...selected}:null, refs:selection.map((ref)=>({...ref})), entries:selectedEntries().map(({ref,item})=>({ref:{...ref},locked:!!item.locked,hidden:!!item.hidden,groupId:item.groupId||null})) }),
-    getEditorSettings: () => ({ snapUnits, objectSnapEnabled, smartConnectionsEnabled, measurement:measurement ? structuredClone(measurement):null, sampledMaterial, surfaceTarget }),
+    getEditorSettings: () => ({ snapUnits, effectiveSnapUnits:Math.round(snapStep()*GRID), adaptiveGridEnabled, objectSnapEnabled, smartConnectionsEnabled, measurement:measurement ? structuredClone(measurement):null, sampledMaterial, surfaceTarget }),
     getPreviewPickRegions: () => previewPickRegions.map((region)=>({ref:{...region.ref},points:region.points.map((point)=>({...point}))})),
     getTransformState: () => ({ plan:transformHandlesForSelection().map((handle)=>({...handle})), preview:previewTransformHandle?structuredClone(previewTransformHandle):null }),
     getElevationState: () => ({ axis:elevationAxis, hitRegions:elevationHitRegions.map((region)=>structuredClone(region)) }),

@@ -425,6 +425,14 @@ dialog::backdrop { background: rgba(5,7,4,.8); backdrop-filter: blur(4px); }
 .welcome-steps small { margin-top: 3px; color: var(--muted); font-size: 8px; }
 .dont-show { display: block; margin-top: 13px; color: var(--faint); text-align: center; font-size: 8px; }
 
+@media (max-width: 1400px) {
+  .editor-panel { grid-template-rows: 94px 1fr 63px; }
+  .panel-heading { display: grid; grid-template-rows: auto auto; align-content: center; gap: 7px; padding: 7px 12px; }
+  .panel-heading > div:first-child { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+  .panel-heading h1 { margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .view-controls { max-width: 100%; overflow-x: auto; padding-bottom: 2px; scrollbar-width: thin; }
+}
+
 @media (max-width: 1250px) {
   .project-name { gap: 5px; padding-left: 10px; }
   .project-name input { width: 108px; font-size: 11px; }

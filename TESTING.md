@@ -27,6 +27,9 @@ the archive and executable SHA-256 hashes before installation.
 ## Suggested test pass
 
 - Create, resize, rotate, duplicate, and delete rectangular and polygon rooms.
+- Drag a room between grid lines four squares apart and confirm its displayed width is exactly 256 units.
+- Enable **Adaptive**, zoom in, and confirm the visible/active snap refines to 32 or 16 units and the placement footprint matches the created object.
+- Put a thin wall inside a buy zone, then click inside and outside the wall; repeated clicks should cycle wall, zone, and room without selecting the wall from elsewhere in its old 64-unit cell.
 - With **Smart links** enabled, touch two same-level rectangular rooms and confirm one centered opening is created; disable it and confirm connections remain manual.
 - Add doors, windows, stairs, ramps, ladders, platforms, and crates.
 - Place a stair, ramp, or ladder without a destination and confirm it receives a grouped landing or valid upper-floor opening.
