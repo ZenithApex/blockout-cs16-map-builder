@@ -6,19 +6,19 @@ A self-contained beginner-first prototype for blocking out Counter-Strike 1.6 ma
 
 Download the newest Windows ZIP from GitHub Releases, extract it, then:
 
-1. Double-click `Setup Blockout.cmd` once. It downloads and verifies the
-   official SDHLT v1.2.0 compiler package.
-2. Double-click `Start Blockout.cmd`.
+1. Double-click `Blockout.exe` (or `Start Blockout.cmd`).
+2. Open **Build & Test**. The first-run guide detects CS 1.6 and can install the
+   official SDHLT v1.2.0 compiler package after verifying its hashes.
 3. Build in the editor at `http://127.0.0.1:41716/`.
 
-Python 3.8+ is required. Node.js 20+ is optional and only needed when importing
-new texture images. Counter-Strike 1.6/Half-Life must be legally installed
+The release launcher does not require Python. Node.js 20+ is optional and only
+needed when importing new texture images. Counter-Strike 1.6/Half-Life must be legally installed
 through Steam; no Valve game content or credentials are included. See
 [`TESTING.md`](TESTING.md) for the beta checklist.
 
 ## Recommended: run with the Windows companion
 
-Double-click `Start Blockout.cmd`. Keep its small console window open while using the editor.
+Double-click `Blockout.exe` or `Start Blockout.cmd`. Keep its small console window open while using the editor.
 
 The companion:
 
@@ -26,6 +26,9 @@ The companion:
 - Detects the Counter-Strike 1.6 installation
 - Detects configured VHLT/ZHLT compilers
 - Compiles through HLCSG, HLBSP, HLVIS, and HLRAD
+- Offers Draft, Playtest, and Final compile profiles with live stage/timing feedback
+- Cancels a running compiler process safely
+- Converts supported leak/error coordinates into clickable top-down plan markers
 - Copies the resulting BSP to `cstrike/maps`
 - Launches CS 1.6 on the map after an explicit **Build & Test** click
 
@@ -107,7 +110,7 @@ The hosted editor can securely pair with the Windows companion for **Build & Tes
 - Autosave in the browser
 - Beginner tutorial and map-readiness checklist
 - Export editable GoldSrc `.map` source
-- Guided Windows build panel and compiler log
+- Guided first-run Windows setup, quality profiles, live build stage, cancellation, and compiler log
 - Run a compile preflight that identifies invalid geometry, unsafe clearances, disconnected openings, overlapping solids, entity limits, and incomplete gameplay setups
 - Automatic BSP installation and CS 1.6 launch through the companion
 - Automatic `_preview_N` BSP names when CS 1.6 is holding the previous build open
@@ -228,7 +231,7 @@ Blockout can also use another trusted GoldSrc VHLT/ZHLT tool package. Either:
 
 Standard filenames and `_x64`/`_x86` variants are supported. Build & Test now reports five independent readiness checks: CS 1.6, all four compilers, `cstrike.wad` plus `halflife.wad`, the writable `cstrike/maps` destination, and editor preflight. Choose whether to launch CS 1.6 after compilation or compile and install without launching it.
 
-Companion 1.0 clears stale compiler outputs before each build so an older BSP cannot be mistaken for a successful result. It provides origin-locked hosted pairing, guarded local texture import/deletion, and atomic WAD rebuilds while remaining loopback-only. Missing stock/custom WADs, locked build artifacts, invalid custom mipmaps, incomplete compiler folders, and unwritable destinations stop early with specific recovery instructions. The complete compiler log is retained in the Build panel after a failed stage. If CS 1.6 is holding the requested BSP open, Blockout automatically installs the new build as the next available `_preview_N` map instead.
+Companion 1.1 clears stale compiler outputs before each build so an older BSP cannot be mistaken for a successful result. It provides a verified in-app SDHLT installer, Draft/Playtest/Final profiles, live stage and elapsed-time status, safe cancellation, clickable coordinate diagnostics, origin-locked hosted pairing, guarded local texture import/deletion, and atomic WAD rebuilds while remaining loopback-only. Missing stock/custom WADs, locked build artifacts, invalid custom mipmaps, incomplete compiler folders, and unwritable destinations stop early with specific recovery instructions. The complete compiler log is retained in the Build panel after a failed stage. If CS 1.6 is holding the requested BSP open, Blockout automatically installs the new build as the next available `_preview_N` map instead.
 
 ## Verified real compiles
 

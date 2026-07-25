@@ -296,6 +296,9 @@
   let saveTimer;
   let companionStatus = null;
   let companionPairingCode = HOSTED_MODE ? String(localStorage.getItem(PAIRING_STORAGE_KEY) || "").replace(/[^A-F0-9]/gi, "").toUpperCase() : "";
+  let buildDiagnosticMarker = null;
+  let buildProgressTimer = null;
+  let buildRunning = false;
   let planLevel = null;
   let ghostLevels = true;
   let previewLevelOnly = false;
@@ -312,7 +315,7 @@
   let pendingTextureImport = null;
   try { textureFavorites = new Set(JSON.parse(localStorage.getItem("blockout-texture-favorites") || "[]")); } catch (_) {}
   try { projectSnapshots = JSON.parse(localStorage.getItem("blockout-project-snapshots-v1") || "[]"); } catch (_) { projectSnapshots = []; }
-  const MIN_COMPANION_VERSION = "1.0.0";
+  const MIN_COMPANION_VERSION = "1.1.0";
 
   function environmentFor(project = state) {
     project.environment = { ...DEFAULT_ENVIRONMENT, ...(project.environment || {}) };
@@ -1479,6 +1482,24 @@
     state.windows.filter((window) => !window.hidden && onPlanLevel("window", window)).forEach((window) => drawWindow(window));
     drawAnalysisOverlay();
     drawEditorSelectionOverlay();
+
+    if (buildDiagnosticMarker) {
+      const point = cellToScreen(buildDiagnosticMarker.x, buildDiagnosticMarker.y);
+      ectx.save();
+      if (buildDiagnosticMarker.points?.length > 1) {
+        ectx.beginPath();
+        buildDiagnosticMarker.points.forEach((entry,index) => {
+          const screen=cellToScreen(entry.x,entry.y);
+          if(index)ectx.lineTo(screen.x,screen.y);else ectx.moveTo(screen.x,screen.y);
+        });
+        ectx.strokeStyle="#ff7b72";ectx.lineWidth=2;ectx.setLineDash([5,4]);ectx.stroke();ectx.setLineDash([]);
+      }
+      ectx.strokeStyle = "#ff6b63"; ectx.fillStyle = "rgba(255,107,99,.2)"; ectx.lineWidth = 2;
+      ectx.beginPath(); ectx.arc(point.x, point.y, 13, 0, Math.PI * 2); ectx.fill(); ectx.stroke();
+      ectx.beginPath(); ectx.moveTo(point.x-19,point.y); ectx.lineTo(point.x+19,point.y); ectx.moveTo(point.x,point.y-19); ectx.lineTo(point.x,point.y+19); ectx.stroke();
+      ectx.fillStyle = "#ff9b94"; ectx.font = "800 8px system-ui"; ectx.fillText("COMPILER",point.x+16,point.y-13);
+      ectx.restore();
+    }
 
     if (hoverCell && !["select", "polygon", "polyPlatform", "polyFloor", "polyWall"].includes(activeTool) && !drawing) {
       const p = cellToScreen(hoverCell.x, hoverCell.y);
@@ -4775,6 +4796,7 @@
     if (!response.ok) {
       const error = new Error(data.error || `HTTP ${response.status}`);
       error.log = data.log || "";
+      error.diagnostics = Array.isArray(data.diagnostics) ? data.diagnostics : [];
       error.status = response.status;
       error.pairingRequired = !!data.pairingRequired;
       throw error;
@@ -4852,6 +4874,83 @@
     showToast("Windows companion forgotten");
   }
 
+  function renderBuildDiagnostics(diagnostics = []) {
+    const host = $("#buildDiagnostics");
+    if (!diagnostics.length) { buildDiagnosticMarker=null; drawEditor(); }
+    host.classList.toggle("hidden", !diagnostics.length);
+    host.innerHTML = diagnostics.map((diagnostic, index) => {
+      const world = diagnostic.world;
+      const location = world ? `${Math.round(world.x)}, ${Math.round(world.y)}, ${Math.round(world.z)}` : "Open log";
+      return `<button class="build-diagnostic ${diagnostic.severity === "warning" ? "warning" : ""}" data-build-diagnostic="${index}" type="button"><i></i><span><strong>${html(diagnostic.title || "Compiler issue")}</strong><small>${html(diagnostic.message || "")}</small></span><em>${html(location)}</em></button>`;
+    }).join("");
+    host._diagnostics = diagnostics;
+  }
+
+  function focusBuildDiagnostic(diagnostic) {
+    if (!diagnostic?.world) {
+      showToast("This compiler message has no map coordinate");
+      return;
+    }
+    const x = Number(diagnostic.world.x) / GRID, y = Number(diagnostic.world.y) / GRID;
+    const points = (diagnostic.points || []).map((point) => ({x:Number(point.x)/GRID,y:Number(point.y)/GRID}));
+    buildDiagnosticMarker = { x, y, points };
+    const candidates = [];
+    ["room","door","window","zone","prop","entity"].forEach((type) => itemListFor(type).forEach((item) => {
+      const ref={type,id:item.id}, bounds=itemBoundsForRef(ref);
+      if(bounds)candidates.push({ref,distance:Math.hypot(bounds.x+bounds.w/2-x,bounds.y+bounds.d/2-y)});
+    }));
+    candidates.sort((a,b)=>a.distance-b.distance);
+    if(candidates[0] && candidates[0].distance < 6) {
+      selection=[{...candidates[0].ref}]; selected={...candidates[0].ref};
+    } else { selection=[]; selected=null; }
+    const rect=editor.getBoundingClientRect();
+    viewOffset={x:rect.width/2-x*cellSize,y:rect.height/2-y*cellSize};
+    setTool("select");
+    $("#buildDialog").close();
+    refresh();
+    showToast(`Focused compiler issue at ${Math.round(diagnostic.world.x)}, ${Math.round(diagnostic.world.y)}, ${Math.round(diagnostic.world.z)}`);
+  }
+
+  async function installVerifiedCompiler() {
+    const button=$("#installCompilerButton");
+    button.disabled=true; button.textContent="Downloading & verifying...";
+    $("#buildLog").textContent="Downloading the pinned SDHLT v1.2.0 archive and verifying every executable...\nNo file is installed unless all hashes match.";
+    try {
+      companionStatus=await companionRequest("/api/setup/compiler",{method:"POST",body:"{}"});
+      $("#buildLog").textContent=companionStatus.setupLog || "Verified compiler installed.";
+      localStorage.removeItem("blockout-setup-dismissed-1.1");
+      showToast("Verified GoldSrc compiler installed");
+    } catch(error) {
+      $("#buildLog").textContent=`Compiler setup stopped:\n${error.message}`;
+      showToast("Compiler setup failed");
+    } finally {
+      button.disabled=false; button.textContent="Install verified SDHLT"; updateBuildDialog();
+    }
+  }
+
+  async function pollBuildProgress() {
+    try {
+      const status=await companionRequest("/api/build/status");
+      if (!buildRunning) return;
+      const progress=$("#buildProgress");
+      progress.classList.toggle("running",!!status.running);
+      progress.querySelector("strong").textContent=status.stageLabel || (status.running?"Building...":"Idle");
+      progress.querySelector("small").textContent=status.running
+        ? `${String(status.profile||"playtest").toUpperCase()} · ${Number(status.elapsed||0).toFixed(1)} seconds`
+        : "Choose a quality profile, then build.";
+    } catch(_){}
+  }
+
+  async function cancelCurrentBuild() {
+    $("#cancelBuildButton").disabled=true;
+    try {
+      await companionRequest("/api/build/cancel",{method:"POST",body:"{}"});
+      $("#buildProgress").querySelector("strong").textContent="Stopping compiler...";
+    } catch(error) {
+      showToast(`Could not cancel: ${error.message}`);
+    }
+  }
+
   function updateBuildDialog() {
     const connected = !!companionStatus?.connected;
     const currentCompanion = connected && versionAtLeast(companionStatus.version, MIN_COMPANION_VERSION);
@@ -4861,6 +4960,7 @@
     const mapsWritable = !!companionStatus?.mapsWritable;
     const preflight=calculatePreflight();
     const ready = mapIsReady() && preflight.errors===0;
+    const setupDismissed=localStorage.getItem("blockout-setup-dismissed-1.1")==="yes";
     const banner = $("#connectionBanner");
     banner.classList.toggle("connected", currentCompanion);
     banner.classList.toggle("error", !currentCompanion);
@@ -4898,8 +4998,20 @@
     setCheck("#wadCheck", stockWadsFound, "Stock WADs found", connected ? (companionStatus?.missingWads?.length ? `Missing ${companionStatus.missingWads.join(", ")}` : "Select Half-Life") : offlineText);
     setCheck("#installCheck", mapsWritable, "Maps folder ready", connected ? "Folder not writable" : offlineText);
     setCheck("#mapCheck", ready, "Ready", preflight.errors?`${preflight.errors} preflight error${preflight.errors===1?"":"s"}`:"Checklist incomplete");
+    const setupVisible=currentCompanion && !compilersFound && !setupDismissed;
+    $("#firstRunSetup").classList.toggle("hidden",!setupVisible);
+    $("#setupGameStep").classList.toggle("complete",gameFound);
+    $("#setupCompilerStep").classList.toggle("complete",compilersFound);
+    $("#setupReadyStep").classList.toggle("complete",gameFound&&compilersFound&&stockWadsFound&&mapsWritable);
+    $("#setupWizardText").textContent=!gameFound
+      ? "Select the Half-Life folder containing hl.exe, then save paths."
+      : "CS 1.6 is ready. Install the pinned, hash-verified SDHLT compiler in one click.";
+    $("#installCompilerButton").disabled=buildRunning || !currentCompanion;
     $("#savePathsButton").disabled = !connected;
-    $("#runBuildButton").disabled = !(currentCompanion && gameFound && compilersFound && stockWadsFound && mapsWritable && ready);
+    $("#runBuildButton").disabled = buildRunning || !(currentCompanion && gameFound && compilersFound && stockWadsFound && mapsWritable && ready);
+    $("#cancelBuildButton").classList.toggle("hidden",!buildRunning);
+    $("#cancelBuildButton").disabled=!buildRunning;
+    $("#buildProfile").disabled=buildRunning;
     $("#buildHelp").textContent = !connected ? (HOSTED_MODE ? "Pair the companion to enable real compilation and one-click playtesting." : "Start the companion to enable compilation.")
       : !currentCompanion ? "Restart Start Blockout.cmd to enable safe locked-map builds."
       : !gameFound ? "Choose the folder containing hl.exe."
@@ -4908,7 +5020,7 @@
       : !mapsWritable ? "The cstrike/maps folder is not writable. Check folder permissions."
       : !ready ? (preflight.errors?"Open Preflight and fix blocking errors.":"Complete all five map checks first.")
       : $("#launchAfterBuild").checked ? "The BSP will be installed and launched locally." : "The BSP will be compiled and installed without launching the game.";
-    $("#runBuildButton").textContent = $("#launchAfterBuild").checked ? "Build & launch CS 1.6" : "Build without launch";
+    $("#runBuildButton").textContent = buildRunning ? "Building..." : $("#launchAfterBuild").checked ? "Build & launch CS 1.6" : "Build without launch";
     updateTextureImportAvailability();
   }
 
@@ -4928,6 +5040,11 @@
       }
     }
     updateBuildDialog();
+    if (companionStatus?.connected && !companionStatus.compilersFound
+      && localStorage.getItem("blockout-setup-dismissed-1.1") !== "yes"
+      && !$("#buildDialog").open) {
+      $("#buildDialog").showModal();
+    }
   }
 
   async function saveCompanionPaths() {
@@ -4955,20 +5072,39 @@
     if (!mapText) return;
     const button = $("#runBuildButton");
     const launch = $("#launchAfterBuild").checked;
+    const profile = $("#buildProfile").value;
+    buildRunning = true;
+    renderBuildDiagnostics([]);
     button.disabled = true;
     button.textContent = "Building…";
-    $("#buildLog").textContent = "Sending map to the local compiler…\n";
+    $("#buildLog").textContent = `Sending map to the local compiler...\nProfile: ${profile}\n`;
+    $("#buildProgress").classList.add("running");
+    $("#buildProgress").querySelector("strong").textContent = "Preparing map...";
+    clearInterval(buildProgressTimer);
+    buildProgressTimer = setInterval(pollBuildProgress, 500);
+    pollBuildProgress();
+    updateBuildDialog();
     try {
       const result = await companionRequest("/api/build", {
         method: "POST",
-        body: JSON.stringify({ mapName: safeName(state.name), mapText, launch })
+        body: JSON.stringify({ mapName: safeName(state.name), mapText, launch, profile })
       });
       $("#buildLog").textContent = result.log || "Build finished.";
+      const seconds=(result.stages||[]).reduce((sum,stage)=>sum+Number(stage.seconds||0),0);
+      $("#buildProgress").querySelector("strong").textContent="Build complete";
+      $("#buildProgress").querySelector("small").textContent=`${String(result.profile||profile).toUpperCase()} · ${seconds.toFixed(1)} seconds · ${(result.stages||[]).length} stages`;
       showToast(result.launched ? "Map built — launching CS 1.6" : "Map built successfully");
     } catch (error) {
+      renderBuildDiagnostics(error.diagnostics || []);
+      $("#buildProgress").querySelector("strong").textContent=String(error.message).toLowerCase().includes("cancel")?"Build cancelled":"Build failed";
+      $("#buildProgress").querySelector("small").textContent=error.diagnostics?.length?`${error.diagnostics.length} compiler issue${error.diagnostics.length===1?"":"s"} can be focused on the plan.`:"Review the compiler log.";
       $("#buildLog").textContent = `Build stopped:\n${error.message}${error.log?`\n\nCOMPILER LOG\n${error.log}`:""}`;
       showToast("Build failed — see the build log");
     } finally {
+      buildRunning = false;
+      clearInterval(buildProgressTimer);
+      buildProgressTimer = null;
+      $("#buildProgress").classList.remove("running");
       updateBuildDialog();
     }
   }
@@ -5378,7 +5514,11 @@
     if (event.key === "Enter") pairHostedCompanion();
   });
   $("#savePathsButton").addEventListener("click", saveCompanionPaths);
+  $("#installCompilerButton").addEventListener("click", installVerifiedCompiler);
+  $("#dismissSetupButton").addEventListener("click",()=>{localStorage.setItem("blockout-setup-dismissed-1.1","yes");updateBuildDialog();});
   $("#runBuildButton").addEventListener("click", runBuildAndTest);
+  $("#cancelBuildButton").addEventListener("click", cancelCurrentBuild);
+  $("#buildDiagnostics").addEventListener("click",(event)=>{const button=event.target.closest("[data-build-diagnostic]");if(!button)return;focusBuildDiagnostic($("#buildDiagnostics")._diagnostics?.[Number(button.dataset.buildDiagnostic)]);});
   $("#launchAfterBuild").addEventListener("change", updateBuildDialog);
   $("#fitButton").addEventListener("click", fitView);
   $("#levelSelect").addEventListener("change", (event) => {

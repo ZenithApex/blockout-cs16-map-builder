@@ -26,6 +26,9 @@ $files = @(
 foreach ($relative in $files) {
     Copy-Item -LiteralPath (Join-Path $root $relative) -Destination (Join-Path $stage $relative)
 }
+if (Test-Path -LiteralPath (Join-Path $root "dist-app\Blockout.exe")) {
+    Copy-Item -LiteralPath (Join-Path $root "dist-app\Blockout.exe") -Destination (Join-Path $stage "Blockout.exe")
+}
 
 New-Item -ItemType Directory -Path (Join-Path $stage "textures\previews") -Force | Out-Null
 Get-ChildItem -LiteralPath (Join-Path $root "textures\previews") -File |
@@ -39,7 +42,7 @@ Copy-Item -LiteralPath (Join-Path $root "assets\sunburst-base.wad") -Destination
 New-Item -ItemType Directory -Path (Join-Path $stage "tools") -Force | Out-Null
 $toolFiles = @(
     "PUT_COMPILERS_HERE.txt", "SDHLT_LICENSE.md", "SDHLT_README.md", "SDHLT_SOURCE.txt",
-    "build_sunburst_wad.js", "install-sdhlt.ps1", "package.json"
+    "build_sunburst_wad.js", "install-sdhlt.ps1", "package.json", "requirements-build.txt"
 )
 foreach ($relative in $toolFiles) {
     $source = Join-Path $root "tools\$relative"

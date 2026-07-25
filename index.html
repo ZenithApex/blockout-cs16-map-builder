@@ -607,6 +607,20 @@
           <button class="button secondary hidden" id="forgetCompanionButton" type="button">Forget</button>
         </div>
 
+        <section class="first-run-setup hidden" id="firstRunSetup">
+          <div class="setup-heading">
+            <span class="setup-number">1</span>
+            <span><strong>Finish local setup</strong><small id="setupWizardText">Blockout can install the verified compiler automatically.</small></span>
+          </div>
+          <div class="setup-steps">
+            <span id="setupGameStep">1 · Find CS 1.6</span>
+            <span id="setupCompilerStep">2 · Install compiler</span>
+            <span id="setupReadyStep">3 · Build</span>
+          </div>
+          <button class="button primary" id="installCompilerButton" type="button">Install verified SDHLT</button>
+          <button class="button secondary" id="dismissSetupButton" type="button">Not now</button>
+        </section>
+
         <div class="build-paths">
           <label>
             <span>Counter-Strike folder</span>
@@ -628,11 +642,24 @@
           <div><span>MAP CHECK</span><strong id="mapCheck">Not ready</strong></div>
         </div>
 
+        <div class="build-options">
+          <label>Build quality
+            <select id="buildProfile">
+              <option value="draft">Draft · fastest</option>
+              <option value="playtest" selected>Playtest · balanced</option>
+              <option value="final">Final · best lighting</option>
+            </select>
+          </label>
+          <span class="build-progress" id="buildProgress"><i></i><span><strong>Idle</strong><small>Choose a quality profile, then build.</small></span></span>
+        </div>
+
         <pre class="build-log" id="buildLog">Build output will appear here.</pre>
+        <div class="build-diagnostics hidden" id="buildDiagnostics"></div>
 
         <div class="build-footer">
           <button class="button secondary" id="savePathsButton">Save paths</button>
           <span class="build-help"><label class="build-launch-option"><input id="launchAfterBuild" type="checkbox" checked /> Launch CS 1.6 after compiling</label><span id="buildHelp">Start the companion to enable compilation.</span></span>
+          <button class="button danger hidden" id="cancelBuildButton" type="button">Cancel build</button>
           <button class="button primary" id="runBuildButton" disabled>Build &amp; launch CS 1.6</button>
         </div>
       </div>

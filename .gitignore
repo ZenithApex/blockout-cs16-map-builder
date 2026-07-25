@@ -1,5 +1,9 @@
 .next/
 dist/
+dist-app/
+.build-venv/
+.pyinstaller-work/
+.pyinstaller-spec/
 node_modules/
 .pnpm-store/
 public/
@@ -14,6 +18,7 @@ tools/*
 !tools/import_cc0_textures.py
 !tools/install-sdhlt.ps1
 !tools/package.json
+!tools/requirements-build.txt
 __pycache__/
 *.pyc
 *.wad

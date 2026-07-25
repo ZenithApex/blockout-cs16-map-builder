@@ -7,6 +7,7 @@ and launching Counter-Strike 1.6 after an explicit button press.
 
 import argparse
 import base64
+import hashlib
 import json
 import os
 import re
@@ -15,15 +16,19 @@ import shutil
 import struct
 import subprocess
 import sys
+import tempfile
 import threading
 import time
+import urllib.error
+import urllib.request
 import webbrowser
+import zipfile
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 
-VERSION = "1.0.0"
+VERSION = "1.1.0"
 HOST = "127.0.0.1"
 PORT = 41716
 ONLINE_ORIGINS = {
@@ -36,7 +41,7 @@ LOCAL_ORIGINS = {
     "http://localhost:41716",
 }
 PAIRING_SECRET = secrets.token_hex(4).upper()
-ROOT = Path(__file__).resolve().parent
+ROOT = Path(sys.executable).resolve().parent if getattr(sys, "frozen", False) else Path(__file__).resolve().parent
 CONFIG_FILE = ROOT / "blockout.config.json"
 BUILD_ROOT = ROOT / "builds"
 MANIFEST_FILE = ROOT / "textures" / "asset-manifest.json"
@@ -44,6 +49,19 @@ BASE_MANIFEST_FILE = ROOT / "textures" / "asset-manifest.base.json"
 CUSTOM_WAD_FILE = ROOT / "sunburst.wad"
 BASE_CUSTOM_WAD_FILE = ROOT / "assets" / "sunburst-base.wad"
 TOOL_NAMES = ("hlcsg", "hlbsp", "hlvis", "hlrad")
+SDHLT_URL = "https://github.com/seedee/SDHLT/releases/download/v1.2.0/sdhlt_v120.zip"
+SDHLT_ARCHIVE_SHA256 = "F271D24C00BBD59F1E388FE71847CC078A12DAC56F8BD773BB48797B5F044D7A"
+SDHLT_FILES = {
+    "sdHLCSG_x64.exe": "8AFB5D2CF16CC1B248EC46D0ED566A27123A1710630D1CA764B85A15232F3537",
+    "sdHLBSP_x64.exe": "3FB9B5FF493552F978E58784E660987EC1058CCB2464CE40CB8B9C5E9DFC2BAA",
+    "sdHLVIS_x64.exe": "CB94BD9CC5F8EEAE6368B2B72A6723F182F87F5ECBCDF80B6F330E483F5B9477",
+    "sdHLRAD_x64.exe": "769EA697B3E6C4003D4A50BE980EFA7716C7A7CC1B55E71FEE656AB349FFAFDB",
+}
+BUILD_PROFILES = {
+    "draft": {"label": "Draft", "hlvis": ["-fast"], "hlrad": ["-fast"]},
+    "playtest": {"label": "Playtest", "hlvis": [], "hlrad": []},
+    "final": {"label": "Final", "hlvis": [], "hlrad": ["-extra"]},
+}
 SUNBURST_TEXTURE_NAMES = {
     "SUN_FELT", "SUN_KNIT", "SUN_RIBBON", "SUN_FACE", "SUN_WALL",
     "SUN_METAL", "SUN_TILE", "SUN_FLOOR", "SUN_CRATE", "SUN_SUPPLY",
@@ -81,6 +99,21 @@ TEXTURE_CATEGORIES = {
     "organic", "fabric", "plaster", "floor", "metal", "wood",
 }
 TEXTURE_IMPORT_LOCK = threading.Lock()
+COMPILER_SETUP_LOCK = threading.Lock()
+BUILD_RUN_LOCK = threading.Lock()
+BUILD_STATE_LOCK = threading.Lock()
+BUILD_CANCEL_EVENT = threading.Event()
+BUILD_PROCESS = None
+BUILD_STATE = {
+    "running": False,
+    "stage": "idle",
+    "stageLabel": "Idle",
+    "profile": "",
+    "mapName": "",
+    "startedAt": 0,
+    "elapsed": 0,
+    "cancelRequested": False,
+}
 
 
 def read_config():
@@ -93,6 +126,84 @@ def read_config():
 
 def write_config(config):
     CONFIG_FILE.write_text(json.dumps(config, indent=2), encoding="utf-8")
+
+
+def sha256_bytes(value):
+    return hashlib.sha256(value).hexdigest().upper()
+
+
+def install_verified_compilers():
+    """Install the pinned SDHLT release without trusting archive paths or filenames."""
+    if not COMPILER_SETUP_LOCK.acquire(False):
+        raise BuildError("The verified compiler installation is already running.")
+    try:
+        target_dir = ROOT / "tools"
+        target_dir.mkdir(parents=True, exist_ok=True)
+        already_valid = all(
+            (target_dir / name).is_file()
+            and sha256_bytes((target_dir / name).read_bytes()) == expected
+            for name, expected in SDHLT_FILES.items()
+        ) and (target_dir / "sdhlt.wad").is_file()
+        if already_valid:
+            config = read_config()
+            config["compilerPath"] = str(target_dir)
+            write_config(config)
+            result = current_status()
+            result["setupLog"] = "Verified SDHLT v1.2.0 was already installed."
+            return result
+
+        log = ["Downloading SDHLT v1.2.0 from its official GitHub release..."]
+        request = urllib.request.Request(SDHLT_URL, headers={"User-Agent": "Blockout-CS16/{}".format(VERSION)})
+        with urllib.request.urlopen(request, timeout=120) as response:
+            archive_bytes = response.read(100_000_001)
+        if len(archive_bytes) > 100_000_000:
+            raise BuildError("The compiler download was unexpectedly large and was stopped.")
+        archive_hash = sha256_bytes(archive_bytes)
+        if archive_hash != SDHLT_ARCHIVE_SHA256:
+            raise BuildError(
+                "SDHLT download verification failed. Expected {} but received {}. Nothing was installed."
+                .format(SDHLT_ARCHIVE_SHA256, archive_hash)
+            )
+        log.append("Archive signature verified.")
+
+        staged = {}
+        with tempfile.TemporaryDirectory(prefix="blockout-sdhlt-") as temporary:
+            archive_path = Path(temporary) / "sdhlt.zip"
+            archive_path.write_bytes(archive_bytes)
+            with zipfile.ZipFile(str(archive_path)) as archive:
+                members = {
+                    Path(info.filename.replace("\\", "/")).name.lower(): info
+                    for info in archive.infolist()
+                    if not info.is_dir()
+                }
+                for filename, expected in SDHLT_FILES.items():
+                    info = members.get(filename.lower())
+                    if not info:
+                        raise BuildError("The verified archive does not contain {}.".format(filename))
+                    value = archive.read(info)
+                    if sha256_bytes(value) != expected:
+                        raise BuildError("{} failed executable verification. Nothing was installed.".format(filename))
+                    staged[filename] = value
+                wad_info = members.get("sdhlt.wad")
+                if not wad_info:
+                    raise BuildError("The verified archive does not contain sdhlt.wad.")
+                staged["sdhlt.wad"] = archive.read(wad_info)
+
+        for filename, value in staged.items():
+            temporary_target = target_dir / (filename + ".installing")
+            temporary_target.write_bytes(value)
+            os.replace(str(temporary_target), str(target_dir / filename))
+        config = read_config()
+        config["compilerPath"] = str(target_dir)
+        write_config(config)
+        log.append("Installed and verified all four SDHLT x64 compiler tools.")
+        result = current_status()
+        result["setupLog"] = "\n".join(log)
+        return result
+    except (OSError, urllib.error.URLError, zipfile.BadZipFile) as error:
+        raise BuildError("Verified compiler installation failed: {}".format(error))
+    finally:
+        COMPILER_SETUP_LOCK.release()
 
 
 def texture_manifest():
@@ -368,6 +479,8 @@ def current_status():
         "missingWads": ["{}.wad".format(name) for name, path in stock_wads.items() if not path or not path.is_file()],
         "customWadFound": (ROOT / "sunburst.wad").is_file(),
         "textureImporterReady": node_runtime() is not None,
+        "verifiedCompilerInstaller": True,
+        "buildProfiles": [{"id": key, "label": value["label"]} for key, value in BUILD_PROFILES.items()],
         "mapsPath": str(maps_path) if maps_path else "",
         "mapsWritable": bool(install_parent and install_parent.is_dir() and os.access(str(install_parent), os.W_OK)),
     }
@@ -484,6 +597,97 @@ def validate_embedded_bsp_textures(bsp_file, required_names=CUSTOM_TEXTURE_NAMES
         )
 
 
+def build_status():
+    with BUILD_STATE_LOCK:
+        result = dict(BUILD_STATE)
+    if result["running"] and result["startedAt"]:
+        result["elapsed"] = max(0, round(time.time() - result["startedAt"], 1))
+    return result
+
+
+def set_build_state(**values):
+    with BUILD_STATE_LOCK:
+        BUILD_STATE.update(values)
+
+
+def cancel_build():
+    global BUILD_PROCESS
+    if not build_status()["running"]:
+        return {"ok": True, "cancelled": False, "message": "No build is running.", "build": build_status()}
+    BUILD_CANCEL_EVENT.set()
+    set_build_state(cancelRequested=True, stageLabel="Stopping compiler...")
+    process = BUILD_PROCESS
+    if process and process.poll() is None:
+        try:
+            process.terminate()
+        except OSError:
+            pass
+    return {"ok": True, "cancelled": True, "message": "Build cancellation requested.", "build": build_status()}
+
+
+def leak_points(base_file):
+    points_file = base_file.with_suffix(".pts")
+    if not points_file.is_file():
+        return []
+    points = []
+    try:
+        for line in points_file.read_text(encoding="utf-8", errors="replace").splitlines():
+            values = re.findall(r"-?\d+(?:\.\d+)?", line)
+            if len(values) >= 3:
+                points.append({"x": float(values[0]), "y": float(values[1]), "z": float(values[2])})
+                if len(points) >= 250:
+                    break
+    except OSError:
+        return []
+    return points
+
+
+def compiler_diagnostics(log, stage="", base_file=None):
+    lower = log.lower()
+    diagnostics = []
+    points = leak_points(base_file) if base_file else []
+    if "leak" in lower:
+        diagnostic = {
+            "severity": "error", "stage": stage,
+            "title": "Map leak",
+            "message": "Playable space reaches the outside void. Focus the leak path, then close the gap with valid world brushes.",
+        }
+        if points:
+            diagnostic["world"] = points[0]
+            diagnostic["points"] = points
+        diagnostics.append(diagnostic)
+    coordinate_pattern = re.compile(
+        r"(?:at|near|origin)?\s*\(?\s*(-?\d+(?:\.\d+)?)\s*[, ]+\s*(-?\d+(?:\.\d+)?)\s*[, ]+\s*(-?\d+(?:\.\d+)?)\s*\)?",
+        re.IGNORECASE,
+    )
+    for line in log.splitlines():
+        lowered = line.lower()
+        if not any(word in lowered for word in ("error", "warning", "outside world", "coplanar", "degenerate")):
+            continue
+        match = coordinate_pattern.search(line)
+        title = "Compiler error" if "error" in lowered else "Compiler warning"
+        if "outside world" in lowered:
+            title = "Brush outside world"
+        elif "coplanar" in lowered:
+            title = "Invalid coplanar brush"
+        diagnostic = {
+            "severity": "error" if ("error" in lowered or "outside world" in lowered or "coplanar" in lowered) else "warning",
+            "stage": stage, "title": title, "message": line.strip()[:600],
+        }
+        if match:
+            diagnostic["world"] = {"x": float(match.group(1)), "y": float(match.group(2)), "z": float(match.group(3))}
+        if not any(item["title"] == diagnostic["title"] and item["message"] == diagnostic["message"] for item in diagnostics):
+            diagnostics.append(diagnostic)
+        if len(diagnostics) >= 12:
+            break
+    if not diagnostics:
+        diagnostics.append({
+            "severity": "error", "stage": stage, "title": "{} failed".format(stage.upper() or "Compiler"),
+            "message": friendly_failure(log),
+        })
+    return diagnostics
+
+
 def friendly_failure(log):
     lower = log.lower()
     if "leak" in lower:
@@ -522,7 +726,8 @@ def install_compiled_bsp(bsp_file, maps_dir, map_name):
         raise primary_error
 
 
-def compile_map(payload):
+def _compile_map(payload):
+    global BUILD_PROCESS
     status = current_status()
     if not status["gameFound"]:
         raise BuildError("Counter-Strike 1.6 was not found. Select the folder containing hl.exe.")
@@ -537,6 +742,11 @@ def compile_map(payload):
         raise BuildError("Choose a valid map name.")
     if not isinstance(map_text, str) or len(map_text) > 10_000_000 or '"classname" "worldspawn"' not in map_text:
         raise BuildError("The received map source is invalid or too large.")
+    profile_name = str(payload.get("profile", "playtest")).lower()
+    if profile_name not in BUILD_PROFILES:
+        raise BuildError("Choose Draft, Playtest, or Final build quality.")
+    profile = BUILD_PROFILES[profile_name]
+    set_build_state(profile=profile_name, mapName=map_name)
 
     game_path = Path(status["gamePath"])
     custom_wad = ROOT / "sunburst.wad"
@@ -561,7 +771,7 @@ def compile_map(payload):
         raise BuildError("The build workspace could not be created: {}".format(error))
     map_file = build_dir / (map_name + ".map")
     base_file = build_dir / map_name
-    for extension in (".bsp", ".prt", ".vis", ".lit", ".log", ".err", ".wa_", ".p0", ".p1", ".p2", ".p3"):
+    for extension in (".bsp", ".prt", ".pts", ".vis", ".lit", ".log", ".err", ".wa_", ".p0", ".p1", ".p2", ".p3"):
         stale_file = base_file.with_suffix(extension)
         if not stale_file.exists():
             continue
@@ -583,37 +793,61 @@ def compile_map(payload):
         "Map: {}".format(map_name),
         "Game: {}".format(game_path),
         "Compilers: {}".format(status["compilerPath"]),
+        "Profile: {}".format(profile["label"]),
         "",
     ]
     tools = {name: Path(path) for name, path in status["tools"].items()}
+    stage_results = []
     for stage in TOOL_NAMES:
+        if BUILD_CANCEL_EVENT.is_set():
+            raise BuildError("Build cancelled before {}.".format(stage.upper()), "\n".join(lines))
+        stage_started = time.time()
+        set_build_state(stage=stage, stageLabel="Running {}...".format(stage.upper()))
         lines.append("=== {} ===".format(stage.upper()))
         command = [str(tools[stage])]
         custom_wad = ROOT / "sunburst.wad"
         if stage == "hlcsg" and custom_wad.is_file() and custom_textures_used:
             command.extend(["-wadinclude", str(custom_wad)])
+        command.extend(profile.get(stage, []))
         command.append(str(base_file))
         try:
-            result = subprocess.run(
+            BUILD_PROCESS = subprocess.Popen(
                 command,
                 cwd=str(build_dir),
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 universal_newlines=True,
                 errors="replace",
-                timeout=900,
                 creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
             )
-        except subprocess.TimeoutExpired:
-            raise BuildError("{} timed out after 15 minutes.".format(stage.upper()), "\n".join(lines))
+            try:
+                output, _ = BUILD_PROCESS.communicate(timeout=900)
+            except subprocess.TimeoutExpired:
+                BUILD_PROCESS.kill()
+                BUILD_PROCESS.communicate()
+                raise BuildError("{} timed out after 15 minutes.".format(stage.upper()), "\n".join(lines))
+            return_code = BUILD_PROCESS.returncode
         except OSError as error:
             raise BuildError("Could not start {}: {}".format(stage, error), "\n".join(lines))
-        output = result.stdout or "(no output)"
+        finally:
+            BUILD_PROCESS = None
+        output = output or "(no output)"
         lines.append(output.rstrip())
         lines.append("")
-        if result.returncode != 0:
+        stage_results.append({
+            "stage": stage, "label": stage.upper(), "seconds": round(time.time() - stage_started, 2),
+            "ok": return_code == 0 and not BUILD_CANCEL_EVENT.is_set(),
+        })
+        if BUILD_CANCEL_EVENT.is_set():
             full_log = "\n".join(lines)
-            raise BuildError("{}\n\n{}".format(friendly_failure(full_log), full_log[-7000:]), full_log)
+            raise BuildError("Build cancelled while running {}.".format(stage.upper()), full_log)
+        if return_code != 0:
+            full_log = "\n".join(lines)
+            raise BuildError(
+                "{}\n\n{}".format(friendly_failure(full_log), full_log[-7000:]),
+                full_log,
+                compiler_diagnostics(full_log, stage, base_file),
+            )
 
     bsp_file = build_dir / (map_name + ".bsp")
     if not bsp_file.is_file():
@@ -657,13 +891,37 @@ def compile_map(payload):
         launched = True
         lines.append("Launching Counter-Strike 1.6…")
 
-    return {"ok": True, "launched": launched, "mapName": launch_map_name, "bspPath": str(installed_bsp), "usedFallbackName": used_fallback, "log": "\n".join(lines)}
+    return {
+        "ok": True, "launched": launched, "mapName": launch_map_name, "bspPath": str(installed_bsp),
+        "usedFallbackName": used_fallback, "profile": profile_name, "stages": stage_results,
+        "diagnostics": [], "log": "\n".join(lines),
+    }
+
+
+def compile_map(payload):
+    if not BUILD_RUN_LOCK.acquire(False):
+        raise BuildError("A map build is already running. Wait for it to finish or cancel it.")
+    BUILD_CANCEL_EVENT.clear()
+    set_build_state(
+        running=True, stage="prepare", stageLabel="Preparing map...", profile="", mapName="",
+        startedAt=time.time(), elapsed=0, cancelRequested=False,
+    )
+    try:
+        return _compile_map(payload)
+    finally:
+        BUILD_CANCEL_EVENT.clear()
+        set_build_state(
+            running=False, stage="idle", stageLabel="Idle", startedAt=0, elapsed=0,
+            cancelRequested=False,
+        )
+        BUILD_RUN_LOCK.release()
 
 
 class BuildError(Exception):
-    def __init__(self, message, log=""):
+    def __init__(self, message, log="", diagnostics=None):
         super().__init__(message)
         self.log = log
+        self.diagnostics = diagnostics or []
 
 
 class BlockoutHandler(SimpleHTTPRequestHandler):
@@ -741,6 +999,12 @@ class BlockoutHandler(SimpleHTTPRequestHandler):
                 return
             self.send_json(200, current_status())
             return
+        if path == "/api/build/status":
+            if not self.is_paired():
+                self.send_pairing_required()
+                return
+            self.send_json(200, build_status())
+            return
         if path == "/api/textures":
             if not self.is_paired():
                 self.send_pairing_required()
@@ -802,8 +1066,14 @@ class BlockoutHandler(SimpleHTTPRequestHandler):
                 write_config(config)
                 self.send_json(200, current_status())
                 return
+            if path == "/api/setup/compiler":
+                self.send_json(200, install_verified_compilers())
+                return
             if path == "/api/build":
                 self.send_json(200, compile_map(payload))
+                return
+            if path == "/api/build/cancel":
+                self.send_json(200, cancel_build())
                 return
             if path == "/api/textures/import":
                 self.send_json(200, import_texture(payload))
@@ -813,7 +1083,7 @@ class BlockoutHandler(SimpleHTTPRequestHandler):
                 return
             self.send_json(404, {"error": "Unknown API endpoint."})
         except BuildError as error:
-            self.send_json(400, {"error": str(error), "log": error.log})
+            self.send_json(400, {"error": str(error), "log": error.log, "diagnostics": error.diagnostics})
         except Exception as error:
             self.send_json(500, {"error": "Unexpected companion error: {}".format(error)})
 

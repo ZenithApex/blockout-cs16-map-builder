@@ -6,7 +6,6 @@ Thank you for trying the Blockout CS 1.6 Map Builder beta.
 
 - Windows 10 or 11
 - A legal Steam installation of Counter-Strike 1.6 / Half-Life
-- Python 3.8 or newer
 - Internet access during initial compiler setup
 - Node.js 20 or newer only if you want to import custom texture images
 
@@ -16,13 +15,13 @@ credentials.
 ## First run
 
 1. Extract the release ZIP to a normal writable folder.
-2. Double-click `Setup Blockout.cmd`.
-3. Double-click `Start Blockout.cmd`.
+2. Double-click `Blockout.exe` or `Start Blockout.cmd`.
+3. In **Build & Test**, choose **Install verified SDHLT** if the compiler is missing.
 4. Open `http://127.0.0.1:41716/` if the browser does not open automatically.
 5. Create a small room, add one CT spawn and one T spawn, then select
    **Build & Test**.
 
-Setup downloads SDHLT v1.2.0 from its official GitHub release and verifies both
+The first-run guide downloads SDHLT v1.2.0 from its official GitHub release and verifies both
 the archive and executable SHA-256 hashes before installation.
 
 ## Suggested test pass
@@ -33,6 +32,8 @@ the archive and executable SHA-256 hashes before installation.
 - Change wall, floor, ceiling, ground, and sky materials.
 - Save a project, reload the page, and confirm autosave recovery.
 - Export `.map`, run preflight, compile, install, and launch the BSP.
+- Try Draft, Playtest, and Final build profiles, then cancel one running build.
+- If a compiler error reports a coordinate, click its diagnostic to focus the top-down plan.
 - If Node.js is installed, import a 256×256 texture and compile a room using it.
 
 ## Reporting a problem
