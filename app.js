@@ -1,0 +1,5880 @@
+(() => {
+  "use strict";
+
+  const GRID = 64;
+  const STORAGE_KEY = "blockout-cs16-project-v1";
+  const IS_LOCAL_HOST = ["127.0.0.1", "localhost", "[::1]"].includes(location.hostname);
+  const HOSTED_MODE = location.protocol !== "file:" && !IS_LOCAL_HOST;
+  const COMPANION_API = location.protocol === "file:" ? "http://127.0.0.1:41716" : "";
+  const texturePreviewUrl = (texture, cacheBust = "") => {
+    const base = texture.startsWith("USR_") && COMPANION_API
+      ? `${COMPANION_API}/textures/previews`
+      : location.protocol === "file:" ? "textures/previews" : "/textures/previews";
+    return `${base}/${texture}.png${cacheBust ? `?v=${cacheBust}` : ""}`;
+  };
+  const TOOL_INFO = {
+    room: { title: "Draw a room", tip: "Click and drag on the grid to draw a room." },
+    polygon: { title: "Draw a polygon room", tip: "Click each corner. Click the first corner again or press Enter to finish. Esc cancels." },
+    triangle: { title: "Draw a triangle room", tip: "Drag a box to create a GoldSrc-safe triangular room." },
+    octagon: { title: "Draw an octagon room", tip: "Drag a box to create an eight-sided room or cylinder-like space." },
+    corridor: { title: "Draw a corridor", tip: "Drag a narrow space until it touches another room." },
+    door: { title: "Place a door opening", tip: "Click close to a room edge to cut a 64-unit doorway." },
+    window: { title: "Place a window", tip: "Click a shared wall to add glass. Select it to change the sill, size, or behavior." },
+    select: { title: "Select and adjust", tip: "Click an item to select it. Shift-click adds items; Alt-drag draws a selection box." },
+    ruler: { title: "Measure the map", tip: "Drag between two points to measure distance, angle, and GoldSrc units." },
+    pan: { title: "Move around the plan", tip: "Drag anywhere to pan the top-down plan. You can also hold Space while using another tool." },
+    ct: { title: "Place CT spawns", tip: "Click on a room floor or the map-wide ground to place a Counter-Terrorist spawn." },
+    t: { title: "Place T spawns", tip: "Click on a room floor or the map-wide ground to place a Terrorist spawn." },
+    bombA: { title: "Place bombsite A", tip: "Click on any buildable floor or ground area to mark bombsite A." },
+    bombB: { title: "Place bombsite B", tip: "Click on any buildable floor or ground area to mark bombsite B." },
+    wall: { title: "Draw a solid wall", tip: "Drag on a room floor or the map-wide ground to create a wall, divider, or cover block." },
+    polyWall: { title: "Draw a polygon wall", tip: "Click a convex footprint on any buildable floor or ground area, then close it." },
+    column: { title: "Place a column", tip: "Click any buildable floor or ground cell to place a compile-safe octagonal column." },
+    diagonal: { title: "Draw diagonal cover", tip: "Drag corner-to-corner on any buildable surface to create true 45-degree cover." },
+    cylinder: { title: "Draw a cylinder", tip: "Drag a box for a compile-safe 12-sided cylindrical brush." },
+    wedge: { title: "Draw a solid wedge", tip: "Drag in the uphill direction to create a solid sloped wedge." },
+    arch: { title: "Draw an archway", tip: "Drag an opening; Blockout creates grouped supports and a lintel." },
+    slopeRoof: { title: "Draw a sloped roof", tip: "Drag in the uphill direction to create a raised sloped roof brush." },
+    eyedropper: { title: "Sample a material", tip: "Click a room or structure to copy its current material." },
+    paint: { title: "Paint sampled material", tip: "Click rooms or structures to apply the sampled material." },
+    platform: { title: "Draw an elevated platform", tip: "Drag on any buildable floor or ground area to create a raised platform." },
+    polyPlatform: { title: "Draw a polygon platform", tip: "Click platform corners on any buildable surface, then close the polygon." },
+    floor: { title: "Draw a floor slab", tip: "Drag on any buildable surface to add a walkable slab with its own elevation." },
+    floorHole: { title: "Cut a floor opening", tip: "Drag inside a rectangular room to cut a stairwell, ladder shaft, or drop opening." },
+    polyFloor: { title: "Draw a polygon floor", tip: "Click floor corners on any buildable surface, then close the polygon." },
+    ladder: { title: "Place a ladder", tip: "Click any buildable floor or ground cell, then choose its facing and height." },
+    crate: { title: "Place a crate", tip: "Click any buildable floor or ground cell to add a solid 64-unit crate." },
+    stairs: { title: "Draw stairs", tip: "Drag on any buildable surface. The drag direction points uphill." },
+    ramp: { title: "Draw a ramp", tip: "Drag on any buildable surface. The drag direction points uphill." },
+    light: { title: "Place a light", tip: "Click any buildable floor or ground cell, then adjust height, brightness, and color." },
+    spotlight: { title: "Place a spotlight", tip: "Click a floor, then set its facing, cone, pitch, color, and brightness." },
+    buyCt: { title: "Draw a CT buy zone", tip: "Drag a rectangle inside a CT spawn area." },
+    buyT: { title: "Draw a T buy zone", tip: "Drag a rectangle inside a T spawn area." },
+    hostage: { title: "Place a hostage", tip: "Click a safe floor to place a rescueable hostage." },
+    rescue: { title: "Draw a rescue zone", tip: "Drag the area where rescued hostages complete the objective." },
+    button: { title: "Place a button", tip: "Click a wall-side floor cell, then name the target it activates." },
+    triggerHurt: { title: "Draw a damage trigger", tip: "Drag a dangerous volume, then set its damage in Selection." },
+    teleport: { title: "Draw a teleporter", tip: "Drag a trigger and choose a matching destination target." },
+    teleDest: { title: "Place a teleport destination", tip: "Click a safe landing floor and give it a target name." },
+    decal: { title: "Place a decal", tip: "Click near a surface, then enter the GoldSrc decal texture." },
+    ambient: { title: "Place ambient sound", tip: "Click a floor position, then choose the WAV path and volume." },
+    water: { title: "Draw water", tip: "Drag a physical water volume and adjust its depth in Selection." },
+    breakable: { title: "Draw breakable cover", tip: "Drag a breakable brush such as glass, boards, or fragile cover." },
+    elevator: { title: "Draw an elevator", tip: "Drag a moving platform, then set its travel height, speed, wait, and target name." },
+    rotatingDoor: { title: "Draw a rotating door", tip: "Drag a hinged door brush, then set its speed, wait, and target name." },
+    train: { title: "Draw a moving platform", tip: "Drag the platform, then connect its first path_corner target." },
+    pathCorner: { title: "Place a path corner", tip: "Click a floor to place a named route point for func_train platforms." },
+    targetDummy: { title: "Place a target dummy", tip: "Click a sightline to add a visible playtest target marker." },
+    wideDoor: { title: "Place a wide doorway", tip: "Click a shared wall to create a beginner-friendly 128-unit opening." },
+    vent: { title: "Draw a vent passage", tip: "Drag a compact 64-unit-high passage for a crouch-only GoldSrc route." },
+    stairPrefab: { title: "Draw a stair flight", tip: "Drag a flight; Blockout picks safe step count, rise, and uphill direction." },
+    prefab: { title: "Place a prefab", tip: "Click any clear room floor or ground area to place the chosen multi-part prefab." }
+  };
+
+  const MATERIAL_COLORS = {
+    C1A0_LABW3: "#606d57", CSTRIKE_WR4RGH: "#77786f", CSTRIKE_ME4METL: "#53666b",
+    CSTRIKE_CH3TILE: "#908b78", CSTRIKE_FP2DARK: "#343a36", BCRATE02: "#8a6844", C1A1_CRATE1: "#a1835d",
+    SUN_FELT: "#e9aa18", SUN_KNIT: "#a51519", SUN_RIBBON: "#1a9f9a", SUN_FACE: "#d79619",
+    SUN_WALL: "#d9bd78", SUN_METAL: "#176b6d", SUN_TILE: "#c47720", SUN_FLOOR: "#39181e",
+    SUN_CRATE: "#b87918", SUN_SUPPLY: "#087f80",
+    BO_CONCRETE: "#777672", BO_PAVEMENT: "#595956", BO_RGHBRICK: "#76564b", BO_SMTHBRICK: "#8d5042",
+    BO_STUCBRICK: "#826e5d", BO_BRICKTILE: "#9a6552", BO_COBBLE: "#6b6861", BO_CONCBRICK: "#85837b",
+    BO_GRAVEL: "#706d66", BO_SAND: "#a99169", BO_STUCCO: "#b7aa92", BO_BRICK01: "#9a5d49",
+    BO_BRICK02: "#8f7963", BO_BRICK03: "#71574d", BO_BRICK04: "#4c413e", BO_WOODREAL: "#7f5b3d",
+    BO_RUST: "#70432f", BO_WOOD01: "#9a744f", BO_WOOD02: "#5b4030",
+    BO_REDBRICK:"#7f382e", BO_ALLIGATOR:"#434b2d", BO_CEDAR:"#8c5a38", BO_CONCART:"#77736e",
+    BO_LEAF:"#49613a", BO_LEATHER:"#4d3025", BO_OBSIDIAN:"#242126", BO_ONYX:"#34343b",
+    BO_PINE:"#a77a48", BO_RUSTIRON:"#713f2d", BO_SNAKESKIN:"#797255", BO_STUCCO2:"#b6aa96",
+    BO_FOAM:"#d2d0c8", BO_TOPAZ:"#a87527", BO_TURQUOISE:"#368982", BO_MARBLE:"#c7c7c1",
+    BO_YELLOWGEM:"#a69747", BO_CONC1K1:"#858481", BO_PEBBLE1K:"#716e67", BO_CONC1K2:"#666563",
+    BO_ROCK:"#55514c", BO_FLOORTILE:"#8b857c", BO_GRASS1:"#777044", BO_GRASS2:"#4d6b36"
+  };
+  const MATERIAL_INFO = {
+    C1A0_LABW3: "Industrial wall", CSTRIKE_WR4RGH: "Rough concrete", CSTRIKE_ME4METL: "Metal panels",
+    CSTRIKE_CH3TILE: "Stone tile", CSTRIKE_FP2DARK: "Dark floor", BCRATE02: "Wood crate", C1A1_CRATE1: "Light crate",
+    SUN_FELT: "Sunburst golden felt", SUN_KNIT: "Sunburst red cable knit",
+    SUN_RIBBON: "Sunburst rainbow ribbons", SUN_FACE: "Sun Hub emblem",
+    SUN_WALL: "Sun-embossed cream wall", SUN_METAL: "Teal and gold metal",
+    SUN_TILE: "Warm Sunburst tile", SUN_FLOOR: "Dark woven floor",
+    SUN_CRATE: "Red and gold Sun crate", SUN_SUPPLY: "Teal ribbon supply crate",
+    BO_CONCRETE: "Clean concrete", BO_PAVEMENT: "Real pavement", BO_RGHBRICK: "Rough brick",
+    BO_SMTHBRICK: "Smooth red brick", BO_STUCBRICK: "Stuccoed brick", BO_BRICKTILE: "Brick tile",
+    BO_COBBLE: "Cobblestones", BO_CONCBRICK: "Concrete bricks", BO_GRAVEL: "Gravel", BO_SAND: "Sand",
+    BO_STUCCO: "Light stucco", BO_BRICK01: "Warm brick", BO_BRICK02: "Painted brick",
+    BO_BRICK03: "Weathered brick", BO_BRICK04: "Dark brick", BO_WOODREAL: "Natural wood",
+    BO_RUST: "Rusty steel", BO_WOOD01: "Light wood", BO_WOOD02: "Dark wood",
+    BO_REDBRICK:"Deep red brick", BO_ALLIGATOR:"Alligator pattern", BO_CEDAR:"Cedar wood", BO_CONCART:"Art concrete",
+    BO_LEAF:"Leaf pattern", BO_LEATHER:"Dark leather", BO_OBSIDIAN:"Obsidian stone", BO_ONYX:"Onyx stone",
+    BO_PINE:"Pine wood", BO_RUSTIRON:"Rusty iron", BO_SNAKESKIN:"Snake pattern", BO_STUCCO2:"Fine stucco",
+    BO_FOAM:"White foam", BO_TOPAZ:"Topaz surface", BO_TURQUOISE:"Turquoise stone", BO_MARBLE:"White marble",
+    BO_YELLOWGEM:"Yellow turquoise", BO_CONC1K1:"Smooth photo concrete", BO_PEBBLE1K:"Pebbled concrete", BO_CONC1K2:"Rough photo concrete",
+    BO_ROCK:"Cave rock", BO_FLOORTILE:"Modern floor tile", BO_GRASS1:"Dry grass ground", BO_GRASS2:"Green grass ground"
+  };
+  const CC0_TEXTURE_CATEGORIES = {
+    BO_CONCRETE:"concrete", BO_CONCBRICK:"concrete", BO_PAVEMENT:"ground", BO_COBBLE:"ground", BO_GRAVEL:"ground", BO_SAND:"ground",
+    BO_RGHBRICK:"brick", BO_SMTHBRICK:"brick", BO_STUCBRICK:"brick", BO_BRICKTILE:"brick", BO_BRICK01:"brick", BO_BRICK02:"brick", BO_BRICK03:"brick", BO_BRICK04:"brick",
+    BO_STUCCO:"plaster", BO_WOODREAL:"wood", BO_WOOD01:"wood", BO_WOOD02:"wood", BO_RUST:"metal",
+    BO_REDBRICK:"brick", BO_ALLIGATOR:"organic", BO_CEDAR:"wood", BO_CONCART:"concrete", BO_LEAF:"nature", BO_LEATHER:"fabric",
+    BO_OBSIDIAN:"stone", BO_ONYX:"stone", BO_PINE:"wood", BO_RUSTIRON:"metal", BO_SNAKESKIN:"organic", BO_STUCCO2:"plaster",
+    BO_FOAM:"plaster", BO_TOPAZ:"stone", BO_TURQUOISE:"stone", BO_MARBLE:"stone", BO_YELLOWGEM:"stone",
+    BO_CONC1K1:"concrete", BO_PEBBLE1K:"ground", BO_CONC1K2:"concrete", BO_ROCK:"stone", BO_FLOORTILE:"floor", BO_GRASS1:"nature", BO_GRASS2:"nature"
+  };
+  const DEFAULT_ENVIRONMENT = { groundEnabled:true, groundSize:32, groundPadding:4, groundElevation:0, groundMaterial:"BO_GRASS1", openSkyDefault:true, skyName:"desert" };
+  const SKY_THEMES = {
+    desert:{label:"Desert daylight",colors:["#263d54","#8da4ad","#d1bd82"],light:"255 244 214 400",angles:"0 215 0"},
+    morning:{label:"Clear morning",colors:["#315c85","#8dc4d7","#f2d7a0"],light:"255 244 220 420",angles:"0 205 0"},
+    dusk:{label:"Warm dusk",colors:["#302b53","#a05b62","#efad68"],light:"255 184 140 300",angles:"-12 235 0"},
+    night:{label:"Night",colors:["#050814","#121e3d","#34446a"],light:"125 150 210 130",angles:"-25 220 0"},
+    forest:{label:"Forest valley",colors:["#263f47","#6e9682","#9eaa78"],light:"218 232 198 330",angles:"-15 190 0"},
+    city:{label:"City",colors:["#48515c","#87929c","#bdad91"],light:"225 226 218 320",angles:"-10 210 0"},
+    de_storm:{label:"Storm clouds",colors:["#171d25","#46505b","#778087"],light:"174 191 205 230",angles:"-20 240 0"},
+    snow:{label:"Snow",colors:["#6e8395","#b9cad3","#edf1ec"],light:"235 245 255 390",angles:"-8 205 0"},
+    tornsky:{label:"Dramatic clouds",colors:["#1f2632","#586171","#b88462"],light:"205 191 184 260",angles:"-16 225 0"},
+    space:{label:"Space",colors:["#02030a","#080d22","#221b3d"],light:"120 140 205 100",angles:"-30 200 0"}
+  };
+  const PREFAB_LIBRARY = [
+    { id:"wideDoor", name:"Wide doorway", category:"openings", size:"2-wide opening", tool:"wideDoor", icon:"▱", description:"A comfortable 128-unit opening between two rooms." },
+    { id:"vent", name:"Crouch vent", category:"routes", size:"drag route", tool:"vent", icon:"▤", description:"A sealed 64-unit-high alternate route." },
+    { id:"stairFlight", name:"Safe stair flight", category:"vertical", size:"drag flight", tool:"stairPrefab", icon:"▟", description:"Automatically chooses GoldSrc-safe step rise and count." },
+    { id:"halfCover", name:"Half-height cover", category:"cover", size:"2 × 1", icon:"▬", description:"A 48-unit tactical cover wall." },
+    { id:"doubleCrate", name:"Double crate", category:"cover", size:"2 × 1", icon:"▣", description:"Two physical wooden crates for lane control." },
+    { id:"crateCorner", name:"Crate corner", category:"cover", size:"2 × 2", icon:"◩", description:"Three crates forming a compact protected corner." },
+    { id:"pillarPair", name:"Pillar pair", category:"architecture", size:"4 × 1", icon:"● ●", description:"Two octagonal columns framing a lane." },
+    { id:"coverLane", name:"Competitive cover lane", category:"cover", size:"5 × 3", icon:"╱ ▬ ╲", description:"Angled cover that creates two deliberate peek lines." },
+    { id:"bombCover", name:"Bombsite cover set", category:"gameplay", size:"4 × 4", icon:"A +", description:"Four separated cover pieces around a plantable center." },
+    { id:"catwalk", name:"Raised catwalk", category:"vertical", size:"5 × 2", icon:"▰", description:"Platform plus a safe stair approach." },
+    { id:"rampLanding", name:"Ramp and landing", category:"vertical", size:"5 × 2", icon:"◢━", description:"A one-level ramp connected to a raised landing." },
+    { id:"ladderTower", name:"Ladder platform", category:"vertical", size:"3 × 2", icon:"H▰", description:"A climbable ladder leading to a two-unit platform." },
+    { id:"windowNest", name:"Defensive nest", category:"cover", size:"4 × 3", icon:"⊔", description:"A U-shaped bunker with a firing gap." },
+    { id:"columnArc", name:"Column trio", category:"architecture", size:"5 × 2", icon:"● ● ●", description:"Three columns that break a wide sightline naturally." },
+    { id:"archFrame", name:"Heavy doorway frame", category:"openings", size:"4 x 1", icon:"[  ]", description:"Two supports and a raised lintel for a strong entrance silhouette." },
+    { id:"cratePyramid", name:"Crate pyramid", category:"cover", size:"2 x 2", icon:"[]^", description:"Three ground crates with one elevated crate for vertical cover." },
+    { id:"tCover", name:"T-shaped cover", category:"cover", size:"4 x 3", icon:"-T-", description:"A tactical divider supporting three different peek positions." },
+    { id:"zigzag", name:"Zigzag lane", category:"routes", size:"7 x 4", icon:"/\\/", description:"Alternating diagonal cover breaks a long rectangular corridor." },
+    { id:"bridge", name:"Bridge with rails", category:"vertical", size:"6 x 3", icon:"|===|", description:"A raised crossing with low protective rails on both sides." },
+    { id:"sniperNest", name:"Raised sniper nest", category:"gameplay", size:"5 x 4", icon:"[_^_]", description:"Stairs, platform, and waist-high protection for a deliberate long angle." },
+    { id:"marketStall", name:"Market stall row", category:"architecture", size:"6 x 3", icon:"|_|_|", description:"Three waist-high counters with varied materials and gaps." },
+    { id:"bollardRow", name:"Bollard row", category:"architecture", size:"7 x 1", icon:"o o o o", description:"Four small octagonal blockers that preserve visibility." },
+    { id:"highLowCover", name:"High-low cover mix", category:"cover", size:"5 x 2", icon:"_[]_", description:"Alternating crouch and full cover for varied engagements." },
+    { id:"stairTower", name:"Two-level stair tower", category:"vertical", size:"8 x 4", icon:"_/^^", description:"Two staged stair flights and landings for vertical blockouts." }
+  ];
+  const LAYOUT_LIBRARY = [
+    { id:"threeLane", name:"Three-lane competitive", category:"competitive", size:"24 x 24", icon:"≡", materials:["BO_STUCCO2","BO_REDBRICK","BO_RUSTIRON"], description:"Mirrored spawns with three distinct routes through a contested center." },
+    { id:"twoSite", name:"Two-site skeleton", category:"competitive", size:"28 x 24", icon:"A—+—B", materials:["BO_STUCCO","BO_SAND","BO_GRASS2"], description:"A clean demolition foundation with mid, two objectives, and rotations." },
+    { id:"warehouse", name:"Warehouse arena", category:"arena", size:"22 x 14", icon:"▦", materials:["BO_REDBRICK","BO_CONC1K2","BO_CEDAR"], description:"One large industrial shell with crates, columns, and crossfire cover." },
+    { id:"courtyard", name:"Open courtyard", category:"outdoor", size:"18 x 18", icon:"◇", materials:["BO_FLOORTILE","BO_MARBLE","BO_ROCK"], description:"Faceted open-sky court with natural stone and diagonal sightline breaks." },
+    { id:"vertical", name:"Vertical blockout", category:"experimental", size:"16 x 16", icon:"Z+2", materials:["BO_OBSIDIAN","BO_FLOORTILE","BO_MARBLE"], description:"Platforms, stairs, ladder access, and two meaningful combat heights." },
+    { id:"training", name:"Aim training lanes", category:"training", size:"26 x 12", icon:"→|→|", materials:["BO_CONCART","BO_PEBBLE1K","BO_CEDAR"], description:"Long and short practice angles with varied cover silhouettes." }
+  ];
+  const SUNBURST_TEXTURE_UPGRADE = {
+    C1A0_LABW3:"SUN_WALL", CSTRIKE_WR4RGH:"SUN_WALL", CSTRIKE_ME4METL:"SUN_METAL",
+    CSTRIKE_CH3TILE:"SUN_TILE", CSTRIKE_FP2DARK:"SUN_FLOOR",
+    BCRATE02:"SUN_CRATE", C1A1_CRATE1:"SUN_SUPPLY"
+  };
+
+  const $ = (selector) => document.querySelector(selector);
+  const $$ = (selector) => [...document.querySelectorAll(selector)];
+  const editor = $("#editorCanvas");
+  const preview = $("#previewCanvas");
+  const ectx = editor.getContext("2d");
+  const pctx = preview.getContext("2d");
+  const elevationCanvas = $("#elevationCanvas");
+  const elevationCtx = elevationCanvas.getContext("2d");
+  const materialImages = {};
+  const previewPatterns = new Map();
+  $("#textureSummary").after($("#textureImporter"));
+
+  function registerMaterial(texture,label=MATERIAL_INFO[texture]||texture,category=null,cacheBust="") {
+    MATERIAL_INFO[texture]=label;
+    if(category)CC0_TEXTURE_CATEGORIES[texture]=category;
+    if(materialImages[texture]&&!cacheBust)return;
+    const image = new Image();
+    image.onload = () => {
+      try{const canvas=document.createElement("canvas"),context=canvas.getContext("2d",{willReadFrequently:true});canvas.width=canvas.height=1;context.drawImage(image,0,0,1,1);const [red,green,blue]=context.getImageData(0,0,1,1).data;MATERIAL_COLORS[texture]=`rgb(${red},${green},${blue})`;}catch(_){}
+      previewPatterns.clear(); drawPreview();
+    };
+    image.src = texturePreviewUrl(texture,cacheBust);
+    materialImages[texture] = image;
+  }
+  Object.keys(MATERIAL_COLORS).forEach((texture) => registerMaterial(texture));
+
+  function installMaterialOptions() {
+    ["materialSelect", "floorMaterialSelect", "ceilingMaterialSelect", "doorMaterialSelect", "environmentGroundMaterialSelect"].forEach((id) => {
+      const select = $(`#${id}`);
+      if (!select) return;
+      const installed = new Set([...select.options].map((option) => option.value));
+      Object.entries(MATERIAL_INFO).forEach(([texture, label]) => {
+        if (installed.has(texture)) return;
+        const option = document.createElement("option");
+        option.value = texture;
+        option.textContent = label;
+        select.append(option);
+      });
+    });
+  }
+  installMaterialOptions();
+
+  function previewPattern(texture, scale = .35, uv = null) {
+    const image = materialImages[texture];
+    if (!image?.complete || !image.naturalWidth) return null;
+    const transform = normalizedUv(uv);
+    const key = `${texture}:${scale}:${transform.shiftX}:${transform.shiftY}:${transform.rotation}:${transform.scaleX}:${transform.scaleY}`;
+    if (!previewPatterns.has(key)) {
+      const pattern = pctx.createPattern(image, "repeat");
+      if (pattern?.setTransform) pattern.setTransform(new DOMMatrix().translate(transform.shiftX,transform.shiftY).rotate(transform.rotation).scale(scale/transform.scaleX,scale/transform.scaleY));
+      previewPatterns.set(key, pattern);
+    }
+    return previewPatterns.get(key);
+  }
+
+  let state = loadProject() || freshProject();
+  environmentFor(state);
+  let starterLoaded = false;
+  if (!state.rooms.length && !localStorage.getItem("blockout-starter-installed-v1")) {
+    state = starterProject();
+    starterLoaded = true;
+    localStorage.setItem("blockout-starter-installed-v1", "yes");
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+  }
+  environmentFor(state);
+  let history = [];
+  let future = [];
+  let activeTool = "room";
+  let selected = null;
+  let selection = [];
+  let marquee = null;
+  let measurement = null;
+  let snapUnits = 64;
+  let objectSnapEnabled = true;
+  let sampledMaterial = null;
+  let surfaceTarget = "object";
+  let textureLock = localStorage.getItem("blockout-texture-lock") !== "off";
+  let previewPickRegions = [];
+  let transformDrag = null;
+  let previewTransformHandle = null;
+  let elevationAxis = "x";
+  let elevationHitRegions = [];
+  let lastPreflight = null;
+  let objectClipboard = null;
+  let lightColorBefore = null;
+  let drawing = null;
+  let moving = null;
+  let polygonDraft = [];
+  let editingVertices = false;
+  let selectedVertexIndex = -1;
+  let movingVertex = null;
+  let selectedEdgeIndex = -1;
+  let movingEdge = null;
+  let panning = null;
+  let toolBeforeSpace = null;
+  let hoverCell = null;
+  let hoverWorld = null;
+  let cellSize = 28;
+  let viewOffset = { x: 0, y: 0 };
+  let previewAngle = -0.72;
+  let previewZoom = 1;
+  let previewPan = { x: 0, y: 0 };
+  let previewPanMode = false;
+  let previewDrag = null;
+  let previewMode = "orbit";
+  let player = { x: 0, y: 0, z: 0, angle: 0 };
+  const pressedKeys = new Set();
+  const openWalkDoors = new Set();
+  const brokenWalkWindows = new Set();
+  let lastFrame = performance.now();
+  let toastTimer;
+  let saveTimer;
+  let companionStatus = null;
+  let planLevel = null;
+  let ghostLevels = true;
+  let previewLevelOnly = false;
+  let analysisOverlay = null;
+  let textureFavorites = new Set();
+  let activePrefabId = "halfCover";
+  let productionTab = "outliner";
+  let lightingOverlay = false;
+  let routeRecording = false;
+  let recordedRoute = [];
+  let routeStartedAt = 0;
+  let lastRouteSampleAt = 0;
+  let projectSnapshots = [];
+  let pendingTextureImport = null;
+  try { textureFavorites = new Set(JSON.parse(localStorage.getItem("blockout-texture-favorites") || "[]")); } catch (_) {}
+  try { projectSnapshots = JSON.parse(localStorage.getItem("blockout-project-snapshots-v1") || "[]"); } catch (_) { projectSnapshots = []; }
+  const MIN_COMPANION_VERSION = "0.9.0";
+
+  function environmentFor(project = state) {
+    project.environment = { ...DEFAULT_ENVIRONMENT, ...(project.environment || {}) };
+    project.environment.groundSize = Math.max(16, Math.min(128, Number(project.environment.groundSize) || 32));
+    project.environment.groundPadding = Math.max(2, Math.min(32, Number(project.environment.groundPadding) || 4));
+    project.environment.groundElevation = Math.max(-8, Math.min(16, Number(project.environment.groundElevation) || 0));
+    if (!MATERIAL_INFO[project.environment.groundMaterial]) project.environment.groundMaterial = DEFAULT_ENVIRONMENT.groundMaterial;
+    if (!SKY_THEMES[project.environment.skyName]) project.environment.skyName = DEFAULT_ENVIRONMENT.skyName;
+    return project.environment;
+  }
+
+  function freshProject() {
+    return { name: "My first map", rooms: [], doors: [], windows: [], zones: [], props: [], entities: [], stories:[{id:crypto.randomUUID(),name:"Ground floor",elevation:0}], environment:{...DEFAULT_ENVIRONMENT}, updatedAt: Date.now() };
+  }
+
+  function layoutRoom(label, x, y, w, d, options = {}) {
+    return {
+      id:crypto.randomUUID(), kind:"room", label, x, y, w, d, height:options.height || 5, floorLevel:options.floorLevel || 0,
+      texture:options.texture || "BO_CONC1K1", floorTexture:options.floorTexture || "BO_PAVEMENT",
+      ceilingTexture:options.ceilingTexture || "BO_CONC1K2", ceilingMode:options.ceilingMode || "sky", ...(options.points ? {points:options.points} : {})
+    };
+  }
+
+  function layoutDoor(axis, boundary, along, width = 1) {
+    return { id:crypto.randomUUID(), axis, boundary, along, width, mode:"opening", texture:"BO_RUSTIRON", speed:100 };
+  }
+
+  function layoutEntity(kind, x, y, angle = 0) {
+    return { id:crypto.randomUUID(), kind, x, y, ...(["ct","t"].includes(kind) ? {angle} : {}) };
+  }
+
+  function buildLayoutProject(layoutId) {
+    const project = { name:`${LAYOUT_LIBRARY.find((item) => item.id === layoutId)?.name || "Starter"} map`, rooms:[], doors:[], windows:[], zones:[], props:[], entities:[], environment:{...DEFAULT_ENVIRONMENT}, updatedAt:Date.now() };
+    const prop = (kind,x,y,w,d,height,texture,extra={}) => prefabProp(kind,x,y,w,d,height,0,texture,extra);
+    if (layoutId === "threeLane") {
+      project.rooms.push(layoutRoom("CT SPAWN",0,6,6,12,{texture:"BO_STUCCO2"}),layoutRoom("CENTRAL CONTROL",9,6,6,12,{texture:"BO_REDBRICK"}),layoutRoom("T SPAWN",18,6,6,12,{texture:"BO_CONC1K2"}));
+      [[6,6],[6,10],[6,15],[15,6],[15,10],[15,15]].forEach(([x,y],index) => project.rooms.push(layoutRoom(`ROUTE ${index+1}`,x,y,3,index%3===2?3:3,{height:4,texture:"BO_RUSTIRON"})));
+      [[6,7],[9,7],[6,11],[9,11],[6,16],[9,16],[15,7],[18,7],[15,11],[18,11],[15,16],[18,16]].forEach(([boundary,along]) => project.doors.push(layoutDoor("v",boundary,along)));
+      project.entities.push(layoutEntity("ct",2,11,0),layoutEntity("ct",3,12,0),layoutEntity("t",21,11,180),layoutEntity("t",20,12,180),layoutEntity("bombA",11,8),layoutEntity("bombB",11,16));
+      project.props.push(prop("diagonal",10,11,2,2,1.25,"BO_RUSTIRON",{slope:"up",thickness:.42}),prop("diagonal",13,13,2,2,1.25,"BO_RUSTIRON",{slope:"down",thickness:.42}));
+    } else if (layoutId === "twoSite") {
+      project.rooms.push(layoutRoom("CT SPAWN",0,9,6,6,{texture:"BO_STUCCO"}),layoutRoom("MID",11,9,6,6,{texture:"BO_CONC1K1"}),layoutRoom("T SPAWN",22,9,6,6,{texture:"BO_REDBRICK"}),layoutRoom("SITE A",11,0,6,6,{ceilingMode:"sky",floorTexture:"BO_SAND"}),layoutRoom("SITE B",11,18,6,6,{ceilingMode:"sky",floorTexture:"BO_GRASS2"}));
+      project.rooms.push(layoutRoom("CT TO MID",6,10,5,2,{height:4}),layoutRoom("MID TO T",17,10,5,2,{height:4}),layoutRoom("A CONNECTOR",13,6,2,3,{height:4}),layoutRoom("B CONNECTOR",13,15,2,3,{height:4}));
+      [["v",6,10],["v",11,10],["v",17,10],["v",22,10],["h",6,13],["h",9,13],["h",15,13],["h",18,13]].forEach((door) => project.doors.push(layoutDoor(...door)));
+      project.entities.push(layoutEntity("ct",2,11,0),layoutEntity("ct",3,12,0),layoutEntity("t",25,11,180),layoutEntity("t",24,12,180),layoutEntity("bombA",13,2),layoutEntity("bombB",13,20));
+      project.props.push(prop("crate",12,2,1,1,1,"BO_CEDAR"),prop("wall",15,3,1,2,.75,"BO_CONCRETE"),prop("crate",15,20,1,1,1,"BO_WOOD02"),prop("wall",12,19,1,2,.75,"BO_CONCRETE"));
+    } else if (layoutId === "warehouse") {
+      project.rooms.push(layoutRoom("WAREHOUSE",0,0,22,14,{height:7,texture:"BO_REDBRICK",floorTexture:"BO_CONC1K2"}));
+      [[4,3],[5,3],[16,3],[17,3],[4,10],[17,10]].forEach(([x,y],index) => project.props.push(prop("crate",x,y,1,1,1,index%2?"BO_CEDAR":"BO_WOOD02")));
+      project.props.push(prefabColumn(8,3,0,"BO_CONCRETE"),prefabColumn(13,3,0,"BO_CONCRETE"),prefabColumn(8,10,0,"BO_CONCRETE"),prefabColumn(13,10,0,"BO_CONCRETE"),prop("wall",10,6,2,1,.75,"BO_RUSTIRON"));
+      project.entities.push(layoutEntity("ct",2,6,0),layoutEntity("ct",2,7,0),layoutEntity("t",19,6,180),layoutEntity("t",19,7,180),layoutEntity("bombA",10,2));
+    } else if (layoutId === "courtyard") {
+      const points=octagonPoints(0,0,18,18,3); project.rooms.push(layoutRoom("OPEN COURTYARD",0,0,18,18,{points,ceilingMode:"sky",texture:"BO_STUCCO2",floorTexture:"BO_FLOORTILE"}));
+      project.props.push(prefabColumn(5,5,0,"BO_MARBLE"),prefabColumn(12,5,0,"BO_MARBLE"),prefabColumn(5,12,0,"BO_MARBLE"),prefabColumn(12,12,0,"BO_MARBLE"));
+      project.props.push(prop("diagonal",7,7,2,2,1.25,"BO_ROCK",{slope:"up",thickness:.42}),prop("diagonal",9,9,2,2,1.25,"BO_ROCK",{slope:"up",thickness:.42}));
+      project.entities.push(layoutEntity("ct",3,8,0),layoutEntity("t",14,8,180),layoutEntity("bombA",8,3),layoutEntity("bombB",8,14));
+    } else if (layoutId === "vertical") {
+      project.rooms.push(layoutRoom("VERTICAL LAB",0,0,16,16,{height:8,texture:"BO_CONC1K2",floorTexture:"BO_OBSIDIAN"}));
+      project.props.push(prop("stairs",1,6,3,2,1,"BO_CONCRETE",{direction:"e",steps:4}),prop("platform",4,4,4,6,1,"BO_FLOORTILE"),prop("stairs",8,6,3,2,1,"BO_CONCRETE",{direction:"e",steps:4,floorLevel:1}),prop("platform",11,4,4,6,2,"BO_MARBLE"),prop("ladder",14,10,1,1,2,"BO_RUSTIRON",{direction:"s"}));
+      project.entities.push(layoutEntity("ct",1,2,90),layoutEntity("t",13,13,270),layoutEntity("bombA",6,6));
+    } else {
+      project.rooms.push(layoutRoom("TRAINING HALL",0,0,26,12,{height:5,texture:"BO_CONCART",floorTexture:"BO_PEBBLE1K"}));
+      [[5,2,1],[5,8,.75],[10,4,1.5],[15,2,.75],[15,8,1.5],[20,5,1]].forEach(([x,y,height],index) => project.props.push(prop(index%2?"wall":"crate",x,y,1,index===2?3:2,height,index%2?"BO_CONCRETE":"BO_CEDAR")));
+      project.props.push(prop("diagonal",8,8,2,2,1.25,"BO_RUSTIRON",{slope:"down",thickness:.42}),prop("diagonal",17,2,2,2,1.25,"BO_RUSTIRON",{slope:"up",thickness:.42}));
+      project.entities.push(layoutEntity("ct",1,3,0),layoutEntity("ct",1,8,0),layoutEntity("t",24,3,180),layoutEntity("t",24,8,180),layoutEntity("bombA",12,5));
+    }
+    return project;
+  }
+
+  function loadLayoutProject(layoutId) {
+    if (state.rooms.length && !confirm("Replace the current map with this starter layout? You can Undo afterward.")) return;
+    const before = snapshot();
+    state = buildLayoutProject(layoutId);
+    selected = null; planLevel = null; previewLevelOnly = false; analysisOverlay = null;
+    commit(before);
+    requestAnimationFrame(fitView);
+    showToast(`${state.name} loaded - every room and brush remains editable`);
+  }
+
+  function structureRun(prop) {
+    return prop.direction === "e" || prop.direction === "w" ? prop.w : prop.d;
+  }
+
+  function recommendedStairSteps(prop) {
+    return Math.max(2, Math.min(32, Math.ceil((prop.height || 2) * GRID / 16)));
+  }
+
+  function starterProject() {
+    const id = (prefix) => `${prefix}-${crypto.randomUUID()}`;
+    const rooms = [
+      { id: id("ct-room"), kind: "room", x: 0, y: 0, w: 6, d: 8, height: 4, texture: "CSTRIKE_WR4RGH" },
+      { id: id("mid-room"), kind: "room", x: 8, y: -1, w: 8, d: 10, height: 5, texture: "C1A0_LABW3" },
+      { id: id("t-room"), kind: "room", x: 18, y: 0, w: 6, d: 8, height: 4, texture: "CSTRIKE_WR4RGH" },
+      { id: id("left-upper"), kind: "corridor", x: 6, y: 1, w: 2, d: 2, height: 3, texture: "CSTRIKE_ME4METL" },
+      { id: id("left-lower"), kind: "corridor", x: 6, y: 5, w: 2, d: 2, height: 3, texture: "CSTRIKE_ME4METL" },
+      { id: id("right-upper"), kind: "corridor", x: 16, y: 1, w: 2, d: 2, height: 3, texture: "CSTRIKE_ME4METL" },
+      { id: id("right-lower"), kind: "corridor", x: 16, y: 5, w: 2, d: 2, height: 3, texture: "CSTRIKE_ME4METL" }
+    ].map((room) => ({ floorTexture: "CSTRIKE_FP2DARK", ceilingTexture: "C1A0_LABW3", ceilingMode: "ceiling", ...room }));
+    const doors = [
+      [6,1], [8,1], [16,1], [18,1], [6,5], [8,5], [16,5], [18,5]
+    ].map(([boundary, along]) => ({ id: id("door"), axis: "v", boundary, along }));
+    const props = [
+      { id: id("crate"), kind: "crate", x: 3, y: 3, w: 1, d: 1, height: 1, direction: "e", texture: "BCRATE02" },
+      { id: id("crate"), kind: "crate", x: 20, y: 4, w: 1, d: 1, height: 1, direction: "e", texture: "C1A1_CRATE1" },
+      { id: id("crate"), kind: "crate", x: 10, y: 3, w: 1, d: 1, height: 1, direction: "e", texture: "BCRATE02" },
+      { id: id("crate"), kind: "crate", x: 13, y: 4, w: 1, d: 1, height: 1, direction: "e", texture: "C1A1_CRATE1" },
+      { id: id("stairs"), kind: "stairs", x: 9, y: 7, w: 3, d: 2, height: 2, steps: 8, direction: "e", texture: "CSTRIKE_ME4METL" },
+      { id: id("ramp"), kind: "ramp", x: 13, y: 7, w: 2, d: 2, height: 2, direction: "w", texture: "CSTRIKE_CH3TILE" }
+    ];
+    const entities = [
+      { id: id("ct"), kind: "ct", x: 1, y: 2 },
+      { id: id("ct"), kind: "ct", x: 1, y: 4 },
+      { id: id("ct"), kind: "ct", x: 2, y: 2 },
+      { id: id("ct"), kind: "ct", x: 2, y: 4 },
+      { id: id("t"), kind: "t", x: 21, y: 2 },
+      { id: id("t"), kind: "t", x: 21, y: 5 },
+      { id: id("t"), kind: "t", x: 22, y: 2 },
+      { id: id("t"), kind: "t", x: 22, y: 5 },
+      { id: id("bomb-a"), kind: "bombA", x: 11, y: 1 },
+      { id: id("bomb-b"), kind: "bombB", x: 12, y: 6 }
+    ];
+    return { name: "Training Grounds", rooms, doors, windows: [], zones: [], props, entities, environment:{...DEFAULT_ENVIRONMENT}, updatedAt: Date.now() };
+  }
+
+  function sunburstProject() {
+    let sequence = 0;
+    const id = (prefix) => `sunburst-${prefix}-${++sequence}`;
+    const room = (label, x, y, w, d, options = {}) => ({
+      id: id("room"), kind: options.kind || "room", label, x, y, w, d,
+      height: options.height || 4, texture: options.texture || "CSTRIKE_WR4RGH",
+      floorTexture: options.floorTexture || "CSTRIKE_FP2DARK",
+      ceilingTexture: options.ceilingTexture || "C1A0_LABW3",
+      ceilingMode: options.ceilingMode || "ceiling"
+    });
+    const rooms = [
+      room("NORTH ARMORY",12,0,4,4,{texture:"CSTRIKE_ME4METL"}),
+      room("T SPAWN",16,0,8,4,{height:5,texture:"SUN_KNIT"}),
+      room("NORTH LOUNGE",24,0,4,4,{texture:"CSTRIKE_ME4METL"}),
+      room("NORTH GATE",14,4,12,3,{kind:"corridor",texture:"C1A0_LABW3"}),
+      room("NW OVERLOOK",10,7,6,5,{height:6,texture:"CSTRIKE_ME4METL"}),
+      room("RIBBON HALL",16,7,8,5,{height:5,texture:"SUN_RIBBON",floorTexture:"SUN_RIBBON"}),
+      room("NE OVERLOOK",24,7,6,5,{height:6,texture:"CSTRIKE_ME4METL"}),
+      room("OBJECTIVE A",0,12,6,8,{height:5,texture:"SUN_KNIT",floorTexture:"SUN_FELT",ceilingMode:"sky"}),
+      room("MARKET COURT",6,12,8,8,{height:5,texture:"C1A0_LABW3",floorTexture:"CSTRIKE_CH3TILE",ceilingMode:"sky"}),
+      room("WEST LINK",14,12,2,8,{kind:"corridor",texture:"CSTRIKE_ME4METL"}),
+      room("CENTRAL SUN HUB",16,12,8,8,{height:6,texture:"SUN_FELT",floorTexture:"SUN_FELT",ceilingMode:"sky"}),
+      room("EAST LINK",24,12,2,8,{kind:"corridor",texture:"CSTRIKE_ME4METL"}),
+      room("GARDEN COURT",26,12,8,8,{height:5,texture:"C1A0_LABW3",floorTexture:"CSTRIKE_CH3TILE",ceilingMode:"sky"}),
+      room("OBJECTIVE B",34,12,6,8,{height:5,texture:"SUN_RIBBON",floorTexture:"SUN_FELT",ceilingMode:"sky"}),
+      room("A BACK ALLEY",2,20,6,5,{height:3,texture:"C1A0_LABW3"}),
+      room("WEST TUNNEL",8,20,6,5,{height:3,texture:"CSTRIKE_ME4METL"}),
+      room("WEST BRIDGE",14,20,2,5,{kind:"corridor",height:4,texture:"SUN_RIBBON",floorTexture:"SUN_RIBBON"}),
+      room("RED HALL",16,20,8,5,{height:4,texture:"SUN_KNIT",floorTexture:"SUN_KNIT"}),
+      room("EAST BRIDGE",24,20,2,5,{kind:"corridor",height:4,texture:"SUN_RIBBON",floorTexture:"SUN_RIBBON"}),
+      room("EAST TUNNEL",26,20,6,5,{height:3,texture:"CSTRIKE_ME4METL"}),
+      room("B BACK ALLEY",32,20,6,5,{height:3,texture:"C1A0_LABW3"}),
+      room("A SERVICE",10,25,4,3,{kind:"corridor",height:3,texture:"CSTRIKE_ME4METL"}),
+      room("LOWER CHANNEL W",6,25,4,3,{height:3,texture:"SUN_TILE",floorTexture:"SUN_TILE"}),
+      room("SOUTH GATE",14,25,12,3,{kind:"corridor",texture:"C1A0_LABW3"}),
+      room("B SERVICE",26,25,4,3,{kind:"corridor",height:3,texture:"CSTRIKE_ME4METL"}),
+      room("LOWER CHANNEL E",30,25,4,3,{height:3,texture:"SUN_TILE",floorTexture:"SUN_TILE"}),
+      room("SOUTH ARMORY",12,28,4,4,{texture:"CSTRIKE_ME4METL"}),
+      room("CT SPAWN",16,28,8,4,{height:5,texture:"SUN_RIBBON"}),
+      room("SOUTH LOUNGE",24,28,4,4,{texture:"CSTRIKE_ME4METL"})
+    ];
+    const door = (axis, boundary, along, mode = "opening") => ({
+      id: id("door"), axis, boundary, along, width: 1, mode, texture: "CSTRIKE_ME4METL", speed: 125
+    });
+    const doors = [
+      door("v",16,1),door("v",24,1),door("h",4,14),door("h",4,19,"sliding"),door("h",4,25),
+      door("h",7,15),door("h",7,18),door("h",7,22),door("h",7,24),
+      door("h",12,12),door("h",12,15),door("h",12,18),door("h",12,21),door("h",12,25),door("h",12,28),
+      door("v",6,15),door("v",6,18),door("v",14,15),door("v",14,18),
+      door("v",16,14),door("v",16,18),door("v",24,14),door("v",24,18),
+      door("v",26,15),door("v",26,18),door("v",34,15),door("v",34,18),
+      door("h",20,3),door("h",20,10),door("h",20,13),door("h",20,18),door("h",20,22),door("h",20,27),door("h",20,30),door("h",20,36),
+      door("h",25,11),door("v",14,26),door("h",25,18),door("h",25,22),door("v",26,26),door("h",25,28),
+      door("v",14,22),door("v",16,22),door("v",24,22),door("v",26,22),
+      door("h",25,6),door("v",10,26),door("v",30,26),door("h",25,32),
+      door("h",28,13),door("h",28,18),door("h",28,22),door("h",28,27),door("v",16,30),door("v",24,30)
+    ];
+    const window = (axis, boundary, along, mode = "glass") => ({
+      id: id("window"), axis, boundary, along, width: 1, mode, sill:.75, height:1.5, health:25, texture:"GLASS_BRIGHT"
+    });
+    const windows = [
+      window("v",16,2),window("v",24,2),window("h",12,10),window("h",12,29),
+      window("v",6,13,"breakable"),window("v",34,13,"breakable"),window("v",16,16),window("v",24,16)
+    ];
+    const prop = (kind, x, y, w, d, height, direction = "e", texture) => ({
+      id: id(kind), kind, x, y, w, d, height, direction,
+      texture: texture || (kind === "crate" ? "BCRATE02" : kind === "platform" ? "CSTRIKE_CH3TILE" : "CSTRIKE_ME4METL")
+    });
+    const props = [
+      prop("platform",17,8,6,3,1,"e","SUN_RIBBON"),
+      prop("stairs",19,11,2,1,1,"n","CSTRIKE_ME4METL"),
+      prop("platform",18,14,4,4,.5,"e","SUN_FACE"),
+      prop("ramp",19,12,2,2,.5,"s","SUN_RIBBON"),prop("ramp",19,18,2,2,.5,"n","SUN_RIBBON"),
+      prop("ramp",14,15,2,2,.5,"e","SUN_RIBBON"),prop("ramp",24,15,2,2,.5,"w","SUN_RIBBON"),
+      prop("platform",11,8,3,3,2,"e","CSTRIKE_ME4METL"),prop("ladder",10,9,1,1,2,"e","CSTRIKE_ME4METL"),
+      prop("platform",26,8,3,3,2,"e","CSTRIKE_ME4METL"),prop("ladder",29,9,1,1,2,"w","CSTRIKE_ME4METL"),
+      prop("platform",1,14,4,4,1,"e","SUN_FELT"),prop("ramp",4,15,2,2,1,"w","SUN_KNIT"),
+      prop("platform",35,14,4,4,1,"e","SUN_FELT"),prop("ramp",34,15,2,2,1,"e","SUN_RIBBON"),
+      prop("wall",8,15,1,2,1.25,"s","CSTRIKE_WR4RGH"),prop("wall",12,17,1,2,1.25,"s","CSTRIKE_WR4RGH"),
+      prop("wall",27,17,1,2,1.25,"s","CSTRIKE_WR4RGH"),prop("wall",31,15,1,2,1.25,"s","CSTRIKE_WR4RGH"),
+      prop("crate",9,13,1,1,1,"e","BCRATE02"),prop("crate",12,14,1,1,1,"e","C1A1_CRATE1"),
+      prop("crate",27,14,1,1,1,"e","C1A1_CRATE1"),prop("crate",30,13,1,1,1,"e","BCRATE02"),
+      prop("crate",3,18,1,1,1,"e","BCRATE02"),prop("crate",36,18,1,1,1,"e","BCRATE02"),
+      prop("platform",14,21,2,3,1,"e","SUN_RIBBON"),prop("ramp",13,22,1,2,1,"e","SUN_RIBBON"),prop("ramp",16,22,1,2,1,"w","SUN_RIBBON"),
+      prop("platform",24,21,2,3,1,"e","SUN_RIBBON"),prop("ramp",23,22,1,2,1,"e","SUN_RIBBON"),prop("ramp",26,22,1,2,1,"w","SUN_RIBBON")
+    ];
+    props.filter((item) => item.kind === "stairs").forEach((item) => { item.steps = recommendedStairSteps(item); });
+    const zones = [
+      { id:id("buy"),kind:"buyT",x:17,y:1,w:6,d:2 },
+      { id:id("buy"),kind:"buyCt",x:17,y:29,w:6,d:2 }
+    ];
+    const entities = [
+      ...[[19,1],[17,1],[21,1],[22,2]].map(([x,y]) => ({id:id("t"),kind:"t",x,y,angle:90})),
+      ...[[18,30],[19,30],[21,30],[22,29]].map(([x,y]) => ({id:id("ct"),kind:"ct",x,y,angle:270})),
+      {id:id("bomb"),kind:"bombA",x:2,y:16},{id:id("bomb"),kind:"bombB",x:37,y:16},
+      {id:id("light"),kind:"light",x:20,y:15,z:5,brightness:550,color:"#ffd36a"},
+      {id:id("light"),kind:"light",x:10,y:16,z:4,brightness:350,color:"#ffb36a"},
+      {id:id("light"),kind:"light",x:29,y:16,z:4,brightness:350,color:"#74c9ff"},
+      {id:id("light"),kind:"light",x:20,y:9,z:4,brightness:400,color:"#ffe28a"},
+      {id:id("light"),kind:"light",x:20,y:22,z:3,brightness:300,color:"#ff8c6a"}
+    ];
+    // Competitive pass v2: double the footprint and route widths while preserving
+    // playable GoldSrc heights. Crates and ladders remain human-scale.
+    rooms.forEach((item) => { item.x *= 2; item.y *= 2; item.w *= 2; item.d *= 2; });
+    const planRoom = (label) => rooms.find((item) => item.label === label);
+    ["NW OVERLOOK", "NE OVERLOOK", "WEST TUNNEL", "EAST TUNNEL", "OBJECTIVE A", "OBJECTIVE B",
+      "LOWER CHANNEL W", "LOWER CHANNEL E", "T SPAWN", "CT SPAWN"].forEach((label) => {
+      const item = planRoom(label);
+      if (item) item.planPoints = octagonPoints(item.x, item.y, item.w, item.d, Math.min(item.w, item.d) * .2);
+    });
+    const hubRoom = planRoom("CENTRAL SUN HUB");
+    if (hubRoom) hubRoom.planPoints = octagonPoints(hubRoom.x, hubRoom.y, hubRoom.w, hubRoom.d, 4);
+    const ribbonRoom = planRoom("RIBBON HALL");
+    if (ribbonRoom) ribbonRoom.planPoints = [[32,14],[48,14],[48,21],[45,24],[35,24],[32,21]];
+    const marketRoom = planRoom("MARKET COURT");
+    if (marketRoom) marketRoom.planPoints = [[12,24],[28,24],[28,38],[26,40],[12,40],[12,36],[10,34],[10,28]];
+    const gardenRoom = planRoom("GARDEN COURT");
+    if (gardenRoom) gardenRoom.planPoints = [[52,24],[68,24],[70,28],[70,34],[68,36],[68,40],[54,40],[52,38]];
+    const westBridgeRoom = planRoom("WEST BRIDGE");
+    if (westBridgeRoom) westBridgeRoom.planPoints = [[28,39],[32,41],[32,50],[28,48]];
+    const eastBridgeRoom = planRoom("EAST BRIDGE");
+    if (eastBridgeRoom) eastBridgeRoom.planPoints = [[48,41],[52,39],[52,48],[48,50]];
+    rooms.forEach((item) => {
+      if (item.planPoints) item.points = item.planPoints.map((point) => [...point]);
+    });
+    const setElevation = (labels, elevation) => labels.forEach((label) => {
+      const item = planRoom(label);
+      if (item) { item.elevation = elevation; item.floorLevel = elevation * .75; }
+    });
+    setElevation(["LOWER CHANNEL W", "LOWER CHANNEL E"], -2);
+    setElevation(["A BACK ALLEY", "WEST TUNNEL", "RED HALL", "EAST TUNNEL", "B BACK ALLEY", "A SERVICE", "B SERVICE"], -1);
+    setElevation(["RIBBON HALL", "WEST BRIDGE", "EAST BRIDGE"], 1);
+    setElevation(["NW OVERLOOK", "NE OVERLOOK"], 2);
+    rooms.forEach((item) => { if (item.elevation == null) { item.elevation = 0; item.floorLevel = 0; } });
+    [...doors, ...windows].forEach((item) => {
+      item.boundary *= 2; item.along *= 2; item.width = 2;
+    });
+    zones.forEach((item) => { item.x *= 2; item.y *= 2; item.w *= 2; item.d *= 2; });
+    props.forEach((item) => {
+      item.x *= 2; item.y *= 2;
+      if (item.kind !== "crate" && item.kind !== "ladder") { item.w *= 2; item.d *= 2; }
+      if (item.kind === "stairs") item.steps = recommendedStairSteps(item);
+    });
+    const sunPlatform = props.find((item) => item.kind === "platform" && item.texture === "SUN_FACE");
+    if (sunPlatform) {
+      sunPlatform.kind = "platformPolygon";
+      sunPlatform.points = octagonPoints(sunPlatform.x, sunPlatform.y, sunPlatform.w, sunPlatform.d, 2);
+      sunPlatform.height = 1.5;
+      sunPlatform.label = "UPPER SUN +2";
+    }
+    entities.forEach((item) => { item.x = item.x * 2 + 1; item.y = item.y * 2 + 1; });
+
+    const diagonal = (x, y, w, d, height, slope, texture = "CSTRIKE_ME4METL") => ({
+      id: id("diagonal"), kind: "diagonal", x, y, w, d, height, slope, thickness: .55,
+      architectural: height >= 2.5, texture
+    });
+    props.push(
+      // Full-height corner cuts turn the hub into a faceted octagonal combat space.
+      diagonal(32,24,4,4,6,"up","SUN_WALL"), diagonal(44,24,4,4,6,"down","SUN_WALL"),
+      diagonal(32,36,4,4,6,"down","SUN_WALL"), diagonal(44,36,4,4,6,"up","SUN_WALL"),
+      // Low asymmetric cover creates anchor positions and counter-peek choices.
+      diagonal(15,27,4,4,1.25,"down"), diagonal(22,33,4,4,1.75,"up"),
+      diagonal(55,33,4,4,1.25,"down"), diagonal(62,26,4,4,1.75,"up"),
+      diagonal(1,25,3,3,1.25,"down","SUN_KNIT"), diagonal(8,36,3,3,1.6,"up","SUN_RIBBON"),
+      diagonal(69,36,3,3,1.25,"up","SUN_RIBBON"), diagonal(76,25,3,3,1.6,"down","SUN_KNIT"),
+      diagonal(21,15,3,3,1.3,"down"), diagonal(56,15,3,3,1.3,"up"),
+      diagonal(19,43,4,4,1.4,"up"), diagonal(57,43,4,4,1.4,"down"),
+      // Towers, tunnels, sites, and lower rotation rooms follow the faceted blueprint silhouette.
+      diagonal(20,14,3,3,6,"up","SUN_METAL"), diagonal(29,14,3,3,6,"down","SUN_METAL"),
+      diagonal(20,21,3,3,6,"down","SUN_METAL"), diagonal(29,21,3,3,6,"up","SUN_METAL"),
+      diagonal(48,14,3,3,6,"up","SUN_METAL"), diagonal(57,14,3,3,6,"down","SUN_METAL"),
+      diagonal(48,21,3,3,6,"down","SUN_METAL"), diagonal(57,21,3,3,6,"up","SUN_METAL"),
+      diagonal(16,40,3,3,3,"up","SUN_METAL"), diagonal(25,47,3,3,3,"up","SUN_METAL"),
+      diagonal(52,47,3,3,3,"down","SUN_METAL"), diagonal(61,40,3,3,3,"down","SUN_METAL"),
+      diagonal(0,24,3,3,5,"up","SUN_WALL"), diagonal(9,37,3,3,5,"up","SUN_WALL"),
+      diagonal(68,37,3,3,5,"down","SUN_WALL"), diagonal(77,24,3,3,5,"down","SUN_WALL"),
+      diagonal(12,50,3,3,3,"up","SUN_TILE"), diagonal(17,53,3,3,3,"up","SUN_TILE"),
+      diagonal(60,53,3,3,3,"down","SUN_TILE"), diagonal(65,50,3,3,3,"down","SUN_TILE")
+    );
+    for (let index = props.length - 1; index >= 0; index--) {
+      if (props[index].kind === "diagonal" && props[index].architectural) props.splice(index, 1);
+    }
+
+    const polygonPlatform = (label, points, height, texture, floorLevel = 0) => {
+      const xs = points.map((point) => point[0]), ys = points.map((point) => point[1]);
+      return {
+        id:id("platform-poly"), kind:"platformPolygon", label, points, height, texture, floorLevel,
+        x:Math.min(...xs), y:Math.min(...ys), w:Math.max(...xs)-Math.min(...xs), d:Math.max(...ys)-Math.min(...ys),
+        architectural:true
+      };
+    };
+    // The blueprint's defining concentric upper ring: eight convex GoldSrc
+    // brushes form a walkable annulus without relying on unsupported curves.
+    const ringCenter = [40,32], ringSides = 8, innerRadius = 4.4, outerRadius = 8.2;
+    for (let index = 0; index < ringSides; index++) {
+      const a = -Math.PI / 8 + index * Math.PI * 2 / ringSides;
+      const b = -Math.PI / 8 + (index + 1) * Math.PI * 2 / ringSides;
+      const point = (radius, angle) => [ringCenter[0] + Math.cos(angle) * radius, ringCenter[1] + Math.sin(angle) * radius];
+      props.push(polygonPlatform("", [point(innerRadius,a),point(outerRadius,a),point(outerRadius,b),point(innerRadius,b)], 1.5, index % 2 ? "SUN_RIBBON" : "SUN_FACE"));
+    }
+    // Four diagonal approaches make the center play as a radial arena rather
+    // than a square junction. They stop short of the ring to preserve cover.
+    [
+      [[29,25],[32,22],[37,27],[34,30]], [[43,27],[48,22],[51,25],[46,30]],
+      [[29,39],[34,34],[37,37],[32,42]], [[43,37],[46,34],[51,39],[48,42]]
+    ].forEach((points) => props.push(polygonPlatform("", points, .75, "SUN_RIBBON")));
+    // Faceted ribbon sweeps approximate the plan's twin curves with legal,
+    // convex GoldSrc brushes and create readable elevated firing lanes.
+    const westRibbon = [
+      [[32,18],[35,21],[31,23],[28,21]],
+      [[28,21],[31,23],[27,25],[24,23]],
+      [[24,23],[27,25],[24,28],[21,26]]
+    ];
+    westRibbon.forEach((points, index) => {
+      props.push(polygonPlatform("", points, .35, index % 2 ? "SUN_KNIT" : "SUN_RIBBON", .75));
+      props.push(polygonPlatform("", points.map(([x,y]) => [80-x,y]), .35, index % 2 ? "SUN_KNIT" : "SUN_RIBBON", .75));
+    });
+    const transition = (x,y,w,d,height,direction,floorLevel) => {
+      const item = prop("ramp",x,y,w,d,height,direction,"SUN_RIBBON");
+      item.floorLevel = floorLevel;
+      props.push(item);
+    };
+    transition(38,11,4,4,.75,"s",0);       // north gate -> ribbon hall +1
+    transition(18,21,4,5,1.5,"n",0);       // market -> northwest overlook +2
+    transition(58,21,4,5,1.5,"n",0);       // garden -> northeast overlook +2
+    transition(26,44,3,4,1.5,"e",-.75);    // west tunnel -> bridge +1
+    transition(31,44,3,4,1.5,"w",-.75);
+    transition(46,44,3,4,1.5,"e",-.75);    // east bridge transitions
+    transition(51,44,3,4,1.5,"w",-.75);
+    transition(12,50,4,4,.75,"s",-1.5);    // lower channels -> service -1
+    transition(64,50,4,4,.75,"s",-1.5);
+    props.filter((item) => item.kind === "ramp" && item.height === .5 && item.x >= 28 && item.x <= 48 && item.y >= 24 && item.y <= 36)
+      .forEach((item) => { item.height = 1.5; item.floorLevel = 0; });
+    // Structures inherit the physical tier of the room beneath them unless a
+    // transition or architectural piece supplied an explicit base level.
+    props.forEach((item) => {
+      if (item.floorLevel != null) return;
+      const host = rooms.find((candidate) => pointInRoom(item.x + item.w / 2, item.y + item.d / 2, candidate));
+      item.floorLevel = host?.floorLevel || 0;
+    });
+
+    const retexture = (texture) => SUNBURST_TEXTURE_UPGRADE[texture] || texture;
+    rooms.forEach((item) => {
+      item.texture = retexture(item.texture);
+      item.floorTexture = retexture(item.floorTexture);
+      item.ceilingTexture = retexture(item.ceilingTexture);
+    });
+    doors.forEach((item) => { item.texture = retexture(item.texture); });
+    props.forEach((item) => { item.texture = retexture(item.texture); });
+    return { name:"de_sunburst_v5", rooms, doors, windows, zones, props, entities, environment:{...DEFAULT_ENVIRONMENT,groundElevation:-2,groundMaterial:"SUN_FLOOR",skyName:"morning"}, updatedAt:Date.now() };
+  }
+
+  function loadProject() {
+    try {
+      const value = localStorage.getItem(STORAGE_KEY);
+      if (!value) return null;
+      const project = JSON.parse(value);
+      environmentFor(project);
+      project.stories = Array.isArray(project.stories) && project.stories.length ? project.stories : [{id:crypto.randomUUID(),name:"Ground floor",elevation:0}];
+      project.rooms = (project.rooms || []).map((room) => ({
+        kind: "room", texture: "C1A0_LABW3", floorTexture: "CSTRIKE_FP2DARK",
+        ceilingTexture: "C1A0_LABW3", ceilingMode: "ceiling", ...room
+      }));
+      project.doors = (project.doors || []).map((door) => ({ width: 1, height: 2, mode: "opening", texture: "CSTRIKE_ME4METL", speed: 100, ...door }));
+      project.windows = (project.windows || []).map((window) => ({
+        width: 1, mode: "breakable", sill: .75, height: 1.5, health: 20, texture: "GLASS_BRIGHT", ...window
+      }));
+      project.zones = (project.zones || []).map((zone) => ({ kind: "buyCt", w: 2, d: 2, damage:25, target:"tele_dest_1", ...zone }));
+      project.props = (project.props || []).map((prop) => {
+        const loaded = {
+          height: prop.kind === "crate" ? 1 : ["wall", "wallPolygon", "diagonal"].includes(prop.kind) ? 3 : ["platform", "platformPolygon"].includes(prop.kind) ? 1 : prop.kind === "ladder" ? 3 : 2,
+          texture: prop.kind === "crate" ? "BCRATE02" : ["wall", "wallPolygon"].includes(prop.kind) ? "CSTRIKE_WR4RGH" : ["platform", "platformPolygon"].includes(prop.kind) ? "CSTRIKE_CH3TILE" : ["floor", "floorPolygon"].includes(prop.kind) ? "CSTRIKE_FP2DARK" : "CSTRIKE_ME4METL",
+          direction: "e", slope: "down", thickness: .42,
+          ...prop
+        };
+        if (["floor", "floorPolygon"].includes(loaded.kind)) {
+          loaded.elevation = Number.isFinite(Number(loaded.elevation)) ? Number(loaded.elevation) : (Number(loaded.floorLevel) || 0) + .25;
+          loaded.thickness = Math.max(.125, Number(loaded.thickness) || .25);
+        }
+        if (loaded.kind === "stairs" && !loaded.steps) loaded.steps = recommendedStairSteps(loaded);
+        return loaded;
+      });
+      project.entities = (project.entities || []).map((entity) => ["light","spotlight"].includes(entity.kind)
+        ? { z: 2.5, brightness: 300, radius:512, style:"0", target:"", color: "#fff0d0", angle:0, pitch:-45, cone:45, ...entity }
+        : ["ct", "t"].includes(entity.kind) ? { angle: 0, ...entity }
+          : entity.kind === "ambient" ? { sound:"ambience/wind1.wav", volume:7, ...entity }
+            : entity.kind === "decal" ? { decal:"{lambda01", ...entity }
+              : entity.kind === "teleDest" ? { target:"tele_dest_1", angle:0, ...entity }
+                : entity.kind === "button" ? { target:"target_1", ...entity }
+                  : entity.kind === "pathCorner" ? { targetName:"path_1", target:"", wait:0, ...entity }
+                    : entity.kind === "targetDummy" ? { angle:0, ...entity } : entity);
+      if (["de_sunburst_blockout", "de_sunburst_v2", "de_sunburst_v3", "de_sunburst_v4", "de_sunburst_v5"].includes(project.name)) {
+        const retexture = (texture) => SUNBURST_TEXTURE_UPGRADE[texture] || texture;
+        project.rooms.forEach((item) => {
+          item.texture = retexture(item.texture);
+          item.floorTexture = retexture(item.floorTexture);
+          item.ceilingTexture = retexture(item.ceilingTexture);
+        });
+        project.doors.forEach((item) => { item.texture = retexture(item.texture); });
+        project.props.forEach((item) => { item.texture = retexture(item.texture); });
+      }
+      return project;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  function snapshot() {
+    return JSON.stringify(state);
+  }
+
+  function commit(before) {
+    const after = snapshot();
+    if (before && before !== after) {
+      history.push(before);
+      if (history.length > 80) history.shift();
+      future = [];
+    }
+    state.updatedAt = Date.now();
+    scheduleSave();
+    refresh();
+  }
+
+  function scheduleSave() {
+    $("#saveState").textContent = "Saving…";
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(() => {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+      $("#saveState").textContent = "Saved locally";
+    }, 180);
+  }
+
+  function undo() {
+    if (!history.length) return;
+    future.push(snapshot());
+    state = JSON.parse(history.pop());
+    selected = null;
+    scheduleSave();
+    refresh();
+  }
+
+  function redo() {
+    if (!future.length) return;
+    history.push(snapshot());
+    state = JSON.parse(future.pop());
+    selected = null;
+    scheduleSave();
+    refresh();
+  }
+
+  function resizeCanvas(canvas, ctx) {
+    const rect = canvas.getBoundingClientRect();
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const width = Math.round(rect.width * dpr);
+    const height = Math.round(rect.height * dpr);
+    if (canvas.width !== width || canvas.height !== height) {
+      canvas.width = width;
+      canvas.height = height;
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    }
+    return rect;
+  }
+
+  function canvasPoint(event, canvas) {
+    const rect = canvas.getBoundingClientRect();
+    return { x: event.clientX - rect.left, y: event.clientY - rect.top };
+  }
+
+  function screenToCell(point) {
+    return {
+      x: Math.floor((point.x - viewOffset.x) / cellSize),
+      y: Math.floor((point.y - viewOffset.y) / cellSize)
+    };
+  }
+
+  function cellToScreen(x, y) {
+    return { x: viewOffset.x + x * cellSize, y: viewOffset.y + y * cellSize };
+  }
+
+  function normalizeRect(a, b) {
+    return {
+      x: Math.min(a.x, b.x), y: Math.min(a.y, b.y),
+      w: Math.abs(a.x - b.x) + 1, d: Math.abs(a.y - b.y) + 1
+    };
+  }
+
+  function pointInRoom(x, y, room) {
+    if (room.points?.length >= 3) return pointInPolygon(x, y, room.points);
+    return x >= room.x && x < room.x + room.w && y >= room.y && y < room.y + room.d;
+  }
+
+  function roomFloor(room) {
+    return Number(room?.floorLevel) || 0;
+  }
+
+  function pointInFloorOpening(x,y,level,roomId=null) {
+    return state.props?.some((prop)=>prop.kind==="floorHole"&&(!roomId||prop.hostRoomId===roomId)&&Math.abs((Number(prop.floorLevel)||0)-Number(level||0))<.13&&x>=prop.x&&x<=prop.x+prop.w&&y>=prop.y&&y<=prop.y+prop.d);
+  }
+
+  function floorLevelAt(x, y, preferredLevel = planLevel) {
+    const rooms = state.rooms.filter((candidate) => pointInRoom(x, y, candidate)&&!pointInFloorOpening(x,y,roomFloor(candidate),candidate.id));
+    const room = preferredLevel == null ? rooms[0] : rooms.sort((a,b)=>Math.abs(roomFloor(a)-preferredLevel)-Math.abs(roomFloor(b)-preferredLevel))[0];
+    if (room) return roomFloor(room);
+    return pointInEnvironmentGround(x,y) ? environmentFor().groundElevation : 0;
+  }
+
+  function openingLevel(item) {
+    const host=adjacentRoomsForOpening(item)[0];
+    return roomFloor(host);
+  }
+
+  function itemLevel(type, item) {
+    if (!item) return 0;
+    if (type === "room") return roomFloor(item);
+    if (type === "door" || type === "window") return Number(item.floorLevel ?? openingLevel(item)) || 0;
+    if (type === "prop") return ["floor", "floorPolygon"].includes(item.kind)
+      ? Number(item.elevation) || 0
+      : Number(item.floorLevel ?? floorLevelAt(item.x + item.w / 2, item.y + item.d / 2)) || 0;
+    return Number(item.floorLevel ?? floorLevelAt(item.x + (item.w || 1) / 2, item.y + (item.d || 1) / 2)) || 0;
+  }
+
+  function onPlanLevel(type, item) {
+    return planLevel == null || Math.abs(itemLevel(type, item) - planLevel) < .13;
+  }
+
+  function updateLevelControls() {
+    const values = [...new Set([
+      ...state.rooms.map(roomFloor),
+      ...state.props.filter((prop) => ["floor", "floorPolygon"].includes(prop.kind)).map((prop) => Number(prop.elevation) || 0)
+    ].map((value) => Math.round(value * 4) / 4))].sort((a,b) => a-b);
+    const select = $("#levelSelect");
+    const current = planLevel == null ? "all" : String(planLevel);
+    select.innerHTML = `<option value="all">All levels</option>${values.map((value) => `<option value="${value}">Z ${value >= 0 ? "+" : ""}${Math.round(value * GRID)}</option>`).join("")}`;
+    if ([...select.options].some((option) => option.value === current)) select.value = current;
+    else { planLevel = null; select.value = "all"; }
+    $("#ghostLevels").checked = ghostLevels;
+    $("#previewLevelButton").textContent = previewLevelOnly && planLevel != null ? `Z ${Math.round(planLevel * GRID)}` : "All Z";
+    $("#previewLevelButton").classList.toggle("active", previewLevelOnly && planLevel != null);
+  }
+
+  function roomPlanPoints(room) {
+    return room.points || room.planPoints || [
+      [room.x, room.y], [room.x + room.w, room.y],
+      [room.x + room.w, room.y + room.d], [room.x, room.y + room.d]
+    ];
+  }
+
+  function environmentBounds(rooms = state.rooms) {
+    const environment = environmentFor();
+    const half = environment.groundSize / 2;
+    const padding = environment.groundPadding;
+    const roomMinX = rooms.length ? Math.min(...rooms.map((room) => room.x)) - padding : -half;
+    const roomMinY = rooms.length ? Math.min(...rooms.map((room) => room.y)) - padding : -half;
+    const roomMaxX = rooms.length ? Math.max(...rooms.map((room) => room.x + room.w)) + padding : half;
+    const roomMaxY = rooms.length ? Math.max(...rooms.map((room) => room.y + room.d)) + padding : half;
+    return {
+      minX:Math.min(-half,roomMinX), minY:Math.min(-half,roomMinY),
+      maxX:Math.max(half,roomMaxX), maxY:Math.max(half,roomMaxY),
+      base:environment.groundElevation
+    };
+  }
+
+  function pointInEnvironmentGround(x,y) {
+    const environment = environmentFor();
+    if (!environment.groundEnabled) return false;
+    const bounds = environmentBounds();
+    return x >= bounds.minX && x < bounds.maxX && y >= bounds.minY && y < bounds.maxY;
+  }
+
+  function currentSkyTheme() {
+    return SKY_THEMES[environmentFor().skyName] || SKY_THEMES.desert;
+  }
+
+  function paintSkyBackground(ctx, width, height, horizon = .72) {
+    const theme = currentSkyTheme();
+    const gradient = ctx.createLinearGradient(0, 0, 0, height * horizon);
+    gradient.addColorStop(0, theme.colors[0]);
+    gradient.addColorStop(.66, theme.colors[1]);
+    gradient.addColorStop(1, theme.colors[2]);
+    ctx.fillStyle = gradient;
+    ctx.fillRect(0, 0, width, height);
+  }
+
+  function octagonPoints(x, y, w, d, cut = Math.min(w, d) * .22) {
+    return [
+      [x + cut, y], [x + w - cut, y], [x + w, y + cut], [x + w, y + d - cut],
+      [x + w - cut, y + d], [x + cut, y + d], [x, y + d - cut], [x, y + cut]
+    ];
+  }
+
+  function pointInProp(x, y, prop) {
+    if (prop.kind === "diagonal") return pointInPolygon(x, y, diagonalCorners(prop));
+    if (prop.points?.length) return pointInPolygon(x, y, prop.points);
+    return x >= prop.x && x < prop.x + prop.w && y >= prop.y && y < prop.y + prop.d;
+  }
+
+  function pointInPolygon(x, y, points) {
+    let inside = false;
+    for (let index = 0, previous = points.length - 1; index < points.length; previous = index++) {
+      const a = points[index], b = points[previous];
+      if ((a[1] > y) !== (b[1] > y) && x < (b[0] - a[0]) * (y - a[1]) / ((b[1] - a[1]) || .00001) + a[0]) inside = !inside;
+    }
+    return inside;
+  }
+
+  function pointInScreenPolygon(point, points) {
+    let inside=false;
+    for(let index=0,previous=points.length-1;index<points.length;previous=index++){
+      const a=points[index],b=points[previous];
+      if((a.y>point.y)!==(b.y>point.y) && point.x < (b.x-a.x)*(point.y-a.y)/((b.y-a.y)||.00001)+a.x) inside=!inside;
+    }
+    return inside;
+  }
+
+  function polygonSignedArea(points) {
+    return points.reduce((sum, point, index) => {
+      const next = points[(index + 1) % points.length];
+      return sum + point[0] * next[1] - next[0] * point[1];
+    }, 0) / 2;
+  }
+
+  function polygonValidation(points) {
+    if (!Array.isArray(points) || points.length < 3) return "Add at least three corners";
+    if (points.length > 16) return "Use no more than 16 corners in one room";
+    if (Math.abs(polygonSignedArea(points)) < 1) return "The room is too small or flat";
+    let direction = 0;
+    for (let index = 0; index < points.length; index++) {
+      const a = points[index], b = points[(index + 1) % points.length], c = points[(index + 2) % points.length];
+      if (Math.hypot(b[0] - a[0], b[1] - a[1]) < .5) return "Two corners are too close together";
+      const cross = (b[0] - a[0]) * (c[1] - b[1]) - (b[1] - a[1]) * (c[0] - b[0]);
+      if (Math.abs(cross) < .01) return "Remove corners that sit on the same straight edge";
+      const sign = Math.sign(cross);
+      if (!direction) direction = sign;
+      else if (direction !== sign) return "GoldSrc rooms must be convex—move the inward corner outward";
+    }
+    return "";
+  }
+
+  function polygonBounds(points) {
+    const xs = points.map((point) => point[0]), ys = points.map((point) => point[1]);
+    return { x: Math.min(...xs), y: Math.min(...ys), w: Math.max(...xs) - Math.min(...xs), d: Math.max(...ys) - Math.min(...ys) };
+  }
+
+  function updatePolygonBounds(item) {
+    Object.assign(item, polygonBounds(item.points));
+  }
+
+  function polygonIsInsideSpace(points) {
+    const bounds = polygonBounds(points);
+    const center = points.reduce((sum, point) => [sum[0] + point[0] / points.length, sum[1] + point[1] / points.length], [0,0]);
+    if (!points.every(([x,y]) => isPointInSpace(x * .98 + center[0] * .02, y * .98 + center[1] * .02))) return false;
+    for (let y = Math.floor(bounds.y); y < Math.ceil(bounds.y + bounds.d); y++) {
+      for (let x = Math.floor(bounds.x); x < Math.ceil(bounds.x + bounds.w); x++) {
+        if (pointInPolygon(x + .5, y + .5, points) && !isPointInSpace(x + .5, y + .5)) return false;
+      }
+    }
+    return true;
+  }
+
+  function roomFromPoints(points, label = "POLYGON ROOM") {
+    const environment = environmentFor();
+    const room = {
+      id: crypto.randomUUID(), kind: "room", label, points: points.map((point) => [...point]),
+      height: 4, floorLevel: planLevel ?? 0, texture: "C1A0_LABW3", floorTexture: "CSTRIKE_FP2DARK",
+      ceilingTexture: "C1A0_LABW3", ceilingMode: environment.openSkyDefault ? "sky" : "ceiling"
+    };
+    updatePolygonBounds(room);
+    return room;
+  }
+
+  function diagonalCorners(prop) {
+    const inset = Math.min(.28, Math.max(.08, Math.min(prop.w, prop.d) * .08));
+    const start = prop.slope === "up"
+      ? [prop.x + inset, prop.y + prop.d - inset]
+      : [prop.x + inset, prop.y + inset];
+    const end = prop.slope === "up"
+      ? [prop.x + prop.w - inset, prop.y + inset]
+      : [prop.x + prop.w - inset, prop.y + prop.d - inset];
+    const dx = end[0] - start[0], dy = end[1] - start[1];
+    const length = Math.max(.001, Math.hypot(dx, dy));
+    const half = Math.max(.14, Math.min(.5, prop.thickness || .42)) / 2;
+    const nx = -dy / length * half, ny = dx / length * half;
+    return [
+      [start[0] + nx, start[1] + ny], [end[0] + nx, end[1] + ny],
+      [end[0] - nx, end[1] - ny], [start[0] - nx, start[1] - ny]
+    ];
+  }
+
+  function rectIsInsideSpace(rect) {
+    for (let y = rect.y; y < rect.y + rect.d; y++) {
+      for (let x = rect.x; x < rect.x + rect.w; x++) {
+        if (!isPointInSpace(x + .5, y + .5)) return false;
+      }
+    }
+    return true;
+  }
+
+  function directionFromDrag(start, end) {
+    const dx = end.x - start.x, dy = end.y - start.y;
+    return Math.abs(dx) >= Math.abs(dy) ? (dx >= 0 ? "e" : "w") : (dy >= 0 ? "s" : "n");
+  }
+
+  function hitTest(cell) {
+    for (let i = state.windows.length - 1; i >= 0; i--) {
+      const window = state.windows[i];
+      if (window.hidden) continue;
+      if (!onPlanLevel("window", window)) continue;
+      const segment=openingSegment(window),hit=projectToSegment({x:cell.x+.5,y:cell.y+.5},segment[0],segment[1]).distance<=.72;
+      if (hit) return { type: "window", id: window.id };
+    }
+    for (let i = state.doors.length - 1; i >= 0; i--) {
+      const door = state.doors[i];
+      if (door.hidden) continue;
+      if (!onPlanLevel("door", door)) continue;
+      const segment=openingSegment(door),hit=projectToSegment({x:cell.x+.5,y:cell.y+.5},segment[0],segment[1]).distance<=.72;
+      if (hit) return { type: "door", id: door.id };
+    }
+    for (let i = state.entities.length - 1; i >= 0; i--) {
+      const entity = state.entities[i];
+      if (entity.hidden) continue;
+      if (!onPlanLevel("entity", entity)) continue;
+      if (entity.x === cell.x && entity.y === cell.y) return { type: "entity", id: entity.id };
+    }
+    for (let i = state.zones.length - 1; i >= 0; i--) {
+      const zone = state.zones[i];
+      if (zone.hidden) continue;
+      if (!onPlanLevel("zone", zone)) continue;
+      if (pointInProp(cell.x, cell.y, zone)) return { type: "zone", id: zone.id };
+    }
+    for (let i = state.props.length - 1; i >= 0; i--) {
+      const prop = state.props[i];
+      if (prop.hidden) continue;
+      if (!onPlanLevel("prop", prop)) continue;
+      if (pointInProp(cell.x, cell.y, prop)) return { type: "prop", id: prop.id };
+    }
+    for (let i = state.rooms.length - 1; i >= 0; i--) {
+      const room = state.rooms[i];
+      if (room.hidden) continue;
+      if (!onPlanLevel("room", room)) continue;
+      if (pointInRoom(cell.x + .5, cell.y + .5, room)) return { type: "room", id: room.id };
+    }
+    return null;
+  }
+
+  function selectedItem() {
+    if (!selected) return null;
+    const list = selected.type === "room" ? state.rooms
+      : selected.type === "door" ? state.doors
+      : selected.type === "window" ? state.windows
+      : selected.type === "zone" ? state.zones
+      : selected.type === "prop" ? state.props : state.entities;
+    return list.find((item) => item.id === selected.id) || null;
+  }
+
+  function itemListFor(type) {
+    return type === "room" ? state.rooms : type === "door" ? state.doors : type === "window" ? state.windows
+      : type === "zone" ? state.zones : type === "prop" ? state.props : state.entities;
+  }
+
+  function itemForRef(ref) {
+    return ref ? itemListFor(ref.type).find((item) => item.id === ref.id) || null : null;
+  }
+
+  function sameRef(a, b) {
+    return !!a && !!b && a.type === b.type && a.id === b.id;
+  }
+
+  function syncSelection() {
+    selection = selection.filter((ref, index, refs) => itemForRef(ref) && refs.findIndex((other) => sameRef(ref, other)) === index);
+    if (selected && itemForRef(selected) && !selection.some((ref) => sameRef(ref, selected))) selection = [{ ...selected }];
+    if (!selected || !itemForRef(selected)) selected = selection[0] ? { ...selection[0] } : null;
+  }
+
+  function selectedEntries() {
+    syncSelection();
+    return selection.map((ref) => ({ ref, item:itemForRef(ref) })).filter((entry) => entry.item);
+  }
+
+  function isRefSelected(type, id) {
+    return selection.some((ref) => ref.type === type && ref.id === id) || (selected?.type === type && selected.id === id);
+  }
+
+  function refsForHit(ref) {
+    const item = itemForRef(ref);
+    if (!item?.groupId) return ref ? [{ ...ref }] : [];
+    const refs = [];
+    ["room","door","window","zone","prop","entity"].forEach((type) => itemListFor(type).forEach((candidate) => {
+      if (candidate.groupId === item.groupId) refs.push({ type, id:candidate.id });
+    }));
+    return refs;
+  }
+
+  function applySelectionHit(ref, additive = false) {
+    if (!ref) {
+      if (!additive) { selection = []; selected = null; }
+      return;
+    }
+    const refs = refsForHit(ref);
+    if (additive) {
+      const removing = refs.every((candidate) => selection.some((current) => sameRef(current, candidate)));
+      selection = removing ? selection.filter((current) => !refs.some((candidate) => sameRef(current, candidate)))
+        : [...selection, ...refs.filter((candidate) => !selection.some((current) => sameRef(current, candidate)))];
+    } else selection = refs;
+    selected = selection.find((candidate) => sameRef(candidate, ref)) || selection[0] || null;
+    editingVertices = false;
+    selectedVertexIndex = -1;
+    selectedEdgeIndex = -1;
+  }
+
+  function itemBoundsForRef(ref) {
+    const item = itemForRef(ref);
+    if (!item) return null;
+    if (ref.type === "door" || ref.type === "window") return item.axis === "h"
+      ? { x:item.along, y:item.boundary-.1, w:item.width || 1, d:.2 }
+      : { x:item.boundary-.1, y:item.along, w:.2, d:item.width || 1 };
+    if (ref.type === "entity") return { x:item.x, y:item.y, w:1, d:1 };
+    return { x:item.x, y:item.y, w:item.w || 1, d:item.d || 1 };
+  }
+
+  function selectionBounds(entries = selectedEntries()) {
+    const bounds = entries.map((entry) => itemBoundsForRef(entry.ref)).filter(Boolean);
+    if (!bounds.length) return null;
+    const minX = Math.min(...bounds.map((box) => box.x)), minY = Math.min(...bounds.map((box) => box.y));
+    const maxX = Math.max(...bounds.map((box) => box.x + box.w)), maxY = Math.max(...bounds.map((box) => box.y + box.d));
+    return { x:minX, y:minY, w:maxX-minX, d:maxY-minY };
+  }
+
+  function normalizedUv(value = {}) {
+    value ||= {};
+    return { shiftX:Number(value.shiftX)||0, shiftY:Number(value.shiftY)||0, rotation:Number(value.rotation)||0,
+      scaleX:Math.max(.05,Number(value.scaleX)||1), scaleY:Math.max(.05,Number(value.scaleY)||1), mode:value.mode === "fit" ? "fit" : "tile" };
+  }
+
+  function surfaceUvFor(item, type, target = surfaceTarget, create = false) {
+    if (type === "room" && target === "floor") {
+      if (create) item.floorUV = normalizedUv(item.floorUV);
+      return normalizedUv(item.floorUV);
+    }
+    if (type === "room" && target === "ceiling") {
+      if (create) item.ceilingUV = normalizedUv(item.ceilingUV);
+      return normalizedUv(item.ceilingUV);
+    }
+    if (type === "room" && target.startsWith("edge:")) {
+      const index = Number(target.split(":")[1]);
+      item.edgeUV ||= {};
+      if (create) item.edgeUV[index] = normalizedUv(item.edgeUV[index]);
+      return normalizedUv(item.edgeUV[index]);
+    }
+    if (type === "room" && target !== "object") {
+      item.wallUV ||= {};
+      if (create) item.wallUV[target] = normalizedUv(item.wallUV[target]);
+      return normalizedUv(item.wallUV[target]);
+    }
+    if (create) item.textureUV = normalizedUv(item.textureUV);
+    return normalizedUv(item.textureUV);
+  }
+
+  function setSurfaceUv(item, type, target, uv) {
+    const value=normalizedUv(uv);
+    if(type==="room"&&target==="floor")item.floorUV=value;
+    else if(type==="room"&&target==="ceiling")item.ceilingUV=value;
+    else if(type==="room"&&target.startsWith("edge:")){item.edgeUV||={};item.edgeUV[Number(target.split(":")[1])]=value;}
+    else if(type==="room"&&target!=="object"){item.wallUV||={};item.wallUV[target]=value;}
+    else item.textureUV=value;
+    return value;
+  }
+
+  function surfaceDimensions(item, type, target = surfaceTarget) {
+    if(type==="room"){
+      if(target.startsWith("edge:")){
+        const index=Number(target.split(":")[1]),points=roomPlanPoints(item),a=points[index],b=points[(index+1)%points.length];
+        return {width:Math.hypot(b[0]-a[0],b[1]-a[1])*GRID,height:(item.height||4)*GRID};
+      }
+      if(["north","south"].includes(target))return {width:(item.w||1)*GRID,height:(item.height||4)*GRID};
+      if(["east","west"].includes(target))return {width:(item.d||1)*GRID,height:(item.height||4)*GRID};
+      if(["floor","ceiling"].includes(target)){
+        const points=roomPlanPoints(item),xs=points.map((point)=>point[0]),ys=points.map((point)=>point[1]);
+        return {width:(Math.max(...xs)-Math.min(...xs))*GRID,height:(Math.max(...ys)-Math.min(...ys))*GRID};
+      }
+      return {width:Math.max(item.w||1,item.d||1)*GRID,height:(item.height||4)*GRID};
+    }
+    return {width:(item.w||1)*GRID,height:(item.d||item.height||1)*GRID};
+  }
+
+  function resolvedSurfaceUv(item, type, target = surfaceTarget, source = null) {
+    const value=normalizedUv(source || surfaceUvFor(item,type,target));
+    if(value.mode!=="fit")return value;
+    const dimensions=surfaceDimensions(item,type,target);
+    value.scaleX=Math.max(.05,Math.min(16,dimensions.width/256));
+    value.scaleY=Math.max(.05,Math.min(16,dimensions.height/256));
+    return value;
+  }
+
+  function surfaceTextureFor(item, type, target = surfaceTarget) {
+    if (type === "room" && target === "floor") return item.floorTexture || "CSTRIKE_FP2DARK";
+    if (type === "room" && target === "ceiling") return item.ceilingTexture || "C1A0_LABW3";
+    if (type === "room" && target.startsWith("edge:")) return item.edgeTextures?.[Number(target.split(":")[1])] || item.texture || "C1A0_LABW3";
+    if (type === "room" && target !== "object") return item.wallTextures?.[target] || item.texture || "C1A0_LABW3";
+    return item.texture || (item.kind === "crate" ? "BCRATE02" : "C1A0_LABW3");
+  }
+
+  function setSurfaceTexture(item, type, texture, target = surfaceTarget) {
+    if (type === "room" && target === "floor") item.floorTexture = texture;
+    else if (type === "room" && target === "ceiling") item.ceilingTexture = texture;
+    else if (type === "room" && target.startsWith("edge:")) {
+      item.edgeTextures ||= {};
+      item.edgeTextures[Number(target.split(":")[1])] = texture;
+    } else if (type === "room" && target !== "object") {
+      item.wallTextures ||= {};
+      item.wallTextures[target] = texture;
+    } else item.texture = texture;
+    if(texture.startsWith("USR_")){
+      const uv=surfaceUvFor(item,type,target,true);uv.mode="fit";setSurfaceUv(item,type,target,uv);
+    }
+  }
+
+  function wallDirectionForEdge(a, b) {
+    const dx = b[0]-a[0], dy = b[1]-a[1];
+    if (Math.abs(dx) >= Math.abs(dy)) return dx >= 0 ? "north" : "south";
+    return dy >= 0 ? "east" : "west";
+  }
+
+  function roomWallTexture(room, edgeIndex, points = roomPlanPoints(room)) {
+    const direction = wallDirectionForEdge(points[edgeIndex], points[(edgeIndex+1)%points.length]);
+    return room.edgeTextures?.[edgeIndex] || room.wallTextures?.[direction] || room.texture || "C1A0_LABW3";
+  }
+
+  function roomWallUv(room, edgeIndex, points = roomPlanPoints(room)) {
+    const direction = wallDirectionForEdge(points[edgeIndex], points[(edgeIndex+1)%points.length]);
+    const source=room.edgeUV?.[edgeIndex] || room.wallUV?.[direction] || room.textureUV;
+    return resolvedSurfaceUv(room,"room",`edge:${edgeIndex}`,source);
+  }
+
+  function selectableRefs() {
+    const refs = [];
+    ["room","door","window","zone","prop","entity"].forEach((type) => itemListFor(type).forEach((item) => {
+      if (!item.hidden && onPlanLevel(type,item)) refs.push({ type, id:item.id });
+    }));
+    return refs;
+  }
+
+  function finishMarqueeSelection() {
+    if (!marquee) return;
+    const box = { x:Math.min(marquee.start.x,marquee.end.x), y:Math.min(marquee.start.y,marquee.end.y), w:Math.abs(marquee.end.x-marquee.start.x), d:Math.abs(marquee.end.y-marquee.start.y) };
+    const hits = selectableRefs().filter((ref) => {
+      const bounds = itemBoundsForRef(ref);
+      return bounds && bounds.x < box.x+box.w && bounds.x+bounds.w > box.x && bounds.y < box.y+box.d && bounds.y+bounds.d > box.y;
+    }).flatMap(refsForHit);
+    const unique = hits.filter((ref,index,refs) => refs.findIndex((candidate) => sameRef(candidate,ref)) === index);
+    selection = marquee.additive ? [...selection,...unique.filter((ref) => !selection.some((current) => sameRef(current,ref)))] : unique;
+    selected = selection[0] || null; marquee = null; refresh();
+  }
+
+  function screenToWorld(point) {
+    return { x: (point.x - viewOffset.x) / cellSize, y: (point.y - viewOffset.y) / cellSize };
+  }
+
+  function snapStep() {
+    return Math.max(.25, snapUnits / GRID);
+  }
+
+  function baseSnap(value) {
+    const step = snapStep();
+    return Math.round(value / step) * step;
+  }
+
+  function snapCandidates(excluded = []) {
+    const ignored = new Set(excluded.map((ref) => `${ref.type}:${ref.id}`));
+    const xs = [], ys = [];
+    ["room","zone","prop","entity"].forEach((type) => itemListFor(type).forEach((item) => {
+      if (item.hidden || ignored.has(`${type}:${item.id}`)) return;
+      const points = item.points?.length ? item.points : [[item.x,item.y],[item.x+(item.w||1),item.y+(item.d||1)]];
+      points.forEach(([x,y]) => { xs.push(x); ys.push(y); });
+      xs.push(item.x+(item.w||1)/2); ys.push(item.y+(item.d||1)/2);
+    }));
+    return { xs, ys };
+  }
+
+  function snapWorldPoint(world, excluded = []) {
+    const snapped = { x:baseSnap(world.x), y:baseSnap(world.y), guides:[] };
+    if (!objectSnapEnabled) return snapped;
+    const tolerance = Math.max(.08, 9 / cellSize);
+    const candidates = snapCandidates(excluded);
+    const nearestX = candidates.xs.reduce((best, value) => Math.abs(value-world.x) < Math.abs((best ?? Infinity)-world.x) ? value : best, null);
+    const nearestY = candidates.ys.reduce((best, value) => Math.abs(value-world.y) < Math.abs((best ?? Infinity)-world.y) ? value : best, null);
+    if (nearestX != null && Math.abs(nearestX-world.x) <= tolerance) { snapped.x = nearestX; snapped.guides.push("x"); }
+    if (nearestY != null && Math.abs(nearestY-world.y) <= tolerance) { snapped.y = nearestY; snapped.guides.push("y"); }
+    return snapped;
+  }
+
+  function normalizeSnappedRect(a, b) {
+    const step = snapStep();
+    return { x:Math.min(a.x,b.x), y:Math.min(a.y,b.y), w:Math.max(step,Math.abs(a.x-b.x)+step), d:Math.max(step,Math.abs(a.y-b.y)+step) };
+  }
+
+  function drawEditor() {
+    const rect = resizeCanvas(editor, ectx);
+    ectx.clearRect(0, 0, rect.width, rect.height);
+
+    ectx.lineWidth = 1;
+    const startX = ((viewOffset.x % cellSize) + cellSize) % cellSize;
+    const startY = ((viewOffset.y % cellSize) + cellSize) % cellSize;
+    for (let x = startX; x < rect.width; x += cellSize) {
+      const major = Math.round((x - viewOffset.x) / cellSize) % 4 === 0;
+      ectx.strokeStyle = major ? "rgba(93,108,82,.22)" : "rgba(65,76,58,.15)";
+      ectx.beginPath(); ectx.moveTo(x + .5, 0); ectx.lineTo(x + .5, rect.height); ectx.stroke();
+    }
+    for (let y = startY; y < rect.height; y += cellSize) {
+      const major = Math.round((y - viewOffset.y) / cellSize) % 4 === 0;
+      ectx.strokeStyle = major ? "rgba(93,108,82,.22)" : "rgba(65,76,58,.15)";
+      ectx.beginPath(); ectx.moveTo(0, y + .5); ectx.lineTo(rect.width, y + .5); ectx.stroke();
+    }
+
+    const terrain = environmentFor();
+    const terrainBounds = terrain.groundEnabled ? environmentBounds() : null;
+    if (terrainBounds) {
+      const topLeft = cellToScreen(terrainBounds.minX, terrainBounds.minY);
+      const bottomRight = cellToScreen(terrainBounds.maxX, terrainBounds.maxY);
+      ectx.save();
+      ectx.globalAlpha = .16;
+      ectx.fillStyle = MATERIAL_COLORS[terrain.groundMaterial] || "#59624a";
+      ectx.fillRect(topLeft.x, topLeft.y, bottomRight.x - topLeft.x, bottomRight.y - topLeft.y);
+      ectx.globalAlpha = .52;
+      ectx.setLineDash([6,5]);
+      ectx.strokeStyle = MATERIAL_COLORS[terrain.groundMaterial] || "#77836a";
+      ectx.strokeRect(topLeft.x+.5, topLeft.y+.5, bottomRight.x-topLeft.x-1, bottomRight.y-topLeft.y-1);
+      ectx.setLineDash([]); ectx.fillStyle = "#a8b59b"; ectx.font = "8px ui-monospace, monospace";
+      ectx.fillText(`MAP GROUND · ${MATERIAL_INFO[terrain.groundMaterial] || terrain.groundMaterial}`, topLeft.x+8, topLeft.y+14);
+      ectx.restore();
+    }
+
+    state.rooms.forEach((room, index) => {
+      if (room.hidden) return;
+      const points = roomPlanPoints(room).map(([x, y]) => cellToScreen(x, y));
+      if (!onPlanLevel("room", room)) {
+        if (!ghostLevels) return;
+        ectx.save(); ectx.globalAlpha = .22; ectx.beginPath();
+        points.forEach((point, pointIndex) => pointIndex ? ectx.lineTo(point.x, point.y) : ectx.moveTo(point.x, point.y));
+        ectx.closePath(); ectx.fillStyle = "#263026"; ectx.fill(); ectx.strokeStyle = "#71806a"; ectx.setLineDash([3,4]); ectx.stroke(); ectx.restore();
+        return;
+      }
+      const center = points.reduce((sum, point) => ({ x: sum.x + point.x / points.length, y: sum.y + point.y / points.length }), { x: 0, y: 0 });
+      const isSelected = isRefSelected("room", room.id);
+      const corridor = room.kind === "corridor";
+      const materialColor = MATERIAL_COLORS[room.floorTexture || room.texture] || "#647556";
+      ectx.beginPath();
+      points.forEach((point, pointIndex) => pointIndex ? ectx.lineTo(point.x, point.y) : ectx.moveTo(point.x, point.y));
+      ectx.closePath();
+      ectx.fillStyle = isSelected ? "rgba(215,244,90,.22)" : corridor ? "rgba(82,169,190,.18)" : `${materialColor}38`;
+      ectx.fill();
+      ectx.strokeStyle = isSelected ? "#d7f45a" : corridor ? "#4f8c98" : "#68785d";
+      ectx.lineWidth = isSelected ? 2 : 1;
+      ectx.stroke();
+      ectx.fillStyle = isSelected ? "#d7f45a" : "#929f88";
+      ectx.font = "700 9px system-ui";
+      ectx.textAlign = "center";
+      ectx.fillText(room.label || (corridor ? "CORRIDOR" : `ROOM ${index + 1}`), center.x, center.y - 2);
+      ectx.fillStyle = "#65705e";
+      ectx.font = "8px ui-monospace";
+      const elevation = roomFloor(room) * GRID;
+      ectx.fillText(`${room.w * GRID} × ${room.d * GRID}  ${elevation >= 0 ? "+" : ""}${elevation}`, center.x, center.y + 10);
+      ectx.textAlign = "left";
+    });
+
+    if (["polygon", "polyPlatform", "polyFloor", "polyWall"].includes(activeTool) && polygonDraft.length) {
+      const draftPoints = polygonDraft.map(([x, y]) => cellToScreen(x, y));
+      const candidate = hoverWorld ? cellToScreen(hoverWorld.x, hoverWorld.y) : null;
+      ectx.save();
+      ectx.beginPath();
+      draftPoints.forEach((point, index) => index ? ectx.lineTo(point.x, point.y) : ectx.moveTo(point.x, point.y));
+      if (candidate) ectx.lineTo(candidate.x, candidate.y);
+      if (polygonDraft.length >= 3) ectx.lineTo(draftPoints[0].x, draftPoints[0].y);
+      const draftColor = activeTool === "polyFloor" ? "#72c8c0" : activeTool === "polyWall" ? "#e7c28b" : activeTool === "polyPlatform" ? "#f0a45a" : "#d7f45a";
+      ectx.fillStyle = activeTool === "polyFloor" ? "rgba(114,200,192,.13)" : activeTool === "polyWall" ? "rgba(231,194,139,.14)" : activeTool === "polyPlatform" ? "rgba(240,164,90,.12)" : "rgba(215,244,90,.1)";
+      if (polygonDraft.length >= 3) ectx.fill();
+      ectx.strokeStyle = draftColor; ectx.lineWidth = 2; ectx.setLineDash([6,4]); ectx.stroke(); ectx.setLineDash([]);
+      draftPoints.forEach((point, index) => {
+        ectx.beginPath(); ectx.arc(point.x, point.y, index === 0 ? 6 : 4, 0, Math.PI * 2);
+        ectx.fillStyle = index === 0 ? draftColor : "#10140f"; ectx.fill(); ectx.strokeStyle = draftColor; ectx.stroke();
+      });
+      ectx.restore();
+    }
+
+    const vertexItem = editingVertices && (["room", "prop"].includes(selected?.type)) ? selectedItem() : null;
+    if (vertexItem?.points?.length) {
+      ectx.save();
+      vertexItem.points.forEach(([x, y], index) => {
+        const point = cellToScreen(x, y);
+        ectx.beginPath(); ectx.arc(point.x, point.y, index === selectedVertexIndex ? 7 : 5, 0, Math.PI * 2);
+        ectx.fillStyle = index === selectedVertexIndex ? "#f0a45a" : "#d7f45a"; ectx.fill();
+        ectx.strokeStyle = "#10140f"; ectx.lineWidth = 2; ectx.stroke();
+        ectx.fillStyle = "#10140f"; ectx.font = "700 7px system-ui"; ectx.textAlign = "center";
+        ectx.fillText(String(index + 1), point.x, point.y + 2.5);
+        const next=vertexItem.points[(index+1)%vertexItem.points.length],mid=cellToScreen((x+next[0])/2,(y+next[1])/2);
+        ectx.fillStyle=index===selectedEdgeIndex?"#72ddec":"#10140f"; ectx.strokeStyle="#72ddec"; ectx.lineWidth=1.5;
+        ectx.fillRect(mid.x-4,mid.y-4,8,8); ectx.strokeRect(mid.x-4,mid.y-4,8,8);
+      });
+      ectx.restore();
+    }
+
+    state.zones.filter((zone) => !zone.hidden && onPlanLevel("zone", zone)).forEach((zone) => drawZone(zone));
+    state.props.filter((prop) => !prop.hidden && onPlanLevel("prop", prop)).forEach((prop) => drawProp(prop));
+
+    if (drawing) {
+      const box = normalizeSnappedRect(drawing.start, drawing.end);
+      const p = cellToScreen(box.x, box.y);
+      const corridor = activeTool === "corridor" || activeTool === "vent";
+      const structure = ["stairs", "stairPrefab", "ramp", "wall", "diagonal", "platform", "floor", "floorHole", "cylinder", "wedge", "arch", "slopeRoof", "elevator", "rotatingDoor", "train"].includes(activeTool);
+      const buyCt = activeTool === "buyCt", buyT = activeTool === "buyT";
+      ectx.fillStyle = buyCt ? "rgba(98,169,255,.16)" : buyT ? "rgba(240,156,74,.16)" : corridor ? "rgba(82,169,190,.14)" : structure ? "rgba(240,156,74,.16)" : "rgba(215,244,90,.14)";
+      ectx.strokeStyle = buyCt ? "#62a9ff" : buyT ? "#f09c4a" : corridor ? "#62b5c4" : structure ? "#f09c4a" : "#d7f45a";
+      ectx.lineWidth = 2;
+      ectx.setLineDash([5, 4]);
+      const presetPreview = presetRoomPoints(activeTool, box)?.map(([x, y]) => cellToScreen(x, y));
+      if (presetPreview) {
+        ectx.beginPath();
+        presetPreview.forEach((point, index) => index ? ectx.lineTo(point.x, point.y) : ectx.moveTo(point.x, point.y));
+        ectx.closePath(); ectx.fill(); ectx.stroke();
+      } else {
+        ectx.fillRect(p.x + 1, p.y + 1, box.w * cellSize - 2, box.d * cellSize - 2);
+        ectx.strokeRect(p.x + 1, p.y + 1, box.w * cellSize - 2, box.d * cellSize - 2);
+      }
+      ectx.setLineDash([]);
+      const label = `${box.w * GRID} × ${box.d * GRID} units`;
+      ectx.font = "8px ui-monospace";
+      const width = ectx.measureText(label).width + 10;
+      ectx.fillStyle = structure ? "#f09c4a" : "#d7f45a";
+      ectx.fillRect(p.x, p.y - 19, width, 16);
+      ectx.fillStyle = "#15180b";
+      ectx.fillText(label, p.x + 5, p.y - 8);
+    }
+
+    if(lightingOverlay){
+      ectx.save();ectx.setLineDash([5,5]);
+      state.entities.filter((entity)=>["light","spotlight"].includes(entity.kind)&&!entity.hidden).forEach((entity)=>{const p=cellToScreen(entity.x+.5,entity.y+.5),radius=(entity.radius||512)/GRID*cellSize;ectx.beginPath();ectx.arc(p.x,p.y,radius,0,Math.PI*2);ectx.fillStyle=`${entity.color||"#fff0d0"}0d`;ectx.fill();ectx.strokeStyle=`${entity.color||"#fff0d0"}66`;ectx.stroke();});
+      ectx.restore();
+    }
+    state.entities.filter((entity) => !entity.hidden && onPlanLevel("entity", entity)).forEach((entity) => drawEntity(entity));
+    state.doors.filter((door) => !door.hidden && onPlanLevel("door", door)).forEach((door) => drawDoor(door));
+    state.windows.filter((window) => !window.hidden && onPlanLevel("window", window)).forEach((window) => drawWindow(window));
+    drawAnalysisOverlay();
+    drawEditorSelectionOverlay();
+
+    if (hoverCell && !["select", "polygon", "polyPlatform", "polyFloor", "polyWall"].includes(activeTool) && !drawing) {
+      const p = cellToScreen(hoverCell.x, hoverCell.y);
+      ectx.strokeStyle = "rgba(215,244,90,.55)";
+      ectx.lineWidth = 1;
+      ectx.strokeRect(p.x + 1.5, p.y + 1.5, cellSize - 3, cellSize - 3);
+    }
+  }
+
+  function transformHandlesForSelection() {
+    const entries=selectedEntries(); if(entries.length!==1||editingVertices||!["room","prop","zone"].includes(entries[0].ref.type))return [];
+    const bounds=itemBoundsForRef(entries[0].ref),a=cellToScreen(bounds.x,bounds.y),b=cellToScreen(bounds.x+bounds.w,bounds.y+bounds.d),cx=(a.x+b.x)/2,cy=(a.y+b.y)/2;
+    return [
+      {mode:"resize",corner:"nw",x:a.x,y:a.y},{mode:"resize",corner:"ne",x:b.x,y:a.y},{mode:"resize",corner:"se",x:b.x,y:b.y},{mode:"resize",corner:"sw",x:a.x,y:b.y},
+      {mode:"rotate",x:cx,y:a.y-28},{mode:"height",x:b.x+28,y:cy}
+    ];
+  }
+
+  function transformHandleHit(point) {
+    return transformHandlesForSelection().find((handle)=>Math.hypot(handle.x-point.x,handle.y-point.y)<=10)||null;
+  }
+
+  function drawEditorSelectionOverlay() {
+    const entries = selectedEntries().filter((entry) => !entry.item.hidden);
+    if (entries.length > 1) {
+      const bounds = selectionBounds(entries), a = cellToScreen(bounds.x,bounds.y), b = cellToScreen(bounds.x+bounds.w,bounds.y+bounds.d);
+      ectx.save(); ectx.strokeStyle = "#ffffff"; ectx.lineWidth = 1.5; ectx.setLineDash([6,4]);
+      ectx.strokeRect(a.x-4,a.y-4,b.x-a.x+8,b.y-a.y+8); ectx.setLineDash([]);
+      const label = `${entries.length} objects${entries.every((entry) => entry.item.groupId && entry.item.groupId === entries[0].item.groupId) ? " · GROUP" : ""}`;
+      ectx.font = "800 8px system-ui"; const width = ectx.measureText(label).width + 10;
+      ectx.fillStyle = "rgba(10,13,9,.9)"; ectx.fillRect(a.x-4,a.y-21,width,15); ectx.fillStyle = "#d7f45a"; ectx.fillText(label,a.x+1,a.y-10);
+      ectx.restore();
+    }
+    if (marquee) {
+      const box = { x:Math.min(marquee.start.x,marquee.end.x), y:Math.min(marquee.start.y,marquee.end.y), w:Math.abs(marquee.end.x-marquee.start.x), d:Math.abs(marquee.end.y-marquee.start.y) };
+      const a = cellToScreen(box.x,box.y), b = cellToScreen(box.x+box.w,box.y+box.d);
+      ectx.save(); ectx.fillStyle = "rgba(215,244,90,.09)"; ectx.strokeStyle = "#d7f45a"; ectx.setLineDash([5,4]);
+      ectx.fillRect(a.x,a.y,b.x-a.x,b.y-a.y); ectx.strokeRect(a.x+.5,a.y+.5,b.x-a.x-1,b.y-a.y-1); ectx.restore();
+    }
+    if (measurement?.start && measurement?.end) {
+      const a = cellToScreen(measurement.start.x,measurement.start.y), b = cellToScreen(measurement.end.x,measurement.end.y);
+      const dx = measurement.end.x-measurement.start.x, dy = measurement.end.y-measurement.start.y;
+      const units = Math.hypot(dx,dy)*GRID, angle = (Math.atan2(dy,dx)*180/Math.PI+360)%360;
+      ectx.save(); ectx.strokeStyle = "#72ddec"; ectx.fillStyle = "#72ddec"; ectx.lineWidth = 2; ectx.setLineDash([6,3]);
+      ectx.beginPath(); ectx.moveTo(a.x,a.y); ectx.lineTo(b.x,b.y); ectx.stroke(); ectx.setLineDash([]);
+      [a,b].forEach((point) => { ectx.beginPath(); ectx.arc(point.x,point.y,4,0,Math.PI*2); ectx.fill(); });
+      const label = `${Math.round(units)} units · ΔX ${Math.round(Math.abs(dx)*GRID)} · ΔY ${Math.round(Math.abs(dy)*GRID)} · ${Math.round(angle)}°`;
+      ectx.font = "800 8px system-ui"; const width = ectx.measureText(label).width+10, x=(a.x+b.x)/2-width/2, y=(a.y+b.y)/2-19;
+      ectx.fillStyle = "rgba(8,12,12,.9)"; ectx.fillRect(x,y,width,15); ectx.fillStyle = "#bff7ff"; ectx.fillText(label,x+5,y+11); ectx.restore();
+    }
+    const handles=transformHandlesForSelection();
+    if(handles.length){
+      const resize=handles.filter((handle)=>handle.mode==="resize"),rotate=handles.find((handle)=>handle.mode==="rotate"),height=handles.find((handle)=>handle.mode==="height"),topMid={x:(resize[0].x+resize[1].x)/2,y:resize[0].y},rightMid={x:resize[1].x,y:(resize[1].y+resize[2].y)/2};
+      ectx.save();ectx.strokeStyle="#72ddec";ectx.lineWidth=1.5;ectx.beginPath();ectx.moveTo(topMid.x,topMid.y);ectx.lineTo(rotate.x,rotate.y);ectx.moveTo(rightMid.x,rightMid.y);ectx.lineTo(height.x,height.y);ectx.stroke();
+      resize.forEach((handle)=>{ectx.fillStyle="#10140f";ectx.strokeStyle="#d7f45a";ectx.fillRect(handle.x-5,handle.y-5,10,10);ectx.strokeRect(handle.x-5,handle.y-5,10,10);});
+      ectx.beginPath();ectx.arc(rotate.x,rotate.y,7,0,Math.PI*2);ectx.fillStyle="#10140f";ectx.fill();ectx.strokeStyle="#f0a45a";ectx.stroke();ectx.fillStyle="#f0a45a";ectx.font="800 8px system-ui";ectx.textAlign="center";ectx.fillText("↻",rotate.x,rotate.y+3);
+      ectx.beginPath();ectx.moveTo(height.x,height.y-7);ectx.lineTo(height.x+7,height.y);ectx.lineTo(height.x,height.y+7);ectx.lineTo(height.x-7,height.y);ectx.closePath();ectx.fillStyle="#72ddec";ectx.fill();ectx.fillStyle="#bff7ff";ectx.font="700 7px system-ui";ectx.fillText("Z",height.x,height.y+2.5);ectx.restore();
+    }
+  }
+
+  function drawZone(zone) {
+    const p = cellToScreen(zone.x, zone.y);
+    const selectedZone = isRefSelected("zone", zone.id);
+    const ct = zone.kind === "buyCt";
+    const color = {buyCt:"#62a9ff",buyT:"#f09c4a",rescue:"#78d6a5",triggerHurt:"#df6658",teleport:"#a27ee8"}[zone.kind]||"#f09c4a";
+    ectx.save();
+    ectx.fillStyle = `${color}29`;
+    ectx.fillRect(p.x + 3, p.y + 3, zone.w * cellSize - 6, zone.d * cellSize - 6);
+    ectx.strokeStyle = selectedZone ? "#ffffff" : color;
+    ectx.lineWidth = selectedZone ? 2.5 : 1.5;
+    ectx.setLineDash([5, 3]);
+    ectx.strokeRect(p.x + 3, p.y + 3, zone.w * cellSize - 6, zone.d * cellSize - 6);
+    ectx.setLineDash([]);
+    ectx.fillStyle = color; ectx.font = "900 8px system-ui";
+    ectx.fillText({buyCt:"CT BUY",buyT:"T BUY",rescue:"RESCUE",triggerHurt:"DAMAGE",teleport:"TELEPORT"}[zone.kind]||"ZONE", p.x + 8, p.y + 16);
+    ectx.restore();
+  }
+
+  function drawProp(prop) {
+    const p = cellToScreen(prop.x, prop.y);
+    const width = prop.w * cellSize, depth = prop.d * cellSize;
+    const isSelected = isRefSelected("prop", prop.id);
+    const base = MATERIAL_COLORS[prop.texture] || "#7a735f";
+    ectx.save();
+    if(prop.kind==="floorHole"){ectx.fillStyle="rgba(3,5,3,.82)";ectx.fillRect(p.x+3,p.y+3,width-6,depth-6);ectx.strokeStyle=isSelected?"#d7f45a":"#ef6658";ectx.lineWidth=isSelected?2.5:1.5;ectx.setLineDash([6,4]);ectx.strokeRect(p.x+2,p.y+2,width-4,depth-4);ectx.setLineDash([]);ectx.fillStyle=isSelected?"#d7f45a":"#ffaaa3";ectx.font="800 7px system-ui";ectx.fillText("FLOOR OPEN",p.x+7,p.y+15);ectx.restore();return;}
+    if (["platformPolygon", "floorPolygon", "wallPolygon", "cylinder"].includes(prop.kind)) {
+      const corners = (prop.points || []).map(([x, y]) => cellToScreen(x, y));
+      ectx.beginPath();
+      corners.forEach((point, index) => index ? ectx.lineTo(point.x, point.y) : ectx.moveTo(point.x, point.y));
+      ectx.closePath(); ectx.fillStyle = base; ectx.globalAlpha = isSelected ? .92 : .74; ectx.fill(); ectx.globalAlpha = 1;
+      const floorShape = prop.kind === "floorPolygon", wallShape = ["wallPolygon","cylinder"].includes(prop.kind);
+      ectx.strokeStyle = isSelected ? "#d7f45a" : floorShape ? "#72c8c0" : wallShape ? "#e7c28b" : "#f3c95f"; ectx.lineWidth = isSelected ? 2.5 : 1.5; ectx.stroke();
+      ectx.fillStyle = floorShape ? "#c2f3ee" : wallShape ? "#f5dfbd" : "#fff0b3"; ectx.font = "800 7px system-ui"; ectx.textAlign = "center";
+      const label = floorShape ? `FLOOR Z ${Math.round((prop.elevation || 0) * GRID)}` : prop.kind === "cylinder" ? "CYLINDER" : wallShape ? (prop.label || "POLY WALL") : prop.label;
+      if (label) ectx.fillText(label, p.x + width / 2, p.y + depth / 2 + 2); ectx.restore(); return;
+    }
+    if (prop.kind === "diagonal") {
+      const corners = diagonalCorners(prop).map(([x, y]) => cellToScreen(x, y));
+      ectx.beginPath();
+      corners.forEach((point, index) => index ? ectx.lineTo(point.x, point.y) : ectx.moveTo(point.x, point.y));
+      ectx.closePath();
+      ectx.fillStyle = base; ectx.globalAlpha = isSelected ? .92 : .78; ectx.fill(); ectx.globalAlpha = 1;
+      ectx.strokeStyle = isSelected ? "#d7f45a" : "#f0c87a"; ectx.lineWidth = isSelected ? 2.5 : 1.5; ectx.stroke();
+      if (isSelected) {
+        const centerX = p.x + width / 2, centerY = p.y + depth / 2;
+        ectx.fillStyle = "rgba(10,14,10,.78)"; ectx.fillRect(centerX - 19, centerY - 7, 38, 13);
+        ectx.fillStyle = "#d7f45a"; ectx.font = "800 7px system-ui"; ectx.textAlign = "center";
+        ectx.fillText(prop.architectural ? "WALL" : "COVER", centerX, centerY + 2);
+      }
+      ectx.restore(); return;
+    }
+    ectx.fillStyle = base;
+    ectx.globalAlpha = isSelected ? .9 : .72;
+    ectx.fillRect(p.x + 3, p.y + 3, width - 6, depth - 6);
+    ectx.globalAlpha = 1;
+    ectx.strokeStyle = isSelected ? "#d7f45a" : "#c4b184";
+    ectx.lineWidth = isSelected ? 2 : 1;
+    ectx.strokeRect(p.x + 2, p.y + 2, width - 4, depth - 4);
+
+    if (prop.kind === "ladder") {
+      ectx.strokeStyle = isSelected ? "#ffffff" : "#8fd8cc";
+      ectx.lineWidth = 2;
+      const horizontal = prop.direction === "n" || prop.direction === "s";
+      if (horizontal) {
+        const y = prop.direction === "n" ? p.y + 6 : p.y + depth - 6;
+        ectx.beginPath(); ectx.moveTo(p.x + 5, y - 4); ectx.lineTo(p.x + width - 5, y - 4);
+        ectx.moveTo(p.x + 5, y + 4); ectx.lineTo(p.x + width - 5, y + 4);
+        for (let x = p.x + 9; x < p.x + width - 5; x += 7) { ectx.moveTo(x, y - 4); ectx.lineTo(x, y + 4); }
+      } else {
+        const x = prop.direction === "w" ? p.x + 6 : p.x + width - 6;
+        ectx.beginPath(); ectx.moveTo(x - 4, p.y + 5); ectx.lineTo(x - 4, p.y + depth - 5);
+        ectx.moveTo(x + 4, p.y + 5); ectx.lineTo(x + 4, p.y + depth - 5);
+        for (let y = p.y + 9; y < p.y + depth - 5; y += 7) { ectx.moveTo(x - 4, y); ectx.lineTo(x + 4, y); }
+      }
+      ectx.stroke();
+    } else if (["crate","wall","platform","floor","arch","water","breakable","elevator","rotatingDoor","train"].includes(prop.kind)) {
+      ectx.beginPath();
+      if (prop.kind === "crate") {
+        ectx.moveTo(p.x + 4, p.y + 4); ectx.lineTo(p.x + width - 4, p.y + depth - 4);
+        ectx.moveTo(p.x + width - 4, p.y + 4); ectx.lineTo(p.x + 4, p.y + depth - 4);
+      } else if (prop.kind === "wall") {
+        for (let offset = 8; offset < width - 4; offset += 9) {
+          ectx.moveTo(p.x + offset, p.y + 3);
+          ectx.lineTo(p.x + offset, p.y + depth - 3);
+        }
+      } else if (prop.kind === "platform") {
+        ectx.moveTo(p.x + 5, p.y + depth - 6); ectx.lineTo(p.x + width - 5, p.y + 6);
+      } else {
+        ectx.strokeStyle = isSelected ? "#d7f45a" : "#72c8c0";
+        for (let offset = -depth; offset < width; offset += 9) {
+          ectx.moveTo(p.x + Math.max(3, offset), p.y + Math.max(3, -offset));
+          ectx.lineTo(p.x + Math.min(width - 3, offset + depth), p.y + Math.min(depth - 3, depth - offset));
+        }
+      }
+      ectx.stroke();
+      if (prop.kind === "wall" && width > 36 && depth > 18) {
+        ectx.fillStyle = "rgba(10,14,10,.72)"; ectx.fillRect(p.x + 5, p.y + 5, 29, 12);
+        ectx.fillStyle = isSelected ? "#d7f45a" : "#dce4d6"; ectx.font = "800 7px system-ui"; ectx.fillText("WALL", p.x + 9, p.y + 14);
+      }
+      if (prop.kind === "platform" && width > 42 && depth > 18) {
+        ectx.fillStyle = "rgba(10,14,10,.72)"; ectx.fillRect(p.x + 5, p.y + 5, 43, 12);
+        ectx.fillStyle = isSelected ? "#d7f45a" : "#f0c87a"; ectx.font = "800 7px system-ui"; ectx.fillText("PLATFORM", p.x + 8, p.y + 14);
+      }
+      if (prop.kind === "floor" && width > 42 && depth > 18) {
+        ectx.fillStyle = "rgba(10,14,10,.72)"; ectx.fillRect(p.x + 5, p.y + 5, 58, 12);
+        ectx.fillStyle = isSelected ? "#d7f45a" : "#9fe1db"; ectx.font = "800 7px system-ui"; ectx.fillText(`FLOOR ${Math.round((prop.elevation || 0) * GRID)}`, p.x + 8, p.y + 14);
+      }
+      if (["water","breakable"].includes(prop.kind) && width > 36 && depth > 18) {
+        ectx.fillStyle="rgba(10,14,10,.72)";ectx.fillRect(p.x+5,p.y+5,prop.kind==="water"?35:58,12);ectx.fillStyle=isSelected?"#d7f45a":prop.kind==="water"?"#72ddec":"#f0a45a";ectx.font="800 7px system-ui";ectx.fillText(prop.kind==="water"?"WATER":"BREAKABLE",p.x+8,p.y+14);
+      }
+      if (["elevator","rotatingDoor","train"].includes(prop.kind) && width > 36 && depth > 18) {
+        const label={elevator:"ELEVATOR",rotatingDoor:"ROT DOOR",train:"MOVING"}[prop.kind];
+        ectx.fillStyle="rgba(10,14,10,.78)";ectx.fillRect(p.x+5,p.y+5,Math.max(48,label.length*7),12);ectx.fillStyle=isSelected?"#d7f45a":"#a9e1f0";ectx.font="800 7px system-ui";ectx.fillText(label,p.x+8,p.y+14);
+      }
+    } else {
+      const count = ["ramp","wedge","slopeRoof"].includes(prop.kind) ? 6 : Math.max(2, Math.round(prop.steps || recommendedStairSteps(prop)));
+      for (let i = 1; i < count; i++) {
+        const t = i / count;
+        ectx.beginPath();
+        if (prop.direction === "e" || prop.direction === "w") {
+          ectx.moveTo(p.x + width * t, p.y + 3); ectx.lineTo(p.x + width * t, p.y + depth - 3);
+        } else {
+          ectx.moveTo(p.x + 3, p.y + depth * t); ectx.lineTo(p.x + width - 3, p.y + depth * t);
+        }
+        ectx.stroke();
+      }
+      const angle = { e: 0, s: Math.PI / 2, w: Math.PI, n: -Math.PI / 2 }[prop.direction];
+      const cx = p.x + width / 2, cy = p.y + depth / 2;
+      ectx.translate(cx, cy); ectx.rotate(angle);
+      ectx.beginPath(); ectx.moveTo(-7, -5); ectx.lineTo(7, 0); ectx.lineTo(-7, 5); ectx.stroke();
+    }
+    ectx.restore();
+  }
+
+  function drawDoor(door) {
+    const selectedDoor = isRefSelected("door", door.id);
+    const sliding = door.mode === "sliding";
+    const segment=openingSegment(door),a=cellToScreen(segment[0][0],segment[0][1]),b=cellToScreen(segment[1][0],segment[1][1]);
+    ectx.save();
+    ectx.strokeStyle = selectedDoor ? "#ffffff" : sliding ? "#f0a45a" : "#d7f45a";
+    ectx.lineWidth = selectedDoor ? 6 : 4;
+    ectx.beginPath(); ectx.moveTo(a.x, a.y); ectx.lineTo(b.x, b.y); ectx.stroke();
+    ectx.strokeStyle = "#10140f"; ectx.lineWidth = 2; ectx.setLineDash(sliding ? [] : [4, 4]);
+    ectx.beginPath(); ectx.moveTo(a.x, a.y); ectx.lineTo(b.x, b.y); ectx.stroke();
+    ectx.restore();
+  }
+
+  function drawWindow(window) {
+    const selectedWindow = isRefSelected("window", window.id);
+    const segment=openingSegment(window),a=cellToScreen(segment[0][0],segment[0][1]),b=cellToScreen(segment[1][0],segment[1][1]);
+    ectx.save();
+    ectx.strokeStyle = selectedWindow ? "#ffffff" : "#72ddec";
+    ectx.lineWidth = selectedWindow ? 7 : 5;
+    ectx.beginPath(); ectx.moveTo(a.x, a.y); ectx.lineTo(b.x, b.y); ectx.stroke();
+    ectx.strokeStyle = window.mode === "open" ? "#10140f" : "rgba(220,252,255,.9)";
+    ectx.lineWidth = 1.5; ectx.setLineDash(window.mode === "open" ? [4, 4] : [2, 3]);
+    ectx.beginPath(); ectx.moveTo(a.x, a.y); ectx.lineTo(b.x, b.y); ectx.stroke();
+    ectx.restore();
+  }
+
+  function drawEntity(entity) {
+    const p = cellToScreen(entity.x + .5, entity.y + .5);
+    const selectedEntity = isRefSelected("entity", entity.id);
+    const styles = {
+      ct: ["#62a9ff", "CT"], t: ["#f09c4a", "T"],
+      bombA: ["#d7f45a", "A"], bombB: ["#d7f45a", "B"],
+      light: [entity.color || "#fff0d0", "L"], spotlight:[entity.color || "#fff0d0", "SP"], hostage:["#e9d9a4","H"], button:["#b7a780","E"],
+      teleDest:["#a27ee8","D"], decal:["#c4b184","#"], ambient:["#d7f45a","S"], pathCorner:["#8fe1ff","P"], targetDummy:["#ef6658","TG"]
+    }[entity.kind];
+    if (["light","spotlight"].includes(entity.kind)) {
+      const glow = ectx.createRadialGradient(p.x, p.y, 2, p.x, p.y, 17);
+      glow.addColorStop(0, `${entity.color || "#fff0d0"}88`); glow.addColorStop(1, "rgba(255,240,208,0)");
+      ectx.fillStyle = glow; ectx.fillRect(p.x - 18, p.y - 18, 36, 36);
+    }
+    ectx.beginPath();
+    if (entity.kind.startsWith("bomb")) {
+      ectx.roundRect(p.x - 10, p.y - 10, 20, 20, 4);
+    } else {
+      ectx.arc(p.x, p.y, 10, 0, Math.PI * 2);
+    }
+    ectx.fillStyle = styles[0]; ectx.fill();
+    if (selectedEntity) {
+      ectx.strokeStyle = "#fff"; ectx.lineWidth = 2; ectx.stroke();
+    }
+    ectx.fillStyle = "#10140f";
+    ectx.font = "900 8px system-ui";
+    ectx.textAlign = "center"; ectx.textBaseline = "middle";
+    ectx.fillText(styles[1], p.x, p.y + .5);
+    if (["ct", "t"].includes(entity.kind)) {
+      const angle = (entity.angle || 0) * Math.PI / 180;
+      const tip = { x: p.x + Math.cos(angle) * 18, y: p.y + Math.sin(angle) * 18 };
+      ectx.strokeStyle = styles[0]; ectx.fillStyle = styles[0]; ectx.lineWidth = 2;
+      ectx.beginPath(); ectx.moveTo(p.x + Math.cos(angle) * 10, p.y + Math.sin(angle) * 10); ectx.lineTo(tip.x, tip.y); ectx.stroke();
+      ectx.beginPath(); ectx.moveTo(tip.x, tip.y);
+      ectx.lineTo(tip.x - Math.cos(angle - .55) * 5, tip.y - Math.sin(angle - .55) * 5);
+      ectx.lineTo(tip.x - Math.cos(angle + .55) * 5, tip.y - Math.sin(angle + .55) * 5);
+      ectx.closePath(); ectx.fill();
+    }
+    ectx.textAlign = "left"; ectx.textBaseline = "alphabetic";
+  }
+
+  function drawPreview() {
+    const rect = resizeCanvas(preview, pctx);
+    previewPickRegions = [];
+    previewTransformHandle = null;
+    pctx.clearRect(0, 0, rect.width, rect.height);
+    if (previewMode === "walk") {
+      drawWalkPreview(rect);
+      return;
+    }
+    if (!state.rooms.length && !environmentFor().groundEnabled) {
+      pctx.fillStyle = "#687263";
+      pctx.textAlign = "center";
+      pctx.font = "9px system-ui";
+      pctx.fillText("Your rooms will appear here", rect.width / 2, rect.height / 2);
+      pctx.textAlign = "left";
+      return;
+    }
+
+    if (environmentFor().groundEnabled || state.rooms.some((room) => room.ceilingMode === "sky")) {
+      paintSkyBackground(pctx, rect.width, rect.height);
+    }
+
+    const visibleRooms = state.rooms.filter((room) => !room.hidden);
+    const orbitRooms = previewLevelOnly && planLevel != null ? visibleRooms.filter((room) => onPlanLevel("room", room)) : visibleRooms;
+    const shownRooms = orbitRooms.length ? orbitRooms : state.rooms;
+    const fallbackBounds = environmentBounds(shownRooms);
+    const allX = shownRooms.length ? shownRooms.flatMap((r) => [r.x, r.x + r.w]) : [fallbackBounds.minX,fallbackBounds.maxX];
+    const allY = shownRooms.length ? shownRooms.flatMap((r) => [r.y, r.y + r.d]) : [fallbackBounds.minY,fallbackBounds.maxY];
+    const focusedProp = selected?.type === "prop" ? state.props.find((prop) => prop.id === selected.id) : null;
+    const center = focusedProp
+      ? { x: focusedProp.x + focusedProp.w / 2, y: focusedProp.y + focusedProp.d / 2 }
+      : { x: (Math.min(...allX) + Math.max(...allX)) / 2, y: (Math.min(...allY) + Math.max(...allY)) / 2 };
+    const extent = focusedProp
+      ? Math.max(focusedProp.w, focusedProp.d, 4)
+      : Math.max(Math.max(...allX) - Math.min(...allX), Math.max(...allY) - Math.min(...allY), 5);
+    const baseScale = Math.min(focusedProp ? 30 : 16, rect.width / (extent * 2.05), rect.height / (extent * 1.05));
+    const scale = baseScale * previewZoom;
+    const cos = Math.cos(previewAngle), sin = Math.sin(previewAngle);
+    const origin = { x: rect.width / 2 + previewPan.x, y: rect.height * .63 + previewPan.y };
+
+    function project(x, y, z = 0) {
+      const dx = x - center.x, dy = y - center.y;
+      const rx = dx * cos - dy * sin;
+      const ry = dx * sin + dy * cos;
+      return { x: origin.x + rx * scale, y: origin.y + ry * scale * .48 - z * scale * .58 };
+    }
+
+    function registerPick(type, id, points, pickedSurface = null) {
+      if (points?.length >= 3) previewPickRegions.push({ ref:{type,id}, surface:pickedSurface, points:points.map((point)=>({x:point.x,y:point.y})) });
+    }
+
+    const environment = environmentFor();
+    const terrainBounds = environment.groundEnabled ? environmentBounds(shownRooms) : null;
+    if (terrainBounds) {
+      const terrainPoints = [
+        project(terrainBounds.minX,terrainBounds.minY,terrainBounds.base-.03),
+        project(terrainBounds.maxX,terrainBounds.minY,terrainBounds.base-.03),
+        project(terrainBounds.maxX,terrainBounds.maxY,terrainBounds.base-.03),
+        project(terrainBounds.minX,terrainBounds.maxY,terrainBounds.base-.03)
+      ];
+      polygon(terrainPoints, MATERIAL_COLORS[environment.groundMaterial] || "#586348", "#7d8c6c", environment.groundMaterial, .12);
+    }
+
+    const sorted = [...shownRooms].sort((a, b) => {
+      const ac = project(a.x + a.w / 2, a.y + a.d / 2).y;
+      const bc = project(b.x + b.w / 2, b.y + b.d / 2).y;
+      return ac - bc;
+    });
+
+    sorted.forEach((room) => {
+      const base = roomFloor(room);
+      const z = base + Math.min(room.height, 8) * .35;
+      const planPoints = roomPlanPoints(room);
+      const b = planPoints.map(([x, y]) => project(x, y, base));
+      const t = planPoints.map(([x, y]) => project(x, y, z));
+      const floorPlane = planPoints.map(([x, y]) => project(x, y, base + .025));
+      const isSelected = isRefSelected("room", room.id);
+
+      const floorTexture = room.floorTexture || "CSTRIKE_FP2DARK";
+      const topColor = room.kind === "corridor" ? "#456a6d" : (MATERIAL_COLORS[floorTexture] || "#343a36");
+      polygon(floorPlane, isSelected ? "#a2b34f" : topColor, isSelected ? "#d7f45a" : "#89957f", floorTexture, .06, resolvedSurfaceUv(room,"room","floor"));
+      registerPick("room",room.id,floorPlane,"floor");
+
+      b.forEach((point, index) => {
+        const next = (index + 1) % b.length;
+        polygon([point, b[next], t[next], t[index]], isSelected ? "#667438" : index % 2 ? "#293226" : "#36402f", "#637159", roomWallTexture(room,index,planPoints), index % 2 ? .42 : .3, roomWallUv(room,index,planPoints));
+        registerPick("room",room.id,[point,b[next],t[next],t[index]],`edge:${index}`);
+      });
+      if (room.ceilingMode !== "sky") {
+        pctx.save();
+        pctx.globalAlpha = isSelected ? .78 : .62;
+        polygon(t, isSelected ? "#a8b55d" : "#535d50", isSelected ? "#e7ff79" : "#9aa493", room.ceilingTexture || "C1A0_LABW3", .12, resolvedSurfaceUv(room,"room","ceiling"));
+        pctx.restore();
+      }
+      if (room.ceilingMode !== "sky") registerPick("room",room.id,t,"ceiling");
+    });
+
+    state.zones.filter((zone) => !zone.hidden && (!previewLevelOnly || planLevel == null || onPlanLevel("zone", zone))).forEach((zone) => {
+      const hostRoom = state.rooms.find((room) => pointInRoom(zone.x + zone.w / 2, zone.y + zone.d / 2, room));
+      const baseZ = roomFloor(hostRoom) + .1;
+      pctx.save(); pctx.globalAlpha = isRefSelected("zone",zone.id) ? .72 : .38;
+      drawIsoPrism(zone.x, zone.y, zone.x + zone.w, zone.y + zone.d, .025,
+        ({buyCt:"#62a9ff",buyT:"#f09c4a",rescue:"#78d6a5",triggerHurt:"#df6658",teleport:"#a27ee8"}[zone.kind]||"#f09c4a"), isRefSelected("zone",zone.id), baseZ);
+      registerPick("zone",zone.id,[project(zone.x,zone.y,baseZ),project(zone.x+zone.w,zone.y,baseZ),project(zone.x+zone.w,zone.y+zone.d,baseZ),project(zone.x,zone.y+zone.d,baseZ)]);
+      pctx.restore();
+    });
+
+    state.doors.filter((door) => !door.hidden && door.mode === "sliding" && (!previewLevelOnly || planLevel == null || onPlanLevel("door", door))).forEach((door) => {
+      const hostRoom = adjacentRoomsForOpening(door)[0];
+      const baseZ = roomFloor(hostRoom) + .08;
+      const selectedDoor = isRefSelected("door",door.id);
+      const doorCorners=openingCorners(door,.14);
+      drawIsoPolygonPrism(doorCorners,(door.height||2)*.68,MATERIAL_COLORS[door.texture]||"#53666b",selectedDoor,baseZ,door.texture);
+      registerPick("door",door.id,doorCorners.map(([x,y])=>project(x,y,baseZ+1)));
+    });
+
+    state.windows.filter((window) => !window.hidden && (!previewLevelOnly || planLevel == null || onPlanLevel("window", window))).forEach((window) => {
+      const hostRoom = adjacentRoomsForOpening(window)[0];
+      const baseZ = roomFloor(hostRoom) + .08 + (window.sill || .75) * .58;
+      const selectedWindow = isRefSelected("window",window.id);
+      pctx.save();
+      pctx.globalAlpha = window.mode === "open" ? .18 : .56;
+      const windowCorners=openingCorners(window,.07);
+      drawIsoPolygonPrism(windowCorners,(window.height||1.5)*.58,"#86dce8",selectedWindow,baseZ);
+      pctx.restore();
+      registerPick("window",window.id,windowCorners.map(([x,y])=>project(x,y,baseZ+.5)));
+    });
+
+    const sortedProps = state.props.filter((prop) => !prop.hidden && (!previewLevelOnly || planLevel == null || onPlanLevel("prop", prop))).sort((a, b) => project(a.x + a.w / 2, a.y + a.d / 2).y - project(b.x + b.w / 2, b.y + b.d / 2).y);
+    sortedProps.forEach((prop) => {
+      const color = prop.kind === "stairs" ? "#d7f45a" : prop.kind === "ramp" ? "#f0a45a" : (MATERIAL_COLORS[prop.texture] || "#7a735f");
+      const selectedProp = isRefSelected("prop",prop.id);
+      const hostRoom = state.rooms
+        .filter((room) => pointInRoom(prop.x + prop.w / 2, prop.y + prop.d / 2, room))
+        .sort((a, b) => b.height - a.height)[0];
+      const baseZ = Number(prop.floorLevel ?? roomFloor(hostRoom)) + .08;
+      const pickCorners = prop.points?.length ? prop.points : prop.kind === "diagonal" ? diagonalCorners(prop) : [[prop.x,prop.y],[prop.x+prop.w,prop.y],[prop.x+prop.w,prop.y+prop.d],[prop.x,prop.y+prop.d]];
+      registerPick("prop",prop.id,pickCorners.map(([x,y])=>project(x,y,baseZ+Math.max(.12,(prop.height||.25)*.55))));
+      if(prop.kind==="floorHole"){const points=pickCorners.map(([x,y])=>project(x,y,baseZ+.03));polygon(points,"#050705",selectedProp?"#d7f45a":"#ef6658");return;}
+      if (["floor", "floorPolygon"].includes(prop.kind)) {
+        const top = Number(prop.elevation) || 0;
+        const thickness = Math.max(.125, Number(prop.thickness) || .25);
+        const slabBase = top - thickness + .08;
+        if (prop.kind === "floorPolygon") drawIsoPolygonPrism(prop.points || [], thickness, color, selectedProp, slabBase, prop.texture, resolvedSurfaceUv(prop,"prop","object"));
+        else drawIsoPrism(prop.x, prop.y, prop.x + prop.w, prop.y + prop.d, thickness, color, selectedProp, slabBase, prop.texture, resolvedSurfaceUv(prop,"prop","object"));
+        return;
+      }
+      if (prop.kind === "ladder") {
+        const thickness = .07;
+        if (prop.direction === "n") drawIsoPrism(prop.x, prop.y, prop.x + prop.w, prop.y + thickness, prop.height * .7, "#75b9ad", selectedProp, baseZ, prop.texture);
+        else if (prop.direction === "s") drawIsoPrism(prop.x, prop.y + prop.d - thickness, prop.x + prop.w, prop.y + prop.d, prop.height * .7, "#75b9ad", selectedProp, baseZ, prop.texture);
+        else if (prop.direction === "w") drawIsoPrism(prop.x, prop.y, prop.x + thickness, prop.y + prop.d, prop.height * .7, "#75b9ad", selectedProp, baseZ, prop.texture);
+        else drawIsoPrism(prop.x + prop.w - thickness, prop.y, prop.x + prop.w, prop.y + prop.d, prop.height * .7, "#75b9ad", selectedProp, baseZ, prop.texture);
+        return;
+      }
+      if (prop.kind === "diagonal") {
+        drawIsoPolygonPrism(diagonalCorners(prop), prop.height * .7, color, selectedProp, baseZ, prop.texture, resolvedSurfaceUv(prop,"prop","object"));
+        return;
+      }
+      if (["wallPolygon","cylinder"].includes(prop.kind)) {
+        drawIsoPolygonPrism(prop.points || [], prop.height * .7, color, selectedProp, baseZ, prop.texture, resolvedSurfaceUv(prop,"prop","object"));
+        return;
+      }
+      if (prop.kind === "platformPolygon") {
+        drawIsoPolygonPrism(prop.points || [], prop.height * .7, color, selectedProp, baseZ, prop.texture, resolvedSurfaceUv(prop,"prop","object"));
+        return;
+      }
+      if (["crate","wall","platform","arch","water","breakable","elevator","rotatingDoor","train"].includes(prop.kind)) {
+        drawIsoPrism(prop.x, prop.y, prop.x + prop.w, prop.y + prop.d, prop.height * .7, color, selectedProp, baseZ, prop.texture, resolvedSurfaceUv(prop,"prop","object"));
+        return;
+      }
+      if (["ramp","wedge","slopeRoof"].includes(prop.kind)) {
+        drawIsoRamp(prop, baseZ, prop.height * .9, color, selectedProp, prop.texture, resolvedSurfaceUv(prop,"prop","object"));
+      } else {
+        const alongX = prop.direction === "e" || prop.direction === "w";
+        const segments = Math.max(1, Math.round(prop.steps || recommendedStairSteps(prop)));
+        for (let i = 0; i < segments; i++) {
+          const uphillIndex = prop.direction === "e" || prop.direction === "s" ? i : segments - 1 - i;
+          const height = prop.height * .9 * (uphillIndex + 1) / segments;
+          if (alongX) {
+            const x1 = prop.x + prop.w * i / segments, x2 = prop.x + prop.w * (i + 1) / segments;
+            drawIsoPrism(x1, prop.y, x2, prop.y + prop.d, height, color, selectedProp, baseZ, prop.texture);
+          } else {
+            const y1 = prop.y + prop.d * i / segments, y2 = prop.y + prop.d * (i + 1) / segments;
+            drawIsoPrism(prop.x, y1, prop.x + prop.w, y2, height, color, selectedProp, baseZ, prop.texture);
+          }
+        }
+      }
+      const footprint = [
+        project(prop.x, prop.y, baseZ + .06), project(prop.x + prop.w, prop.y, baseZ + .06),
+        project(prop.x + prop.w, prop.y + prop.d, baseZ + .06), project(prop.x, prop.y + prop.d, baseZ + .06)
+      ];
+      pctx.beginPath();
+      footprint.forEach((point, index) => index ? pctx.lineTo(point.x, point.y) : pctx.moveTo(point.x, point.y));
+      pctx.closePath(); pctx.strokeStyle = selectedProp ? "#ffffff" : color; pctx.lineWidth = selectedProp ? 2.5 : 1.8; pctx.stroke();
+
+      const label = prop.kind === "stairs" ? "STAIRS" : "RAMP";
+      const labelPoint = project(prop.x + prop.w / 2, prop.y + prop.d / 2, baseZ + prop.height * .9 + .28);
+      pctx.fillStyle = selectedProp ? "#d7f45a" : "#f0f2ea";
+      pctx.font = "900 8px system-ui";
+      pctx.textAlign = "center";
+      const labelWidth = pctx.measureText(label).width + 8;
+      pctx.fillStyle = "rgba(8,11,8,.88)"; pctx.fillRect(labelPoint.x - labelWidth / 2, labelPoint.y - 9, labelWidth, 12);
+      pctx.fillStyle = selectedProp ? "#d7f45a" : color; pctx.fillText(label, labelPoint.x, labelPoint.y);
+      pctx.textAlign = "left";
+    });
+
+    state.entities.filter((entity) => !entity.hidden && (!previewLevelOnly || planLevel == null || onPlanLevel("entity", entity))).forEach((entity) => {
+      const point = project(entity.x + .5, entity.y + .5, ["light","spotlight"].includes(entity.kind) ? (entity.z || 2.5) : 3.2);
+      const color = entity.kind === "ct" ? "#62a9ff" : entity.kind === "t" ? "#f09c4a" : ["light","spotlight"].includes(entity.kind) ? (entity.color || "#fff0d0") : ({hostage:"#e9d9a4",button:"#b7a780",teleDest:"#a27ee8",decal:"#c4b184",ambient:"#d7f45a",pathCorner:"#8fe1ff",targetDummy:"#ef6658"}[entity.kind]||"#d7f45a");
+      if (["light","spotlight"].includes(entity.kind)) {
+        const radius = Math.max(9, Math.min(24, (entity.brightness || 300) / 22));
+        const glow = pctx.createRadialGradient(point.x, point.y, 1, point.x, point.y, radius);
+        glow.addColorStop(0, `${color}bb`); glow.addColorStop(1, "rgba(255,240,208,0)");
+        pctx.fillStyle = glow; pctx.fillRect(point.x - radius, point.y - radius, radius * 2, radius * 2);
+      }
+      pctx.beginPath(); pctx.arc(point.x, point.y, 4, 0, Math.PI * 2); pctx.fillStyle = color; pctx.fill();
+      pctx.strokeStyle = "#0f130e"; pctx.lineWidth = 1.5; pctx.stroke();
+      if (!["light","spotlight"].includes(entity.kind)) {
+        const angle = ["ct", "t"].includes(entity.kind) ? (entity.angle || 0) * Math.PI / 180 : Math.PI / 2;
+        const directionPoint = project(entity.x + .5 + Math.cos(angle) * .7, entity.y + .5 + Math.sin(angle) * .7, 3.2);
+        pctx.beginPath(); pctx.moveTo(point.x, point.y); pctx.lineTo(directionPoint.x, directionPoint.y); pctx.strokeStyle = color; pctx.lineWidth = 1.5; pctx.stroke();
+      }
+      registerPick("entity",entity.id,[{x:point.x-8,y:point.y-8},{x:point.x+8,y:point.y-8},{x:point.x+8,y:point.y+8},{x:point.x-8,y:point.y+8}]);
+    });
+
+    const gizmoEntries=selectedEntries();
+    if(gizmoEntries.length===1&&["room","prop","zone"].includes(gizmoEntries[0].ref.type)){
+      const {ref,item}=gizmoEntries[0],cx=item.x+(item.w||1)/2,cy=item.y+(item.d||1)/2;
+      const base=ref.type==="room"?roomFloor(item):ref.type==="prop"?(Number(item.floorLevel)||0):floorLevelAt(cx,cy);
+      const height=ref.type==="room"?(item.height||4):ref.type==="zone"?(item.height||2):["floor","floorPolygon"].includes(item.kind)?Math.max(.25,(Number(item.elevation)||base)-base):(item.height||1);
+      const bottom=project(cx,cy,base),top=project(cx,cy,base+height*.7);
+      pctx.save();pctx.strokeStyle="#72ddec";pctx.lineWidth=2;pctx.setLineDash([4,3]);pctx.beginPath();pctx.moveTo(bottom.x,bottom.y);pctx.lineTo(top.x,top.y);pctx.stroke();pctx.setLineDash([]);pctx.beginPath();pctx.arc(top.x,top.y,7,0,Math.PI*2);pctx.fillStyle="#72ddec";pctx.fill();pctx.strokeStyle="#fff";pctx.stroke();pctx.fillStyle="#071010";pctx.font="800 7px system-ui";pctx.textAlign="center";pctx.fillText("Z",top.x,top.y+2.5);pctx.restore();
+      previewTransformHandle={x:top.x,y:top.y,ref:{...ref},height:item.height||height};
+    }
+
+    function drawIsoRamp(prop, baseZ, height, color, isSelected, texture, uv = null) {
+      const corners = [
+        [prop.x, prop.y], [prop.x + prop.w, prop.y],
+        [prop.x + prop.w, prop.y + prop.d], [prop.x, prop.y + prop.d]
+      ];
+      const heights = {
+        e: [0, height, height, 0], w: [height, 0, 0, height],
+        s: [0, 0, height, height], n: [height, height, 0, 0]
+      }[prop.direction] || [0, height, height, 0];
+      const b = corners.map(([x, y]) => project(x, y, baseZ));
+      const t = corners.map(([x, y], index) => project(x, y, baseZ + heights[index]));
+      const stroke = isSelected ? "#ffffff" : "#f0a45a";
+      polygon([b[0],b[1],t[1],t[0]], "#67462d", stroke, texture, .34, uv);
+      polygon([b[1],b[2],t[2],t[1]], "#513c2b", stroke, texture, .44, uv);
+      polygon([b[2],b[3],t[3],t[2]], "#795334", stroke, texture, .24, uv);
+      polygon([b[3],b[0],t[0],t[3]], "#5c422f", stroke, texture, .38, uv);
+      polygon(t, isSelected ? "#ffd39e" : color, stroke, texture, .04, uv);
+    }
+
+    function drawIsoPrism(x1, y1, x2, y2, height, color, isSelected, baseZ = 0, texture, uv = null) {
+      const b = [project(x1,y1,baseZ), project(x2,y1,baseZ), project(x2,y2,baseZ), project(x1,y2,baseZ)];
+      const t = [project(x1,y1,baseZ+height), project(x2,y1,baseZ+height), project(x2,y2,baseZ+height), project(x1,y2,baseZ+height)];
+      polygon([b[0],b[1],t[1],t[0]], "#4a4234", isSelected ? "#d7f45a" : "#7d7058", texture, .3, uv);
+      polygon([b[1],b[2],t[2],t[1]], "#3b3831", isSelected ? "#d7f45a" : "#6f695a", texture, .42, uv);
+      polygon([b[2],b[3],t[3],t[2]], "#51493a", isSelected ? "#d7f45a" : "#81755e", texture, .22, uv);
+      polygon(t, isSelected ? "#a8b55d" : color, isSelected ? "#d7f45a" : "#a3987c", texture, .04, uv);
+    }
+
+    function drawIsoPolygonPrism(corners, height, color, isSelected, baseZ = 0, texture, uv = null) {
+      const bottom = corners.map(([x, y]) => project(x, y, baseZ));
+      const top = corners.map(([x, y]) => project(x, y, baseZ + height));
+      for (let index = 0; index < corners.length; index++) {
+        const next = (index + 1) % corners.length;
+        polygon([bottom[index], bottom[next], top[next], top[index]], index % 2 ? "#3b3831" : "#4a4234",
+          isSelected ? "#d7f45a" : "#80735a", texture, index % 2 ? .42 : .3, uv);
+      }
+      polygon(top, isSelected ? "#a8b55d" : color, isSelected ? "#d7f45a" : "#a3987c", texture, .04, uv);
+    }
+
+    function polygon(points, fill, stroke, texture, shade = 0, uv = null) {
+      pctx.beginPath();
+      points.forEach((point, index) => index ? pctx.lineTo(point.x, point.y) : pctx.moveTo(point.x, point.y));
+      pctx.closePath();
+      const mapping=normalizedUv(uv),image=materialImages[texture];
+      if(mapping.mode==="fit"&&image?.complete&&image.naturalWidth){
+        pctx.fillStyle=fill;pctx.fill();pctx.save();pctx.clip();pctx.imageSmoothingEnabled=false;
+        const minX=Math.min(...points.map((point)=>point.x)),maxX=Math.max(...points.map((point)=>point.x));
+        const minY=Math.min(...points.map((point)=>point.y)),maxY=Math.max(...points.map((point)=>point.y));
+        const width=Math.max(1,maxX-minX),height=Math.max(1,maxY-minY),centerX=(minX+maxX)/2,centerY=(minY+maxY)/2;
+        pctx.translate(centerX,centerY);pctx.rotate(mapping.rotation*Math.PI/180);
+        pctx.drawImage(image,-width/2,-height/2,width,height);pctx.restore();
+      }else{
+        pctx.fillStyle = previewPattern(texture, .32, mapping) || fill;
+        pctx.fill();
+      }
+      if (texture && shade) {
+        pctx.fillStyle = `rgba(7,10,7,${shade})`;
+        pctx.fill();
+      }
+      pctx.strokeStyle = stroke; pctx.lineWidth = 1; pctx.stroke();
+    }
+  }
+
+  function boundaryOpenings(axis, boundary, start, end, level = null) {
+    return [
+      ...state.doors.map((item) => ({ kind: "door", item })),
+      ...state.windows.map((item) => ({ kind: "window", item }))
+    ].filter(({ item }) => (level==null||Math.abs(Number(item.floorLevel??openingLevel(item))-level)<.13) && item.axis === axis && item.boundary === boundary && item.along < end && item.along + (item.width || 1) > start)
+      .map(({ kind, item }) => ({ kind, item, start: Math.max(start, item.along), end: Math.min(end, item.along + (item.width || 1)) }))
+      .sort((a, b) => a.start - b.start);
+  }
+
+  function openingCuts(axis, boundary, start, end, level = null) {
+    return boundaryOpenings(axis, boundary, start, end,level)
+      .map((opening) => [opening.start, opening.end])
+      .sort((a, b) => a[0] - b[0]);
+  }
+
+  function edgeOpenings(a,b,level = null) {
+    const items=[...state.doors.map((item)=>({kind:"door",item})),...state.windows.map((item)=>({kind:"window",item}))];
+    return items.filter(({item})=>level==null||Math.abs(Number(item.floorLevel??openingLevel(item))-level)<.13).map(({kind,item})=>{
+      const segment=openingSegment(item),p1=projectToSegment({x:segment[0][0],y:segment[0][1]},a,b),p2=projectToSegment({x:segment[1][0],y:segment[1][1]},a,b);
+      return {kind,item,start:Math.max(0,Math.min(p1.t,p2.t)),end:Math.min(1,Math.max(p1.t,p2.t)),distance:Math.max(p1.distance,p2.distance)};
+    }).filter((opening)=>opening.distance<.08&&opening.end-opening.start>.001).sort((left,right)=>left.start-right.start);
+  }
+
+  function splitRange(start, end, cuts) {
+    const pieces = [];
+    let cursor = start;
+    cuts.forEach(([cutStart, cutEnd]) => {
+      if (cutStart > cursor) pieces.push([cursor, cutStart]);
+      cursor = Math.max(cursor, cutEnd);
+    });
+    if (cursor < end) pieces.push([cursor, end]);
+    return pieces;
+  }
+
+  function buildWalkWalls(level = null) {
+    const walls = [];
+    const addPropBox = (prop, x1, y1, x2, y2, heightScale, walkable) => {
+      const details = { prop: true, propKind: prop.kind, heightScale, walkable };
+      walls.push({ axis: "h", pos: y1, start: x1, end: x2, ...details });
+      walls.push({ axis: "h", pos: y2, start: x1, end: x2, ...details });
+      walls.push({ axis: "v", pos: x1, start: y1, end: y2, ...details });
+      walls.push({ axis: "v", pos: x2, start: y1, end: y2, ...details });
+    };
+    state.rooms.filter((room)=>!room.hidden&&(level==null||(roomFloor(room)<=level+.8&&roomFloor(room)+room.height>level+.1))).forEach((room) => {
+      if (room.points?.length >= 3) {
+        room.points.forEach((point, index) => {
+          const next = room.points[(index + 1) % room.points.length];
+          if (Math.abs(point[1] - next[1]) < .001) {
+            const start = Math.min(point[0], next[0]), end = Math.max(point[0], next[0]);
+            splitRange(start, end, openingCuts("h", point[1], start, end,roomFloor(room)))
+              .forEach(([pieceStart, pieceEnd]) => walls.push({ axis: "h", pos: point[1], start: pieceStart, end: pieceEnd, texture: room.texture }));
+          } else if (Math.abs(point[0] - next[0]) < .001) {
+            const start = Math.min(point[1], next[1]), end = Math.max(point[1], next[1]);
+            splitRange(start, end, openingCuts("v", point[0], start, end,roomFloor(room)))
+              .forEach(([pieceStart, pieceEnd]) => walls.push({ axis: "v", pos: point[0], start: pieceStart, end: pieceEnd, texture: room.texture }));
+          } else {
+            const openings=edgeOpenings(point,next,roomFloor(room)),lerp=(t)=>[point[0]+(next[0]-point[0])*t,point[1]+(next[1]-point[1])*t];
+            splitRange(0,1,openings.map((opening)=>[opening.start,opening.end])).forEach(([start,end])=>{const a=lerp(start),b=lerp(end);walls.push({axis:"d",x1:a[0],y1:a[1],x2:b[0],y2:b[1],texture:room.texture});});
+          }
+        });
+        return;
+      }
+      const horizontal = [room.y, room.y + room.d];
+      const vertical = [room.x, room.x + room.w];
+      horizontal.forEach((boundary) => {
+        splitRange(room.x, room.x + room.w, openingCuts("h", boundary, room.x, room.x + room.w,roomFloor(room)))
+          .forEach(([start, end]) => walls.push({ axis: "h", pos: boundary, start, end, texture: room.texture }));
+      });
+      vertical.forEach((boundary) => {
+        splitRange(room.y, room.y + room.d, openingCuts("v", boundary, room.y, room.y + room.d,roomFloor(room)))
+          .forEach(([start, end]) => walls.push({ axis: "v", pos: boundary, start, end, texture: room.texture }));
+      });
+    });
+    if (environmentFor().groundEnabled) {
+      const bounds=environmentBounds();
+      const details={texture:"SKY",environmentBoundary:true};
+      walls.push({axis:"h",pos:bounds.minY,start:bounds.minX,end:bounds.maxX,...details});
+      walls.push({axis:"h",pos:bounds.maxY,start:bounds.minX,end:bounds.maxX,...details});
+      walls.push({axis:"v",pos:bounds.minX,start:bounds.minY,end:bounds.maxY,...details});
+      walls.push({axis:"v",pos:bounds.maxX,start:bounds.minY,end:bounds.maxY,...details});
+    }
+    state.doors.filter((door) => door.mode === "sliding" && !openWalkDoors.has(door.id)&&(level==null||Math.abs(itemLevel("door",door)-level)<.8)).forEach((door) => {
+      const segment=openingSegment(door),details={door:true,heightWorld:door.height||2,texture:door.texture||"CSTRIKE_ME4METL"};
+      walls.push(door.axis==="v"?{axis:"v",pos:door.boundary,start:door.along,end:door.along+(door.width||1),...details}:door.axis==="h"?{axis:"h",pos:door.boundary,start:door.along,end:door.along+(door.width||1),...details}:{axis:"d",x1:segment[0][0],y1:segment[0][1],x2:segment[1][0],y2:segment[1][1],...details});
+    });
+    state.windows.filter((window) => (window.mode !== "breakable" || !brokenWalkWindows.has(window.id))&&(level==null||Math.abs(itemLevel("window",window)-level)<.8)).forEach((window) => {
+      const details = {
+        window: true, windowMode: window.mode, bottomWorld: window.sill || .75,
+        heightWorld: window.height || 1.5, texture: null
+      };
+      const segment=openingSegment(window);
+      walls.push(window.axis==="v"?{axis:"v",pos:window.boundary,start:window.along,end:window.along+(window.width||1),...details}:window.axis==="h"?{axis:"h",pos:window.boundary,start:window.along,end:window.along+(window.width||1),...details}:{axis:"d",x1:segment[0][0],y1:segment[0][1],x2:segment[1][0],y2:segment[1][1],...details});
+    });
+    state.props.filter((prop)=>!prop.hidden&&(level==null||((Number(prop.floorLevel??itemLevel("prop",prop))<=level+.8)&&verticalBounds({type:"prop"},prop)?.top>level+.05))).forEach((prop) => {
+      if (prop.kind === "ladder") return;
+      if (prop.kind === "diagonal") {
+        const details = { prop: true, propKind: prop.kind, heightScale: Math.min(1, Math.max(.22, prop.height / 2.4)), walkable: false };
+        const corners = diagonalCorners(prop);
+        corners.forEach((corner, index) => {
+          const next = corners[(index + 1) % corners.length];
+          walls.push({ axis: "d", x1: corner[0], y1: corner[1], x2: next[0], y2: next[1], ...details });
+        });
+        return;
+      }
+      if (["wallPolygon","cylinder"].includes(prop.kind)) {
+        const details = { prop:true, propKind:prop.kind, heightScale:Math.min(1, Math.max(.22, prop.height / 2.4)), walkable:false };
+        const corners = prop.points || [];
+        corners.forEach((corner,index) => { const next=corners[(index+1)%corners.length]; walls.push({axis:"d",x1:corner[0],y1:corner[1],x2:next[0],y2:next[1],...details}); });
+        return;
+      }
+      if (prop.kind === "platformPolygon") {
+        const details = { prop: true, propKind: prop.kind, heightScale: Math.min(1, Math.max(.12, prop.height / 2.4)), walkable: true };
+        const corners = prop.points || [];
+        corners.forEach((corner, index) => {
+          const next = corners[(index + 1) % corners.length];
+          walls.push({ axis: "d", x1: corner[0], y1: corner[1], x2: next[0], y2: next[1], ...details });
+        });
+        return;
+      }
+      if (prop.kind === "floorPolygon") {
+        const details = { prop: true, propKind: prop.kind, heightScale: Math.min(1, Math.max(.08, (prop.thickness || .25) / 2.4)), walkable: true };
+        const corners = prop.points || [];
+        corners.forEach((corner, index) => {
+          const next = corners[(index + 1) % corners.length];
+          walls.push({ axis: "d", x1: corner[0], y1: corner[1], x2: next[0], y2: next[1], ...details });
+        });
+        return;
+      }
+      if (prop.kind === "floor") {
+        addPropBox(prop, prop.x, prop.y, prop.x + prop.w, prop.y + prop.d, Math.min(1, Math.max(.08, (prop.thickness || .25) / 2.4)), true);
+        return;
+      }
+      if (prop.kind === "platform") {
+        addPropBox(prop, prop.x, prop.y, prop.x + prop.w, prop.y + prop.d, Math.min(1, Math.max(.12, prop.height / 2.4)), true);
+        return;
+      }
+      if (["crate","wall","arch","breakable","elevator","rotatingDoor","train"].includes(prop.kind)) {
+        addPropBox(prop, prop.x, prop.y, prop.x + prop.w, prop.y + prop.d, Math.min(1, Math.max(.22, prop.height / 2.4)), false);
+        return;
+      }
+      if(prop.kind==="water")return;
+      const alongX = prop.direction === "e" || prop.direction === "w";
+      const segments = ["ramp","wedge","slopeRoof"].includes(prop.kind) ? Math.max(4, Math.round((alongX ? prop.w : prop.d) * 4)) : Math.max(1, Math.round(prop.steps || recommendedStairSteps(prop)));
+      for (let index = 0; index < segments; index++) {
+        const uphillIndex = prop.direction === "e" || prop.direction === "s" ? index : segments - 1 - index;
+        const structureHeight = prop.height * (uphillIndex + 1) / segments;
+        const heightScale = Math.min(.95, Math.max(.08, structureHeight / 2.5));
+        if (alongX) {
+          const x1 = prop.x + prop.w * index / segments;
+          const x2 = prop.x + prop.w * (index + 1) / segments;
+          addPropBox(prop, x1, prop.y, x2, prop.y + prop.d, heightScale, true);
+        } else {
+          const y1 = prop.y + prop.d * index / segments;
+          const y2 = prop.y + prop.d * (index + 1) / segments;
+          addPropBox(prop, prop.x, y1, prop.x + prop.w, y2, heightScale, true);
+        }
+      }
+    });
+    return walls;
+  }
+
+  function rayWallDistance(x, y, dx, dy, wall) {
+    if (wall.axis === "d") {
+      const sx = wall.x2 - wall.x1, sy = wall.y2 - wall.y1;
+      const denominator = dx * sy - dy * sx;
+      if (Math.abs(denominator) < .00001) return Infinity;
+      const qx = wall.x1 - x, qy = wall.y1 - y;
+      const distance = (qx * sy - qy * sx) / denominator;
+      const along = (qx * dy - qy * dx) / denominator;
+      return distance > .001 && along >= -.0001 && along <= 1.0001 ? distance : Infinity;
+    }
+    if (wall.axis === "v") {
+      if (Math.abs(dx) < .00001) return Infinity;
+      const distance = (wall.pos - x) / dx;
+      const hit = y + distance * dy;
+      return distance > .001 && hit >= wall.start - .0001 && hit <= wall.end + .0001 ? distance : Infinity;
+    }
+    if (Math.abs(dy) < .00001) return Infinity;
+    const distance = (wall.pos - y) / dy;
+    const hit = x + distance * dx;
+    return distance > .001 && hit >= wall.start - .0001 && hit <= wall.end + .0001 ? distance : Infinity;
+  }
+
+  function isPointInSpace(x, y) {
+    return state.rooms.some((room) => pointInRoom(x, y, room)) || pointInEnvironmentGround(x,y);
+  }
+
+  function walkSurfaceHeightAt(x, y, reference = player.z) {
+    let surface = floorLevelAt(x, y, reference);
+    state.props.forEach((prop) => {
+      if (!["stairs", "ramp", "platform", "platformPolygon", "floor", "floorPolygon", "ladder"].includes(prop.kind)) return;
+      if (["platformPolygon", "floorPolygon"].includes(prop.kind) ? !pointInPolygon(x, y, prop.points || []) : (x < prop.x || x > prop.x + prop.w || y < prop.y || y > prop.y + prop.d)) return;
+      const bounds=verticalBounds({type:"prop"},prop);if(bounds&&!(bounds.base<=reference+.8&&bounds.top>=reference-.15))return;
+      if (["floor", "floorPolygon"].includes(prop.kind)) {
+        surface = Math.max(surface, Number(prop.elevation) || 0);
+        return;
+      }
+      if (["platform", "platformPolygon", "ladder"].includes(prop.kind)) {
+        surface = Math.max(surface, (Number(prop.floorLevel) || 0) + (prop.height || 1));
+        return;
+      }
+      let uphill;
+      if (prop.direction === "w") uphill = (prop.x + prop.w - x) / prop.w;
+      else if (prop.direction === "s") uphill = (y - prop.y) / prop.d;
+      else if (prop.direction === "n") uphill = (prop.y + prop.d - y) / prop.d;
+      else uphill = (x - prop.x) / prop.w;
+      uphill = Math.max(0, Math.min(1, uphill));
+      if (prop.kind === "stairs") {
+        const segments = Math.max(1, Math.round(prop.steps || recommendedStairSteps(prop)));
+        uphill = Math.min(1, (Math.floor(uphill * segments) + 1) / segments);
+      }
+      surface = Math.max(surface, (Number(prop.floorLevel) || 0) + prop.height * uphill);
+    });
+    return surface;
+  }
+
+  function moveIsBlocked(from, to) {
+    if (!isPointInSpace(to.x, to.y)) return true;
+    const targetRoom = state.rooms.find((room) => pointInRoom(to.x, to.y, room));
+    const crouched = pressedKeys.has("control") || pressedKeys.has("c");
+    if ((targetRoom?.height || 4) < 1.15 && !crouched) return true;
+    const dx = to.x - from.x, dy = to.y - from.y;
+    const distance = Math.hypot(dx, dy);
+    if (distance < .0001) return false;
+    if (buildWalkWalls(player.z).some((wall) => !wall.walkable && rayWallDistance(from.x, from.y, dx / distance, dy / distance, wall) < distance + .02)) return true;
+    const rise = walkSurfaceHeightAt(to.x, to.y) - walkSurfaceHeightAt(from.x, from.y);
+    const onLadder = state.props.some((prop) => prop.kind === "ladder" && (
+      (from.x >= prop.x && from.x <= prop.x + prop.w && from.y >= prop.y && from.y <= prop.y + prop.d)
+      || (to.x >= prop.x && to.x <= prop.x + prop.w && to.y >= prop.y && to.y <= prop.y + prop.d)
+    ));
+    return rise > .75 && !onLadder;
+  }
+
+  function walkEyeHeight() {
+    return pressedKeys.has("control") || pressedKeys.has("c") ? .65 : 1.25;
+  }
+
+  function toggleNearestWalkDoor() {
+    const nearestDoor = state.doors.filter((door) => door.mode === "sliding").map((door) => {
+      const segment=openingSegment(door),center={x:(segment[0][0]+segment[1][0])/2,y:(segment[0][1]+segment[1][1])/2};
+      return { door, distance: Math.hypot(player.x - center.x, player.y - center.y) };
+    }).sort((a, b) => a.distance - b.distance)[0];
+    const nearestWindow = state.windows.map((window) => {
+      const segment=openingSegment(window),center={x:(segment[0][0]+segment[1][0])/2,y:(segment[0][1]+segment[1][1])/2};
+      return { window, distance: Math.hypot(player.x - center.x, player.y - center.y) };
+    }).sort((a, b) => a.distance - b.distance)[0];
+    if (nearestDoor && nearestDoor.distance <= 1.6 && (!nearestWindow || nearestDoor.distance <= nearestWindow.distance)) {
+      if (openWalkDoors.has(nearestDoor.door.id)) {
+        openWalkDoors.delete(nearestDoor.door.id);
+        showToast("Door closed");
+      } else {
+        openWalkDoors.add(nearestDoor.door.id);
+        showToast("Door opened");
+      }
+    } else if (nearestWindow && nearestWindow.distance <= 1.6) {
+      if (nearestWindow.window.mode !== "breakable") {
+        showToast(nearestWindow.window.mode === "open" ? "This is an open window frame" : "This glass is unbreakable");
+      } else if (brokenWalkWindows.has(nearestWindow.window.id)) {
+        showToast("The glass is already broken");
+      } else {
+        brokenWalkWindows.add(nearestWindow.window.id);
+        showToast("Glass broken");
+      }
+    } else {
+      showToast("Move closer to a door or breakable window");
+      return;
+    }
+    drawPreview();
+  }
+
+  function resetPlayerToSafeStart() {
+    const spawn = state.entities.find((entity) => entity.kind === "ct") || state.entities.find((entity) => entity.kind === "t");
+    const overlapsStructure = (x, y, margin = .28) => state.props.some((prop) =>
+      x >= prop.x - margin && x <= prop.x + prop.w + margin && y >= prop.y - margin && y <= prop.y + prop.d + margin
+    );
+    let start = null;
+    let hostRoom = null;
+    if (spawn && !overlapsStructure(spawn.x + .5, spawn.y + .5)) {
+      start = { x: spawn.x + .5, y: spawn.y + .5 };
+      hostRoom = state.rooms.find((room) => pointInRoom(spawn.x, spawn.y, room)) || null;
+    }
+    if (!start && state.rooms.length) {
+      const roomsWithStructures = state.rooms.filter((room) => state.props.some((prop) =>
+        pointInRoom(prop.x + prop.w / 2, prop.y + prop.d / 2, room)
+      ));
+      const roomsToSearch = roomsWithStructures.length ? roomsWithStructures : state.rooms;
+      let bestScore = -Infinity;
+      roomsToSearch.forEach((room) => {
+        for (let y = room.y; y < room.y + room.d; y++) {
+          for (let x = room.x; x < room.x + room.w; x++) {
+            const candidate = { x: x + .5, y: y + .5 };
+            if (!pointInRoom(candidate.x, candidate.y, room)) continue;
+            if (overlapsStructure(candidate.x, candidate.y)) continue;
+            const clearance = state.props.length
+              ? Math.min(...state.props.map((prop) => Math.hypot(candidate.x - (prop.x + prop.w / 2), candidate.y - (prop.y + prop.d / 2))))
+              : 1;
+            if (clearance > bestScore) {
+              bestScore = clearance;
+              start = candidate;
+              hostRoom = room;
+            }
+          }
+        }
+      });
+    }
+    if (!start && state.rooms.length) {
+      hostRoom = state.rooms[0];
+      start = { x: hostRoom.x + .5, y: hostRoom.y + .5 };
+    }
+    if (!start && environmentFor().groundEnabled) {
+      const bounds = environmentBounds();
+      for (let radius=0; radius<Math.max(bounds.maxX-bounds.minX,bounds.maxY-bounds.minY) && !start; radius+=1) {
+        for (const [dx,dy] of [[radius,0],[-radius,0],[0,radius],[0,-radius],[radius,radius],[-radius,-radius]]) {
+          const candidate={x:Math.floor((bounds.minX+bounds.maxX)/2+dx)+.5,y:Math.floor((bounds.minY+bounds.maxY)/2+dy)+.5};
+          if (pointInEnvironmentGround(candidate.x,candidate.y) && !overlapsStructure(candidate.x,candidate.y)) { start=candidate; break; }
+        }
+      }
+    }
+    if (start) {
+      const visibleStructures = state.props.filter((prop) => !hostRoom || pointInRoom(prop.x + prop.w / 2, prop.y + prop.d / 2, hostRoom));
+      const target = visibleStructures.sort((a, b) =>
+        Math.hypot(start.x - (a.x + a.w / 2), start.y - (a.y + a.d / 2))
+        - Math.hypot(start.x - (b.x + b.w / 2), start.y - (b.y + b.d / 2))
+      )[0];
+      const angle = spawn
+        ? (Number(spawn.angle) || 0) * Math.PI / 180
+        : target ? Math.atan2(target.y + target.d / 2 - start.y, target.x + target.w / 2 - start.x) : 0;
+      player = { ...start, z: walkSurfaceHeightAt(start.x, start.y), angle };
+    }
+  }
+
+  function buildWalkPropPolygons() {
+    const polygons = [];
+    const paletteFor = (kind) => ["floor", "floorPolygon"].includes(kind)
+      ? { top: "#72c8c0", front: "#467f79", side: "#315c58", edge: "rgba(190,255,248,.5)" }
+      : kind === "stairs"
+      ? { top: "#d7f45a", front: "#a8c83d", side: "#79962b", edge: "rgba(235,255,154,.48)" }
+      : kind === "ramp"
+        ? { top: "#f4b570", front: "#d88943", side: "#a96330", edge: "rgba(255,225,187,.48)" }
+        : kind === "ladder"
+          ? { top: "#9ce5d8", front: "#6fac9f", side: "#4c7e74", edge: "rgba(202,255,245,.65)" }
+        : { top: "#b28a5f", front: "#8a6847", side: "#674c35", edge: "rgba(231,205,172,.35)" };
+    const addFace = (prop, vertices, shade) => {
+      const palette = paletteFor(prop.kind);
+      polygons.push({
+        vertices,
+        fill: palette[shade],
+        edge: palette.edge,
+        texture: prop.texture,
+        uv: prop.textureUV,
+        textureShade: shade === "top" ? .04 : shade === "front" ? .24 : .38
+      });
+    };
+    const addBox = (prop, x1, y1, x2, y2, height) => {
+      const base = Number(prop.floorLevel) || 0, z = base + height;
+      addFace(prop, [[x1,y1,z],[x2,y1,z],[x2,y2,z],[x1,y2,z]], "top");
+      addFace(prop, [[x1,y1,base],[x2,y1,base],[x2,y1,z],[x1,y1,z]], "front");
+      addFace(prop, [[x2,y2,base],[x1,y2,base],[x1,y2,z],[x2,y2,z]], "front");
+      addFace(prop, [[x1,y2,base],[x1,y1,base],[x1,y1,z],[x1,y2,z]], "side");
+      addFace(prop, [[x2,y1,base],[x2,y2,base],[x2,y2,z],[x2,y1,z]], "side");
+    };
+
+    state.props.filter((prop)=>!prop.hidden).forEach((prop) => {
+      if (["floor", "floorPolygon"].includes(prop.kind)) {
+        const top = Number(prop.elevation) || 0;
+        const base = top - Math.max(.125, Number(prop.thickness) || .25);
+        const corners = prop.kind === "floorPolygon" ? (prop.points || []) : [[prop.x,prop.y],[prop.x+prop.w,prop.y],[prop.x+prop.w,prop.y+prop.d],[prop.x,prop.y+prop.d]];
+        addFace(prop, corners.map(([x, y]) => [x, y, top]), "top");
+        corners.forEach((corner, index) => {
+          const next = corners[(index + 1) % corners.length];
+          addFace(prop, [[corner[0],corner[1],base],[next[0],next[1],base],[next[0],next[1],top],[corner[0],corner[1],top]], index % 2 ? "side" : "front");
+        });
+        return;
+      }
+      if (prop.kind === "ladder") {
+        const base = Number(prop.floorLevel) || 0, z = base + (prop.height || 3);
+        if (prop.direction === "n") addFace(prop, [[prop.x,prop.y,base],[prop.x+prop.w,prop.y,base],[prop.x+prop.w,prop.y,z],[prop.x,prop.y,z]], "front");
+        else if (prop.direction === "s") addFace(prop, [[prop.x+prop.w,prop.y+prop.d,base],[prop.x,prop.y+prop.d,base],[prop.x,prop.y+prop.d,z],[prop.x+prop.w,prop.y+prop.d,z]], "front");
+        else if (prop.direction === "w") addFace(prop, [[prop.x,prop.y+prop.d,base],[prop.x,prop.y,base],[prop.x,prop.y,z],[prop.x,prop.y+prop.d,z]], "front");
+        else addFace(prop, [[prop.x+prop.w,prop.y,base],[prop.x+prop.w,prop.y+prop.d,base],[prop.x+prop.w,prop.y+prop.d,z],[prop.x+prop.w,prop.y,z]], "front");
+        return;
+      }
+      if (prop.kind === "diagonal") {
+        const corners = diagonalCorners(prop);
+        const base = Number(prop.floorLevel) || 0, z = base + (prop.height || 2);
+        addFace(prop, corners.map(([x, y]) => [x, y, z]), "top");
+        corners.forEach((corner, index) => {
+          const next = corners[(index + 1) % corners.length];
+          addFace(prop, [[corner[0],corner[1],base],[next[0],next[1],base],[next[0],next[1],z],[corner[0],corner[1],z]], index % 2 ? "side" : "front");
+        });
+        return;
+      }
+      if (["wallPolygon","cylinder"].includes(prop.kind)) {
+        const corners=prop.points || [], base=Number(prop.floorLevel)||0, z=base+(prop.height||3);
+        addFace(prop,corners.map(([x,y])=>[x,y,z]),"top");
+        corners.forEach((corner,index)=>{const next=corners[(index+1)%corners.length];addFace(prop,[[corner[0],corner[1],base],[next[0],next[1],base],[next[0],next[1],z],[corner[0],corner[1],z]],index%2?"side":"front");});
+        return;
+      }
+      if (prop.kind === "platformPolygon") {
+        const corners = prop.points || [];
+        const base = Number(prop.floorLevel) || 0, z = base + (prop.height || 1);
+        addFace(prop, corners.map(([x, y]) => [x, y, z]), "top");
+        corners.forEach((corner, index) => {
+          const next = corners[(index + 1) % corners.length];
+          addFace(prop, [[corner[0],corner[1],base],[next[0],next[1],base],[next[0],next[1],z],[corner[0],corner[1],z]], index % 2 ? "side" : "front");
+        });
+        return;
+      }
+      if (["crate","wall","platform","arch"].includes(prop.kind)) {
+        addBox(prop, prop.x, prop.y, prop.x + prop.w, prop.y + prop.d, prop.height);
+        return;
+      }
+      if (["ramp","wedge","slopeRoof"].includes(prop.kind)) {
+        const base = Number(prop.floorLevel) || 0;
+        const corners = [
+          [prop.x, prop.y], [prop.x + prop.w, prop.y],
+          [prop.x + prop.w, prop.y + prop.d], [prop.x, prop.y + prop.d]
+        ];
+        const heights = {
+          e: [0, prop.height, prop.height, 0], w: [prop.height, 0, 0, prop.height],
+          s: [0, 0, prop.height, prop.height], n: [prop.height, prop.height, 0, 0]
+        }[prop.direction] || [0, prop.height, prop.height, 0];
+        addFace(prop, corners.map(([x, y], index) => [x, y, base + heights[index]]), "top");
+        for (let index = 0; index < 4; index++) {
+          const next = (index + 1) % 4;
+          addFace(prop, [
+            [corners[index][0], corners[index][1], base],
+            [corners[next][0], corners[next][1], base],
+            [corners[next][0], corners[next][1], base + heights[next]],
+            [corners[index][0], corners[index][1], base + heights[index]]
+          ], index % 2 ? "side" : "front");
+        }
+        return;
+      }
+
+      const alongX = prop.direction === "e" || prop.direction === "w";
+      const segments = Math.max(1, Math.round(prop.steps || recommendedStairSteps(prop)));
+      for (let index = 0; index < segments; index++) {
+        const uphillIndex = prop.direction === "e" || prop.direction === "s" ? index : segments - 1 - index;
+        const z = prop.height * (uphillIndex + 1) / segments;
+        if (alongX) {
+          const x1 = prop.x + prop.w * index / segments;
+          const x2 = prop.x + prop.w * (index + 1) / segments;
+          addBox(prop, x1, prop.y, x2, prop.y + prop.d, z);
+        } else {
+          const y1 = prop.y + prop.d * index / segments;
+          const y2 = prop.y + prop.d * (index + 1) / segments;
+          addBox(prop, prop.x, y1, prop.x + prop.w, y2, z);
+        }
+      }
+    });
+    state.zones.forEach((zone) => {
+      const z = floorLevelAt(zone.x + zone.w / 2, zone.y + zone.d / 2) + .012;
+      polygons.push({
+      vertices: [[zone.x,zone.y,z],[zone.x+zone.w,zone.y,z],[zone.x+zone.w,zone.y+zone.d,z],[zone.x,zone.y+zone.d,z]],
+      fill: zone.kind === "buyCt" ? "#477daf" : "#a96b37", edge: zone.kind === "buyCt" ? "#7fc1ff" : "#ffc17e", alpha: .42
+    }); });
+    return polygons;
+  }
+
+  function drawWalkProps3D(rect, fov) {
+    const near = .08;
+    const focalX = rect.width / (2 * Math.tan(fov / 2));
+    const hostRoom = state.rooms.find((room) => pointInRoom(player.x, player.y, room));
+    const wallWorldHeight = Math.max(2.5, hostRoom?.height || 4);
+    const focalY = rect.height * .82 / wallWorldHeight;
+    const eyeZ = (player.z || 0) + walkEyeHeight();
+    const cos = Math.cos(player.angle), sin = Math.sin(player.angle);
+    const toCamera = ([x, y, z]) => {
+      const dx = x - player.x, dy = y - player.y;
+      return { side: -dx * sin + dy * cos, forward: dx * cos + dy * sin, z };
+    };
+    const clipNear = (vertices) => {
+      const clipped = [];
+      for (let index = 0; index < vertices.length; index++) {
+        const current = vertices[index], next = vertices[(index + 1) % vertices.length];
+        const currentInside = current.forward >= near, nextInside = next.forward >= near;
+        if (currentInside) clipped.push(current);
+        if (currentInside !== nextInside) {
+          const amount = (near - current.forward) / (next.forward - current.forward);
+          clipped.push({
+            side: current.side + (next.side - current.side) * amount,
+            forward: near,
+            z: current.z + (next.z - current.z) * amount
+          });
+        }
+      }
+      return clipped;
+    };
+    const projected = buildWalkPropPolygons().map((polygon) => {
+      const cameraVertices = clipNear(polygon.vertices.map(toCamera));
+      if (cameraVertices.length < 3) return null;
+      return {
+        ...polygon,
+        depth: cameraVertices.reduce((sum, vertex) => sum + vertex.forward, 0) / cameraVertices.length,
+        points: cameraVertices.map((vertex) => ({
+          x: rect.width / 2 + vertex.side / vertex.forward * focalX,
+          y: rect.height / 2 + (eyeZ - vertex.z) / vertex.forward * focalY
+        }))
+      };
+    }).filter(Boolean).sort((a, b) => b.depth - a.depth);
+
+    projected.forEach((polygon) => {
+      pctx.save();
+      pctx.globalAlpha = polygon.alpha || 1;
+      pctx.beginPath();
+      polygon.points.forEach((point, index) => index ? pctx.lineTo(point.x, point.y) : pctx.moveTo(point.x, point.y));
+      pctx.closePath();
+      pctx.fillStyle = previewPattern(polygon.texture, .3, polygon.uv) || polygon.fill;
+      pctx.fill();
+      if (polygon.texture && polygon.textureShade) {
+        pctx.fillStyle = `rgba(7,10,7,${polygon.textureShade})`;
+        pctx.fill();
+      }
+      pctx.strokeStyle = polygon.edge;
+      pctx.lineWidth = .7;
+      pctx.stroke();
+      pctx.restore();
+    });
+  }
+
+  function drawWalkLights(rect, fov, hostRoom) {
+    const focalX = rect.width / (2 * Math.tan(fov / 2));
+    const wallWorldHeight = Math.max(2.5, hostRoom?.height || 4);
+    const focalY = rect.height * .82 / wallWorldHeight;
+    const eyeZ = (player.z || 0) + walkEyeHeight();
+    const cos = Math.cos(player.angle), sin = Math.sin(player.angle);
+    state.entities.filter((entity) => ["light","spotlight"].includes(entity.kind) && (!hostRoom || pointInRoom(entity.x + .5, entity.y + .5, hostRoom))).forEach((light) => {
+      const dx = light.x + .5 - player.x, dy = light.y + .5 - player.y;
+      const forward = dx * cos + dy * sin;
+      if (forward <= .08) return;
+      const side = -dx * sin + dy * cos;
+      const x = rect.width / 2 + side / forward * focalX;
+      const y = rect.height / 2 + (eyeZ - (light.z || 2.5)) / forward * focalY;
+      if (x < -40 || x > rect.width + 40 || y < -40 || y > rect.height + 40) return;
+      const radius = Math.max(8, Math.min(34, (light.brightness || 300) / (forward * 11)));
+      const color = light.color || "#fff0d0";
+      const glow = pctx.createRadialGradient(x, y, 1, x, y, radius);
+      glow.addColorStop(0, `${color}dd`); glow.addColorStop(.22, `${color}66`); glow.addColorStop(1, "rgba(255,240,208,0)");
+      pctx.fillStyle = glow; pctx.fillRect(x - radius, y - radius, radius * 2, radius * 2);
+      pctx.beginPath(); pctx.arc(x, y, 2.2, 0, Math.PI * 2); pctx.fillStyle = color; pctx.fill();
+    });
+  }
+
+  function drawWalkTargets(rect,fov) {
+    const focalX=rect.width/(2*Math.tan(fov/2)),focalY=rect.height*.82/4,eyeZ=(player.z||0)+walkEyeHeight(),cos=Math.cos(player.angle),sin=Math.sin(player.angle);
+    state.entities.filter((entity)=>entity.kind==="targetDummy").forEach((target)=>{const position={x:target.x+.5,y:target.y+.5},dx=position.x-player.x,dy=position.y-player.y,forward=dx*cos+dy*sin;if(forward<=.08||!clearSight(player,position))return;const side=-dx*sin+dy*cos,x=rect.width/2+side/forward*focalX,base=Number(target.floorLevel??floorLevelAt(position.x,position.y)),topY=rect.height/2+(eyeZ-(base+1.75))/forward*focalY,bottomY=rect.height/2+(eyeZ-base)/forward*focalY,width=Math.max(5,Math.min(34,(bottomY-topY)*.34));pctx.save();pctx.fillStyle="rgba(235,78,68,.72)";pctx.strokeStyle="#ffd7d3";pctx.lineWidth=1.5;pctx.fillRect(x-width/2,topY,width,bottomY-topY);pctx.strokeRect(x-width/2,topY,width,bottomY-topY);pctx.beginPath();pctx.arc(x,topY-width*.35,width*.32,0,Math.PI*2);pctx.fill();pctx.stroke();pctx.restore();});
+  }
+
+  function drawWalkPreview(rect) {
+    const width = rect.width, height = rect.height;
+    if (!state.rooms.length && !environmentFor().groundEnabled) {
+      pctx.fillStyle = "#111710"; pctx.fillRect(0, 0, width, height);
+      pctx.fillStyle = "#899584"; pctx.textAlign = "center"; pctx.font = "10px system-ui";
+      pctx.fillText("Enable map-wide ground or draw a room before Walkthrough", width / 2, height / 2);
+      pctx.textAlign = "left"; return;
+    }
+
+    if (!isPointInSpace(player.x, player.y)) resetPlayerToSafeStart();
+    const hostRoom = state.rooms.find((room) => pointInRoom(player.x, player.y, room)) || null;
+    if (!hostRoom || hostRoom.ceilingMode === "sky") {
+      paintSkyBackground(pctx, width, height / 2, 1);
+    } else {
+      const ceilingTexture = hostRoom.ceilingTexture || "C1A0_LABW3";
+      const ceilingPattern = previewPattern(ceilingTexture, .3);
+      if (ceilingPattern) {
+        pctx.fillStyle = ceilingPattern;
+        pctx.fillRect(0, 0, width, height / 2);
+        const shade = pctx.createLinearGradient(0, 0, 0, height / 2);
+        shade.addColorStop(0, "rgba(5,8,5,.64)"); shade.addColorStop(1, "rgba(5,8,5,.18)");
+        pctx.fillStyle = shade; pctx.fillRect(0, 0, width, height / 2);
+      } else {
+        const ceiling = pctx.createLinearGradient(0, 0, 0, height / 2);
+        ceiling.addColorStop(0, "#111710"); ceiling.addColorStop(1, "#293126");
+        pctx.fillStyle = ceiling; pctx.fillRect(0, 0, width, height / 2);
+      }
+    }
+    const floorTexture = hostRoom?.floorTexture || environmentFor().groundMaterial;
+    const floorPattern = previewPattern(floorTexture, .3);
+    if (floorPattern) {
+      pctx.fillStyle = floorPattern;
+      pctx.fillRect(0, height / 2, width, height / 2);
+      const floorShade = pctx.createLinearGradient(0, height / 2, 0, height);
+      floorShade.addColorStop(0, "rgba(6,9,6,.12)"); floorShade.addColorStop(1, "rgba(6,9,6,.7)");
+      pctx.fillStyle = floorShade; pctx.fillRect(0, height / 2, width, height / 2);
+    } else {
+      const floor = pctx.createLinearGradient(0, height / 2, 0, height);
+      floor.addColorStop(0, "#323a2e"); floor.addColorStop(1, "#10140f");
+      pctx.fillStyle = floor; pctx.fillRect(0, height / 2, width, height / 2);
+    }
+
+    const walls = buildWalkWalls(player.z);
+    const fov = Math.PI / 3;
+    const wallWorldHeight = Math.max(2.5, hostRoom?.height || 4);
+    const focalY = height * .82 / wallWorldHeight;
+    const eyeZ = (player.z || 0) + walkEyeHeight();
+    for (let column = 0; column < width; column += 2) {
+      const rayAngle = player.angle + (column / width - .5) * fov;
+      const dx = Math.cos(rayAngle), dy = Math.sin(rayAngle);
+      let nearest = Infinity, hitWall = null, nearestWindow = Infinity, windowWall = null;
+      walls.forEach((wall) => {
+        if (wall.prop) return;
+        const distance = rayWallDistance(player.x, player.y, dx, dy, wall);
+        if (wall.window) {
+          if (distance < nearestWindow) { nearestWindow = distance; windowWall = wall; }
+          return;
+        }
+        if (distance < nearest) { nearest = distance; hitWall = wall; }
+      });
+      if (hitWall && Number.isFinite(nearest)) {
+        const corrected = Math.max(.12, nearest * Math.cos(rayAngle - player.angle));
+        const fullWallHeight = Math.min(height * 1.65, wallWorldHeight * focalY / corrected);
+        const raisedObject = hitWall.prop || hitWall.door;
+        const wallHeight = hitWall.door ? fullWallHeight * Math.min(1, (hitWall.heightWorld || 2) / wallWorldHeight)
+          : hitWall.prop ? fullWallHeight * (hitWall.heightScale || .4) : fullWallHeight;
+        const top = raisedObject
+          ? height / 2 + eyeZ * focalY / corrected - wallHeight
+          : height / 2 + (eyeZ - wallWorldHeight) * focalY / corrected;
+        const light = Math.max(20, Math.min(58, 63 - corrected * 6)) + (hitWall.axis === "v" ? 4 : 0);
+        const wallPattern = previewPattern(hitWall.texture, .28);
+        pctx.fillStyle = wallPattern || (hitWall.propKind === "stairs" ? `hsl(70 62% ${Math.max(35, light)}%)`
+        : hitWall.propKind === "ramp" ? `hsl(29 70% ${Math.max(34, light)}%)`
+        : hitWall.prop ? `hsl(34 25% ${Math.max(22, light - 7)}%)`
+        : `hsl(91 13% ${light}%)`);
+        pctx.fillRect(column, top, 2.5, wallHeight);
+        if (wallPattern) {
+          pctx.fillStyle = `rgba(6,9,6,${Math.max(.08, Math.min(.48, (61 - light) / 72))})`;
+          pctx.fillRect(column, top, 2.5, wallHeight);
+        }
+        if ((column >> 1) % 16 === 0) {
+          pctx.fillStyle = "rgba(15,20,14,.1)"; pctx.fillRect(column, top, 1, wallHeight);
+        }
+      }
+      if (windowWall && Number.isFinite(nearestWindow) && nearestWindow < nearest) {
+        const corrected = Math.max(.12, nearestWindow * Math.cos(rayAngle - player.angle));
+        const fullWallHeight = Math.min(height * 1.65, wallWorldHeight * focalY / corrected);
+        const windowHeight = fullWallHeight * Math.min(1, (windowWall.heightWorld || 1.5) / wallWorldHeight);
+        const top = height / 2 + (eyeZ - ((windowWall.bottomWorld || .75) + (windowWall.heightWorld || 1.5))) * focalY / corrected;
+        pctx.fillStyle = windowWall.windowMode === "open" ? "rgba(89,204,220,.1)" : "rgba(127,224,237,.3)";
+        pctx.fillRect(column, top, 2.5, windowHeight);
+        if (windowWall.windowMode !== "open" && (column >> 1) % 6 === 0) {
+          pctx.fillStyle = "rgba(225,253,255,.38)"; pctx.fillRect(column, top, 1, windowHeight);
+        }
+      }
+    }
+
+    drawWalkProps3D(rect, fov);
+    drawWalkLights(rect, fov, hostRoom);
+    drawWalkTargets(rect,fov);
+
+    pctx.strokeStyle = "rgba(215,244,90,.72)"; pctx.lineWidth = 1;
+    pctx.beginPath(); pctx.moveTo(width / 2 - 5, height / 2); pctx.lineTo(width / 2 + 5, height / 2); pctx.moveTo(width / 2, height / 2 - 5); pctx.lineTo(width / 2, height / 2 + 5); pctx.stroke();
+
+    const mapSize = 62, padding = 9;
+    const xs = state.rooms.flatMap((room) => [room.x, room.x + room.w]);
+    const ys = state.rooms.flatMap((room) => [room.y, room.y + room.d]);
+    const minX = Math.min(...xs), minY = Math.min(...ys), span = Math.max(Math.max(...xs) - minX, Math.max(...ys) - minY, 1);
+    const mapScale = mapSize / span;
+    pctx.fillStyle = "rgba(8,11,8,.72)"; pctx.fillRect(padding, padding, mapSize, mapSize);
+    state.rooms.forEach((room) => {
+      pctx.fillStyle = room.kind === "corridor" ? "#38575a" : "#3d4938";
+      pctx.beginPath();
+      roomPlanPoints(room).forEach(([x, y], index) => index
+        ? pctx.lineTo(padding + (x-minX)*mapScale, padding + (y-minY)*mapScale)
+        : pctx.moveTo(padding + (x-minX)*mapScale, padding + (y-minY)*mapScale));
+      pctx.closePath(); pctx.fill();
+    });
+    state.props.forEach((prop) => {
+      pctx.fillStyle = prop.kind === "crate" ? "#8a6844" : prop.kind === "wall" ? "#697064" : "#b18d55";
+      if (prop.kind === "diagonal" || ["platformPolygon", "floorPolygon", "wallPolygon"].includes(prop.kind)) {
+        pctx.beginPath();
+        (prop.kind === "diagonal" ? diagonalCorners(prop) : prop.points || []).forEach(([x, y], index) => index
+          ? pctx.lineTo(padding + (x-minX)*mapScale, padding + (y-minY)*mapScale)
+          : pctx.moveTo(padding + (x-minX)*mapScale, padding + (y-minY)*mapScale));
+        pctx.closePath(); pctx.fill();
+      } else {
+        pctx.fillRect(padding + (prop.x-minX)*mapScale, padding + (prop.y-minY)*mapScale, prop.w*mapScale, prop.d*mapScale);
+      }
+    });
+    pctx.fillStyle = "#d7f45a"; pctx.beginPath(); pctx.arc(padding + (player.x-minX)*mapScale, padding + (player.y-minY)*mapScale, 2.5, 0, Math.PI*2); pctx.fill();
+    pctx.strokeStyle = "#d7f45a"; pctx.beginPath(); pctx.moveTo(padding + (player.x-minX)*mapScale, padding + (player.y-minY)*mapScale); pctx.lineTo(padding + (player.x-minX)*mapScale + Math.cos(player.angle)*8, padding + (player.y-minY)*mapScale + Math.sin(player.angle)*8); pctx.stroke();
+  }
+
+  function projectToSegment(point,a,b) {
+    const dx=b[0]-a[0],dy=b[1]-a[1],length2=Math.max(.0001,dx*dx+dy*dy);
+    const t=Math.max(0,Math.min(1,((point.x-a[0])*dx+(point.y-a[1])*dy)/length2));
+    const projected=[a[0]+dx*t,a[1]+dy*t];
+    return {t,point:projected,distance:Math.hypot(point.x-projected[0],point.y-projected[1]),length:Math.sqrt(length2)};
+  }
+
+  function openingSegment(opening) {
+    if (opening.segment?.length===2) return opening.segment.map((point)=>[Number(point[0]),Number(point[1])]);
+    return opening.axis === "h"
+      ? [[opening.along,opening.boundary],[opening.along+(opening.width||1),opening.boundary]]
+      : [[opening.boundary,opening.along],[opening.boundary,opening.along+(opening.width||1)]];
+  }
+
+  function syncOpeningLegacy(opening) {
+    const [a,b]=openingSegment(opening),dx=b[0]-a[0],dy=b[1]-a[1];
+    opening.width=Math.max(.25,Math.hypot(dx,dy));
+    if(Math.abs(dy)<.001){opening.axis="h";opening.boundary=(a[1]+b[1])/2;opening.along=Math.min(a[0],b[0]);}
+    else if(Math.abs(dx)<.001){opening.axis="v";opening.boundary=(a[0]+b[0])/2;opening.along=Math.min(a[1],b[1]);}
+    else opening.axis="d";
+    return opening;
+  }
+
+  function openingCorners(opening,thickness=.14) {
+    const [a,b]=openingSegment(opening),dx=b[0]-a[0],dy=b[1]-a[1],length=Math.max(.001,Math.hypot(dx,dy)),nx=-dy/length*thickness/2,ny=dx/length*thickness/2;
+    return [[a[0]+nx,a[1]+ny],[b[0]+nx,b[1]+ny],[b[0]-nx,b[1]-ny],[a[0]-nx,a[1]-ny]];
+  }
+
+  function resizeOpening(opening,width) {
+    const edge=opening.edge?.length===2?opening.edge:openingSegment(opening),a=edge[0],b=edge[1],dx=b[0]-a[0],dy=b[1]-a[1],length=Math.max(.001,Math.hypot(dx,dy));
+    const old=openingSegment(opening),center=[(old[0][0]+old[1][0])/2,(old[0][1]+old[1][1])/2],projection=projectToSegment({x:center[0],y:center[1]},a,b);
+    const half=Math.min(length/2,Math.max(.25,Number(width)||1)/2),ux=dx/length,uy=dy/length,centerT=Math.max(half/length,Math.min(1-half/length,projection.t)),centerPoint=[a[0]+dx*centerT,a[1]+dy*centerT];
+    opening.segment=[[centerPoint[0]-ux*half,centerPoint[1]-uy*half],[centerPoint[0]+ux*half,centerPoint[1]+uy*half]];
+    return syncOpeningLegacy(opening);
+  }
+
+  function getDoorCandidate(world,width=1) {
+    const candidates=[];
+    state.rooms.filter((room)=>planLevel==null||Math.abs(roomFloor(room)-planLevel)<.13).forEach((room)=>roomPlanPoints(room).forEach((a,index)=>{
+      const b=roomPlanPoints(room)[(index+1)%roomPlanPoints(room).length],projection=projectToSegment(world,a,b);
+      if(projection.t>.001&&projection.t<.999)candidates.push({roomId:room.id,edgeIndex:index,edge:[a,b],...projection});
+    }));
+    candidates.sort((a,b)=>a.distance-b.distance);
+    const best=candidates[0]; if(!best||best.distance>.42)return null;
+    const edgeRoom=state.rooms.find((room)=>room.id===best.roomId);
+    const opening={edge:best.edge.map((point)=>[...point]),edgeRoomId:best.roomId,edgeIndex:best.edgeIndex,floorLevel:roomFloor(edgeRoom),segment:[[...best.point],[...best.point]]};
+    return resizeOpening(opening,width);
+  }
+
+  function openingsOverlap(a,b) {
+    const [a1,a2]=openingSegment(a),[b1,b2]=openingSegment(b),ap=projectToSegment({x:b1[0],y:b1[1]},a1,a2),bp=projectToSegment({x:b2[0],y:b2[1]},a1,a2);
+    return Math.min(ap.distance,bp.distance)<.08&&Math.max(Math.min(ap.t,bp.t),0)<Math.min(Math.max(ap.t,bp.t),1);
+  }
+
+  function placeDoor(world, width = 1) {
+    const door = getDoorCandidate(world,width);
+    if (!door) { showToast("Click closer to the edge of a room or corridor"); return; }
+    if (!doorIsConnected(door)) { showToast("A door needs a room or corridor on both sides"); return; }
+    const existing = [...state.doors, ...state.windows].find((item) => openingsOverlap(item,door));
+    if (existing) {
+      selected = { type: state.windows.includes(existing) ? "window" : "door", id: existing.id };
+      refresh(); showToast("That wall section already has an opening"); return;
+    }
+    const before = snapshot();
+    door.id = crypto.randomUUID();
+    door.mode = "opening";
+    door.height = 2;
+    door.texture = "CSTRIKE_ME4METL";
+    door.speed = 100;
+    state.doors.push(door);
+    selected = { type: "door", id: door.id };
+    commit(before);
+    showToast(width > 1 ? "Wide doorway prefab created" : "Door opening created");
+  }
+
+  function adjacentRoomsForOpening(opening) {
+    const [a,b]=openingSegment(opening),mid=[(a[0]+b[0])/2,(a[1]+b[1])/2],dx=b[0]-a[0],dy=b[1]-a[1],length=Math.max(.001,Math.hypot(dx,dy)),nx=-dy/length*.2,ny=dx/length*.2;
+    const level=opening.floorLevel;
+    return state.rooms.filter((room)=>(level==null||Math.abs(roomFloor(room)-Number(level))<.13)&&(pointInRoom(mid[0]+nx,mid[1]+ny,room)||pointInRoom(mid[0]-nx,mid[1]-ny,room)));
+  }
+
+  function clampWindowDimensions(window) {
+    const rooms = adjacentRoomsForOpening(window);
+    const maxTop = Math.max(.75, Math.min(...rooms.map((room) => room.height), 4) - .25);
+    window.sill = Math.max(.25, Math.min(maxTop - .5, Number(window.sill) || .75));
+    window.height = Math.max(.5, Math.min(maxTop - window.sill, Number(window.height) || 1.5));
+  }
+
+  function placeWindow(world) {
+    const window = getDoorCandidate(world,1);
+    if (!window) { showToast("Click closer to a shared wall"); return; }
+    if (!doorIsConnected(window)) { showToast("A window needs a room or corridor on both sides"); return; }
+    const existing = [...state.doors, ...state.windows].find((item) => openingsOverlap(item,window));
+    if (existing) {
+      selected = { type: state.windows.includes(existing) ? "window" : "door", id: existing.id };
+      refresh(); showToast("That wall section already has an opening"); return;
+    }
+    const before = snapshot();
+    Object.assign(window, {
+      id: crypto.randomUUID(), mode: "breakable", sill: .75, height: 1.5,
+      health: 20, texture: "GLASS_BRIGHT"
+    });
+    clampWindowDimensions(window);
+    state.windows.push(window);
+    selected = { type: "window", id: window.id };
+    commit(before);
+    showToast("Breakable window added — press E near it in Walkthrough");
+  }
+
+  function doorIsConnected(door) {
+    const [a,b]=openingSegment(door),mid=[(a[0]+b[0])/2,(a[1]+b[1])/2],dx=b[0]-a[0],dy=b[1]-a[1],length=Math.max(.001,Math.hypot(dx,dy)),nx=-dy/length*.2,ny=dx/length*.2;
+    return isPointInSpace(mid[0]-nx,mid[1]-ny)&&isPointInSpace(mid[0]+nx,mid[1]+ny);
+  }
+
+  function setPreviewMode(mode) {
+    previewMode = mode;
+    previewDrag = null;
+    $("#previewWrap").classList.remove("panning");
+    if (previewMode === "walk") {
+      openWalkDoors.clear();
+      brokenWalkWindows.clear();
+      resetPlayerToSafeStart();
+      preview.focus();
+    }
+    $("#previewModeButton").textContent = previewMode === "walk" ? "Orbit" : "Walk";
+    $("#previewModeButton").classList.toggle("active", previewMode === "walk");
+    $("#rotateButton").classList.toggle("hidden", previewMode === "walk");
+    $("#previewNavigation").classList.toggle("hidden", previewMode === "walk");
+    $("#previewModeBadge").textContent = previewMode === "walk" ? "WALKTHROUGH" : "ORBIT MODEL";
+    $("#previewCaption").textContent = previewMode === "walk" ? "WASD move · Ctrl/C crouch · E use" : "Wheel zoom · drag rotate · Shift drag pan";
+    updatePreviewNavigation();
+    drawPreview();
+  }
+
+  function updatePreviewNavigation() {
+    $("#previewZoomLabel").textContent = `${Math.round(previewZoom * 100)}%`;
+    $("#previewPanButton").classList.toggle("active", previewPanMode);
+    $("#previewPanButton").setAttribute("aria-pressed", String(previewPanMode));
+    $("#previewWrap").classList.toggle("pan-mode", previewPanMode);
+  }
+
+  function setPreviewZoom(value, anchor = null) {
+    const next = Math.max(.4, Math.min(4, Number(value) || 1));
+    if (Math.abs(next - previewZoom) < .001) return;
+    if (anchor) {
+      const rect = preview.getBoundingClientRect();
+      const baseOrigin = { x: rect.width / 2, y: rect.height * .63 };
+      const ratio = next / previewZoom;
+      previewPan.x = anchor.x - baseOrigin.x - (anchor.x - baseOrigin.x - previewPan.x) * ratio;
+      previewPan.y = anchor.y - baseOrigin.y - (anchor.y - baseOrigin.y - previewPan.y) * ratio;
+    }
+    previewZoom = next;
+    updatePreviewNavigation();
+    drawPreview();
+  }
+
+  function fitPreview() {
+    previewZoom = 1;
+    previewPan = { x: 0, y: 0 };
+    previewPanMode = false;
+    updatePreviewNavigation();
+    drawPreview();
+  }
+
+  function finishPolygonDraft() {
+    if (!polygonDraft.length) return false;
+    const error = polygonValidation(polygonDraft);
+    if (error) { showToast(error); return false; }
+    const before = snapshot();
+    const platformMode = activeTool === "polyPlatform";
+    const floorMode = activeTool === "polyFloor";
+    const wallMode = activeTool === "polyWall";
+    if (platformMode || floorMode || wallMode) {
+      const bounds = polygonBounds(polygonDraft);
+      const center = polygonDraft.reduce((sum, point) => [sum[0] + point[0] / polygonDraft.length, sum[1] + point[1] / polygonDraft.length], [0,0]);
+      if (!polygonIsInsideSpace(polygonDraft)) { showToast(`Keep the whole polygon ${floorMode ? "floor" : wallMode ? "wall" : "platform"} on a room floor or map ground`); return false; }
+      const host = state.rooms.find((room) => pointInRoom(center[0], center[1], room));
+      const surfaceLevel = floorLevelAt(center[0],center[1]);
+      const prop = {
+        id:crypto.randomUUID(), kind:floorMode ? "floorPolygon" : wallMode ? "wallPolygon" : "platformPolygon", label:floorMode ? "CUSTOM FLOOR" : wallMode ? "POLYGON WALL" : "CUSTOM PLATFORM", points:polygonDraft.map((point) => [...point]),
+        ...bounds, height:wallMode ? Math.min(host?.height || 4, 4) : 1, floorLevel:surfaceLevel, texture:floorMode ? (host?.floorTexture || environmentFor().groundMaterial) : wallMode ? (host?.texture || "CSTRIKE_WR4RGH") : "CSTRIKE_CH3TILE", direction:"e"
+      };
+      if (floorMode) { prop.elevation = surfaceLevel + .25; prop.thickness = .25; }
+      state.props.push(prop);
+      selected = { type:"prop", id:prop.id };
+    } else {
+      const room = roomFromPoints(polygonDraft, "CUSTOM POLYGON");
+      state.rooms.push(room);
+      selected = { type: "room", id: room.id };
+    }
+    polygonDraft = [];
+    commit(before);
+    setTool("select");
+    showToast(floorMode ? "Polygon floor created—set elevation and thickness in Selection" : wallMode ? "Polygon wall created—physical cover in preview and export" : platformMode ? "Polygon platform created—select Edit corners to reshape it" : "Polygon room created—select Edit corners to reshape it");
+    return true;
+  }
+
+  function cancelPolygonDraft(showMessage = true) {
+    if (!polygonDraft.length) return;
+    polygonDraft = [];
+    if (showMessage) showToast("Polygon drawing cancelled");
+    drawEditor();
+  }
+
+  function presetRoomPoints(tool, box) {
+    if (tool === "triangle") return [
+      [box.x + box.w / 2, box.y], [box.x + box.w, box.y + box.d], [box.x, box.y + box.d]
+    ];
+    if (tool === "octagon") return octagonPoints(box.x, box.y, box.w, box.d, Math.min(box.w, box.d) * .24);
+    return null;
+  }
+
+  function setTool(tool) {
+    if (!["polygon", "polyPlatform", "polyFloor", "polyWall"].includes(tool)) cancelPolygonDraft(false);
+    if (tool !== "select") { editingVertices = false; selectedVertexIndex = -1; selectedEdgeIndex = -1; movingVertex = null; movingEdge = null; }
+    activeTool = tool;
+    if (["wall", "polyWall", "diagonal", "platform", "polyPlatform", "floor", "polyFloor", "floorHole", "column", "ladder", "crate", "stairs", "ramp", "stairPrefab", "prefab", "cylinder", "wedge", "arch", "slopeRoof", "water", "breakable", "elevator", "rotatingDoor", "train", "spotlight", "pathCorner", "targetDummy", "eyedropper", "paint"].includes(tool) && previewMode !== "orbit") {
+      setPreviewMode("orbit");
+    }
+    $$(".tool").forEach((button) => button.classList.toggle("active", button.dataset.tool === tool));
+    $("#toolTip").textContent = TOOL_INFO[tool].tip;
+    $("#editorTitle").textContent = TOOL_INFO[tool].title;
+    $("#canvasWrap").style.cursor = tool === "pan" ? "grab" : tool === "select" ? "default" : "crosshair";
+    drawEditor();
+  }
+
+  function updateChecklist() {
+    const hasGround = environmentFor().groundEnabled;
+    const checks = {
+      room: state.rooms.length > 0 || hasGround,
+      ct: state.entities.some((item) => item.kind === "ct"),
+      t: state.entities.some((item) => item.kind === "t"),
+      bomb: state.entities.some((item) => item.kind === "bombA" || item.kind === "bombB") || (state.entities.some((item)=>item.kind==="hostage")&&state.zones.some((zone)=>zone.kind==="rescue")),
+      connection: hasGround || (state.rooms.length > 0 && (state.rooms.length === 1 || state.doors.length > 0 || state.props.some((item)=>item.kind==="floorHole")))
+    };
+    Object.entries(checks).forEach(([key, value]) => {
+      $(`[data-check="${key}"]`).classList.toggle("done", value);
+    });
+    const score = Object.values(checks).filter(Boolean).length;
+    $("#score").textContent = `${score}/5`;
+    $("#checkTitle").textContent = score === 5 ? "Ready to export" : score ? "Keep building" : "Let’s get started";
+
+    let step = 1;
+    if (checks.room) step = checks.ct && checks.t ? 3 : 2;
+    const lessons = {
+      1: ["Create the layout", "Use the map-wide ground as an outdoor build surface, then add rooms and structures where needed."],
+      2: ["Place both teams", "Choose CT spawn and T spawn, then click on a room floor or the map-wide ground."],
+      3: ["Add an objective", "Place bombsite A or B, check the preview, and export your editable .map file."]
+    };
+    $("#lessonNumber").textContent = step;
+    $("#lessonTitle").textContent = lessons[step][0];
+    $("#lessonText").textContent = lessons[step][1];
+    $$(".lesson-progress i").forEach((item, index) => item.classList.toggle("active", index < step));
+  }
+
+  function updateInspector() {
+    const entries = selectedEntries();
+    const item = selectedItem();
+    const multiple = entries.length > 1;
+    $("#deleteButton").disabled = !entries.length;
+    $("#nothingSelected").classList.toggle("hidden", !!entries.length);
+    $("#selectionFields").classList.toggle("hidden", !entries.length);
+    $("#multiSelectionSummary").classList.toggle("hidden", !multiple);
+    if (multiple) {
+      const grouped = entries.every((entry) => entry.item.groupId && entry.item.groupId === entries[0].item.groupId);
+      $("#selectionType").value = `${entries.length} selected objects`;
+      $("#multiSelectionSummary").textContent = `${entries.length} objects · ${grouped ? "one group" : "mixed selection"}${entries.some((entry) => entry.item.locked) ? " · includes locked" : ""}`;
+      ["shapeFields","floorFields","vertexFields","lightFields","logicFields","spawnFields","doorFields","windowFields","gameEntityFields","zoneEntityFields","materialRow","roomSurfaceFields","materialPreview","openTextureBrowser","textureAlignmentFields"].forEach((id) => $(`#${id}`).classList.add("hidden"));
+      $(".field-row").classList.add("hidden");
+      $("#selectionActions").classList.remove("hidden");
+      $("#rotateLeftSelection").disabled = false; $("#rotateRightSelection").disabled = false;
+      $("#reverseSelection").disabled = true; $("#duplicateSelection").disabled = false; $("#copySelection").disabled = false;
+      $("#pasteSelection").disabled = !objectClipboard;
+      $("#levelDownSelection").disabled = !entries.some((entry) => ["room","prop"].includes(entry.ref.type));
+      $("#levelUpSelection").disabled = $("#levelDownSelection").disabled;
+      $("#groupSelection").disabled = entries.length < 2 || grouped;
+      $("#ungroupSelection").disabled = !entries.some((entry) => entry.item.groupId);
+      $("#lockSelection").textContent = entries.every((entry) => entry.item.locked) ? "Unlock" : "Lock";
+      return;
+    }
+    if (!item) return;
+    const isRoom = selected.type === "room";
+    const isPolygonRoom = isRoom && item.points?.length >= 3;
+    const isProp = selected.type === "prop";
+    const isRamp = isProp && ["ramp","wedge","slopeRoof"].includes(item.kind);
+    const isStairs = isProp && item.kind === "stairs";
+    const isWall = isProp && ["wall", "wallPolygon", "cylinder", "arch"].includes(item.kind);
+    const isDiagonal = isProp && item.kind === "diagonal";
+    const isPlatform = isProp && ["platform", "platformPolygon"].includes(item.kind);
+    const isFloor = isProp && ["floor", "floorPolygon"].includes(item.kind);
+    const isFloorHole = isProp && item.kind === "floorHole";
+    const convertibleShape = isRoom || (isProp && ["wall","platform","floor","wallPolygon","platformPolygon","floorPolygon","cylinder"].includes(item.kind));
+    const isEditablePolygon = convertibleShape;
+    const isLadder = isProp && item.kind === "ladder";
+    const isLight = selected.type === "entity" && ["light","spotlight"].includes(item.kind);
+    const isSpawn = selected.type === "entity" && ["ct", "t"].includes(item.kind);
+    const isGameEntity = selected.type === "entity" && ["hostage","button","teleDest","decal","ambient","pathCorner","targetDummy"].includes(item.kind);
+    const isLogicProp = isProp && ["elevator","rotatingDoor","train"].includes(item.kind);
+    const isDoor = selected.type === "door";
+    const isWindow = selected.type === "window";
+    const isZone = selected.type === "zone";
+    const hasDimensions = isRoom || isProp || isZone;
+    $("#selectionType").value = isRoom ? (item.kind === "corridor" ? "Corridor" : isPolygonRoom ? `Polygon room · ${item.points.length} corners` : "Room")
+      : isProp ? ({ crate: "Crate", wall: "Solid wall", wallPolygon: item.label === "COLUMN" ? "Octagonal column" : "Polygon wall", diagonal: "Diagonal cover", platform: "Elevated platform", platformPolygon: "Polygon platform", floor: "Floor slab", floorPolygon: "Polygon floor", floorHole:"Floor opening", ladder: "Ladder", stairs: "Stairs", ramp: "Ramp", wedge:"Solid wedge", slopeRoof:"Sloped roof", cylinder:"Cylinder", arch:"Archway part",water:"Water volume",breakable:"Breakable brush",elevator:"Elevator platform",rotatingDoor:"Rotating door",train:"Moving platform" })[item.kind]
+      : isZone ? ({buyCt:"CT buy zone",buyT:"T buy zone",rescue:"Hostage rescue zone",triggerHurt:"Damage trigger",teleport:"Teleport trigger"}[item.kind]||"Gameplay volume")
+      : selected.type === "door" ? "Door opening" : isWindow ? "Window" : ({ ct: "CT spawn", t: "T spawn", bombA: "Bombsite A", bombB: "Bombsite B", light: "Point light",spotlight:"Spotlight" })[item.kind];
+    if(isGameEntity)$("#selectionType").value=({hostage:"Hostage",button:"Usable button",teleDest:"Teleport destination",decal:"Decal",ambient:"Ambient sound",pathCorner:"Path corner",targetDummy:"Target dummy"}[item.kind]);
+    $(".field-row").classList.toggle("hidden", !hasDimensions);
+    $("#heightField").classList.toggle("hidden", isZone||isFloorHole);
+    $("#materialRow").classList.toggle("hidden", !(isRoom || (isProp&&!isFloorHole)));
+    $("#materialPreview").classList.toggle("hidden", !(isProp || (isDoor && item.mode === "sliding")));
+    $("#openTextureBrowser").classList.toggle("hidden", !(isRoom || (isProp&&!isFloorHole)));
+    $("#textureAlignmentFields").classList.toggle("hidden", !(isRoom || (isProp&&!isFloorHole)));
+    $("#roomSurfaceFields").classList.toggle("hidden", !isRoom);
+    $("#floorFields").classList.toggle("hidden", !isFloor);
+    $("#lightFields").classList.toggle("hidden", !isLight);
+    $("#logicFields").classList.toggle("hidden", !isLogicProp);
+    $("#spawnFields").classList.toggle("hidden", !isSpawn);
+    $("#doorFields").classList.toggle("hidden", !isDoor);
+    $("#windowFields").classList.toggle("hidden", !isWindow);
+    $("#gameEntityFields").classList.toggle("hidden", !isGameEntity);
+    $("#zoneEntityFields").classList.toggle("hidden", !(isZone&&["rescue","triggerHurt","teleport"].includes(item.kind)));
+    $("#shapeFields").classList.toggle("hidden", !(isRoom || isRamp || isStairs || isPlatform || isFloor || isLadder));
+    $("#vertexFields").classList.toggle("hidden", !isEditablePolygon);
+    $("#editVerticesButton").classList.toggle("active", isEditablePolygon && editingVertices);
+    $("#editVerticesButton").textContent = editingVertices ? "Finish corners" : "Edit corners";
+    $("#removeVertexButton").disabled = !item.points?.length || selectedVertexIndex < 0 || item.points.length <= 3;
+    $("#geometryOperations").classList.toggle("hidden", !(isEditablePolygon && editingVertices));
+    $("#clipVertexButton").disabled = selectedVertexIndex < 0 || (item.points?.length || 0) >= 16;
+    $("#extrudeEdgeButton").disabled = selectedEdgeIndex < 0;
+    if (isEditablePolygon) $("#vertexSummary").textContent = editingVertices
+      ? `Drag corner ${selectedVertexIndex >= 0 ? selectedVertexIndex + 1 : "handles"}. The editor rejects concave or flat results.`
+      : item.points?.length ? `${item.points.length}-corner convex ${isPolygonRoom ? "room" : "shape"} · safe polygon brush export.`
+        : "Choose Edit corners to convert this rectangle into an editable convex shape.";
+    $("#directionRow").classList.toggle("hidden", !(isRamp || isStairs || isLadder));
+    $("#directionLabel").textContent = isLadder ? "Ladder facing" : "Uphill direction";
+    $("#rampSteepnessRow").classList.toggle("hidden", !isRamp);
+    $("#stairStepsRow").classList.toggle("hidden", !isStairs);
+    const supportsActions = ["room", "prop", "entity", "zone"].includes(selected.type);
+    $("#selectionActions").classList.toggle("hidden", !supportsActions);
+    $("#rotateLeftSelection").disabled = !isProp;
+    $("#rotateRightSelection").disabled = !isProp;
+    $("#reverseSelection").disabled = !(isRamp || isStairs);
+    $("#duplicateSelection").disabled = !supportsActions;
+    $("#copySelection").disabled = !supportsActions;
+    $("#pasteSelection").disabled = !objectClipboard;
+    $("#levelDownSelection").disabled = !(isRoom || isProp);
+    $("#levelUpSelection").disabled = !(isRoom || isProp);
+    $("#groupSelection").disabled = true;
+    $("#ungroupSelection").disabled = !item.groupId;
+    $("#lockSelection").textContent = item.locked ? "Unlock" : "Lock";
+    $("#materialLabel").textContent = isRoom ? "Wall material" : isFloor ? "Floor material" : "Material";
+    if (isDoor) {
+      item.mode ||= "opening";
+      item.texture ||= "CSTRIKE_ME4METL";
+      item.speed ||= 100;
+      item.height ||= 2;
+      $("#doorWidth").value=item.width||1;
+      $("#doorHeight").value=item.height;
+      $("#doorModeSelect").value = item.mode;
+      $("#doorSpeed").value = item.speed;
+      $("#doorMaterialSelect").value = item.texture;
+      $("#doorSpeedRow").classList.toggle("hidden", item.mode !== "sliding");
+      $("#doorMaterialRow").classList.toggle("hidden", item.mode !== "sliding");
+      $("#doorSummary").textContent = item.mode === "sliding"
+        ? "Walkthrough: approach and press E. Export: func_door."
+        : "A permanently open passage.";
+      if (item.mode === "sliding") updateMaterialPreview(item.texture);
+    }
+    if (isWindow) {
+      item.mode ||= "breakable";
+      item.sill ||= .75;
+      item.height ||= 1.5;
+      item.health ||= 20;
+      clampWindowDimensions(item);
+      $("#windowWidth").value=item.width||1;
+      const rooms = adjacentRoomsForOpening(item);
+      const roomHeight = Math.min(...rooms.map((room) => room.height), 4);
+      $("#windowModeSelect").value = item.mode;
+      $("#windowSill").value = item.sill;
+      $("#windowHeight").value = item.height;
+      $("#windowHealth").value = item.health;
+      $("#windowSill").max = Math.max(.25, roomHeight - .75);
+      $("#windowHeight").max = Math.max(.5, roomHeight - item.sill - .25);
+      $("#windowHealthRow").classList.toggle("hidden", item.mode !== "breakable");
+      $("#windowSummary").textContent = item.mode === "breakable"
+        ? "Walkthrough: approach and press E to break it. Export: func_breakable glass."
+        : item.mode === "glass" ? "Solid unbreakable glass. Export: translucent func_wall."
+          : "Open frame with a solid sill and no glass entity.";
+    }
+    if (isLight) {
+      item.z ||= 2.5;
+      item.brightness ||= 300;
+      item.radius ||= 512;
+      item.style ??= "0";
+      item.target ||= "";
+      item.color ||= "#fff0d0";
+      const lightRoom = state.rooms.find((room) => pointInRoom(item.x + .5, item.y + .5, room));
+      $("#lightHeight").max = Math.max(.5, (lightRoom?.height || 4) - .25);
+      $("#lightHeight").value = item.z;
+      $("#lightBrightness").value = item.brightness;
+      $("#lightColor").value = item.color;
+      $("#lightRadius").value = item.radius;
+      $("#lightStyle").value = item.style;
+      $("#lightTarget").value = item.target;
+      $("#spotlightFields").classList.toggle("hidden",item.kind!=="spotlight");
+      if(item.kind==="spotlight"){$("#spotlightAngle").value=String(item.angle||0);$("#spotlightCone").value=item.cone||45;$("#spotlightPitch").value=item.pitch??-45;}
+      $("#lightSummary").textContent = `${item.kind === "spotlight" ? "Spotlight" : "Point light"} · ${Math.round(item.z * GRID)} units high · ${item.radius} unit planning radius`;
+    }
+    if (isSpawn) {
+      item.angle = Number(item.angle) || 0;
+      $("#spawnAngleSelect").value = String(((item.angle % 360) + 360) % 360);
+      $("#spawnSummary").textContent = `${item.kind === "ct" ? "CT" : "T"} players spawn facing ${$("#spawnAngleSelect").selectedOptions[0]?.textContent.trim() || "East"}.`;
+    }
+    if(isGameEntity){
+      item.target||=(item.kind==="teleDest"?"tele_dest_1":item.kind==="button"?"target_1":"");
+      $("#entityTarget").value=item.kind==="pathCorner"?(item.targetName||"path_1"):(item.target||""); $("#entityTargetRow").classList.toggle("hidden",!["button","teleDest","pathCorner"].includes(item.kind));
+      $("#entityNextRow").classList.toggle("hidden",item.kind!=="pathCorner");if(item.kind==="pathCorner")$("#entityNext").value=item.target||"";
+      $("#entitySoundRow").classList.toggle("hidden",item.kind!=="ambient"); $("#entityVolumeRow").classList.toggle("hidden",item.kind!=="ambient");
+      $("#entityDecalRow").classList.toggle("hidden",item.kind!=="decal");
+      if(item.kind==="ambient"){item.sound||="ambience/wind1.wav";item.volume??=7;$("#entitySound").value=item.sound;$("#entityVolume").value=item.volume;}
+      if(item.kind==="decal"){item.decal||="{lambda01";$("#entityDecal").value=item.decal;}
+      $("#gameEntitySummary").textContent={hostage:"Exports as hostage_entity.",button:"A small func_button that fires the named target.",teleDest:"Landing point for trigger_teleport volumes.",decal:"Exports as infodecal at this position.",ambient:"Exports as ambient_generic; use a WAV path installed with the game.",pathCorner:"Named route point for a moving platform.",targetDummy:"Editor and Walkthrough target; excluded from the compiled BSP."}[item.kind];
+    }
+    if(isLogicProp){
+      item.targetName ||= `${item.kind}_1`; item.target ||= item.kind==="train"?"path_1":""; item.speed ||= 100; item.wait ??= 3;
+      $("#logicName").value=item.targetName;$("#logicTarget").value=item.target;$("#logicSpeed").value=item.speed;$("#logicWait").value=item.wait;
+      $("#logicSummary").textContent={elevator:"Exports as func_plat and travels by its configured height.",rotatingDoor:"Exports as func_door_rotating with a centered hinge.",train:"Exports as func_train and begins at the named path_corner."}[item.kind];
+    }
+    if(isZone&&["rescue","triggerHurt","teleport"].includes(item.kind)){
+      $("#zoneDamageRow").classList.toggle("hidden",item.kind!=="triggerHurt");$("#zoneTargetRow").classList.toggle("hidden",item.kind!=="teleport");
+      if(item.kind==="triggerHurt"){item.damage||=25;$("#zoneDamage").value=item.damage;}
+      if(item.kind==="teleport"){item.target||="tele_dest_1";$("#zoneTarget").value=item.target;}
+      $("#zoneEntitySummary").textContent={rescue:"Exports as func_hostage_rescue.",triggerHurt:"Invisible trigger_hurt volume.",teleport:"Sends players to the matching destination name."}[item.kind];
+    }
+    if (hasDimensions) {
+      $("#widthLabel").textContent = "Width";
+      $("#depthLabel").textContent = "Depth";
+      $("#heightLabel").textContent = isRoom || isWall ? "Wall height" : isFloor ? "Floor elevation" : isDiagonal ? "Cover height" : isPlatform ? "Platform height" : isLadder ? "Ladder height" : isRamp ? "Ramp rise" : isStairs ? "Total rise" : "Crate height";
+      $("#roomWidth").value = item.w;
+      $("#roomDepth").value = item.d;
+      $("#roomHeight").value = isFloor ? (Number(item.elevation) || 0) : (item.height || 1);
+      $("#roomHeight").min = isFloor ? -8 : isRoom ? 2 : .25;
+      $("#roomHeight").step = isRoom ? 1 : .25;
+      $("#roomHeight").max = isFloor ? 16 : 12;
+      if (!isRoom) surfaceTarget = "object";
+      const surfaceSelect = $("#surfaceTargetSelect");
+      [...surfaceSelect.querySelectorAll("option[data-edge]")].forEach((option) => option.remove());
+      if (isRoom) roomPlanPoints(item).forEach((_, index) => {
+        const option = document.createElement("option"); option.value = `edge:${index}`; option.dataset.edge = "true";
+        option.textContent = `Wall face ${index + 1}`; surfaceSelect.append(option);
+      });
+      if (isRoom && surfaceTarget.startsWith("edge:") && Number(surfaceTarget.split(":")[1]) >= roomPlanPoints(item).length) surfaceTarget = "object";
+      $("#surfaceTargetSelect").value = surfaceTarget;
+      $("#surfaceTargetSelect").disabled = !isRoom;
+      [...$("#surfaceTargetSelect").options].forEach((option) => { if (option.value !== "object") option.hidden = !isRoom; });
+      const texture = surfaceTextureFor(item, selected.type);
+      if (!isZone) {
+        $("#materialSelect").value = texture;
+        updateSurfaceMiniature("wallMaterialMiniature", texture);
+        updateMaterialPreview(texture);
+        const storedUv = surfaceUvFor(item, selected.type),uv=resolvedSurfaceUv(item,selected.type,surfaceTarget,storedUv);
+        $("#textureMappingMode").value=storedUv.mode;
+        $("#textureShiftX").value = uv.shiftX; $("#textureShiftY").value = uv.shiftY;
+        $("#textureRotation").value = uv.rotation; $("#textureScaleX").value = uv.scaleX; $("#textureScaleY").value = uv.scaleY;
+        $("#textureScaleX").disabled=storedUv.mode==="fit";$("#textureScaleY").disabled=storedUv.mode==="fit";
+        $("#sampleMaterialButton").classList.toggle("active", activeTool === "eyedropper");
+        $("#paintMaterialButton").classList.toggle("active", activeTool === "paint");
+      }
+      const summary = $("#shapeSummary");
+      summary.classList.remove("warning");
+      if (isRoom) {
+        summary.textContent = `${isPolygonRoom ? `${item.points.length}-corner polygon · ` : ""}Wall height: ${item.height * GRID} GoldSrc units (${item.height} grid squares).`;
+      } else if (isRamp) {
+        $("#directionSelect").value = item.direction || "e";
+        const run = Math.max(.01, structureRun(item));
+        const ratio = item.height / run;
+        const preset = [[.25, "0.25"], [.5, "0.5"], [1, "1"]].find(([value]) => Math.abs(ratio - value) < .02);
+        $("#rampSteepnessSelect").value = preset ? preset[1] : "custom";
+        summary.textContent = `${Math.round(Math.atan(ratio) * 180 / Math.PI)}° slope · ${Math.round(item.height * GRID)}-unit rise over ${Math.round(run * GRID)} units.`;
+      } else if (isStairs) {
+        $("#directionSelect").value = item.direction || "e";
+        item.steps ||= recommendedStairSteps(item);
+        $("#stairSteps").value = item.steps;
+        const riser = item.height * GRID / item.steps;
+        const tread = structureRun(item) * GRID / item.steps;
+        summary.textContent = `${item.steps} steps · ${Math.round(riser)}-unit risers · ${Math.round(tread)}-unit treads.`;
+        if (riser > 18) {
+          summary.textContent += " Risers over 18 units may be too tall in CS 1.6.";
+          summary.classList.add("warning");
+        }
+      } else if (isPlatform) {
+        summary.textContent = `${Math.round(item.height * GRID)} units above the floor · walkable in the preview.`;
+      } else if (isFloor) {
+        item.thickness = Math.max(.125, Number(item.thickness) || .25);
+        $("#floorThickness").value = item.thickness;
+        $("#floorSummary").textContent = `Walkable top Z ${Math.round((Number(item.elevation) || 0) * GRID)} · ${Math.round(item.thickness * GRID)}-unit solid slab.`;
+        summary.textContent = `${item.kind === "floorPolygon" ? `${item.points.length}-corner polygon · ` : ""}Absolute floor elevation in GoldSrc units.`;
+      } else if (isLadder) {
+        $("#directionSelect").value = item.direction || "n";
+        summary.textContent = `Climbs to ${Math.round(item.height * GRID)} units · face it toward the approach side.`;
+      } else if (isDiagonal) {
+        summary.textContent = `True 45° brush cover · ${Math.round(item.height * GRID)} units high. Rotate to change the angle.`;
+      }
+      if (isRoom) {
+        item.floorTexture ||= "CSTRIKE_FP2DARK";
+        item.ceilingTexture ||= "C1A0_LABW3";
+        item.ceilingMode ||= "ceiling";
+        $("#floorMaterialSelect").value = item.floorTexture;
+        updateSurfaceMiniature("floorMaterialMiniature", item.floorTexture);
+        $("#roomFloorElevation").value = roomFloor(item);
+        $("#ceilingMaterialSelect").value = item.ceilingTexture;
+        updateSurfaceMiniature("ceilingMaterialMiniature", item.ceilingTexture);
+        $("#ceilingModeSelect").value = item.ceilingMode;
+        $("#roomRoofEnabled").checked = item.ceilingMode !== "sky";
+        $("#ceilingMaterialRow").classList.toggle("hidden", item.ceilingMode === "sky");
+        $("#surfaceNote").textContent = item.ceilingMode === "sky"
+          ? "Preview is open. Export adds a thin SKY seal to prevent a GoldSrc leak—no large skybox."
+          : "Solid roofs appear as translucent textured panels in Orbit.";
+      }
+    }
+  }
+
+  function updateMaterialPreview(texture) {
+    $("#materialPreviewImage").src = texturePreviewUrl(texture);
+    $("#materialPreviewImage").alt = `${MATERIAL_INFO[texture] || texture} texture preview`;
+    $("#materialPreviewName").textContent = MATERIAL_INFO[texture] || texture;
+    $("#materialPreviewCode").textContent = texture;
+  }
+
+  function updateSurfaceMiniature(id, texture) {
+    const image = $(`#${id}`);
+    if (!image) return;
+    image.src = texturePreviewUrl(texture);
+    image.alt = `${MATERIAL_INFO[texture] || texture} miniature preview`;
+    image.title = `${MATERIAL_INFO[texture] || texture} · click to browse`;
+  }
+
+  function textureCategory(texture) {
+    if (CC0_TEXTURE_CATEGORIES[texture]) return CC0_TEXTURE_CATEGORIES[texture];
+    if (texture.startsWith("SUN_")) return "sunburst";
+    if (["BCRATE02", "C1A1_CRATE1"].includes(texture)) return "wood";
+    if (texture.includes("MET") || texture === "CSTRIKE_ME4METL") return "metal";
+    if (texture.includes("FLOOR") || texture.includes("TILE") || texture === "CSTRIKE_FP2DARK" || texture === "CSTRIKE_CH3TILE") return "floor";
+    return "architecture";
+  }
+
+  async function refreshTextureCatalog() {
+    try {
+      const catalog=await companionRequest("/api/textures");
+      (catalog.textures||[]).forEach((item)=>registerMaterial(item.name,item.label||item.name,item.category||"architecture"));
+      installMaterialOptions();
+      if($("#textureDialog")?.open)renderTextureBrowser();
+      return catalog;
+    } catch (_) { return null; }
+  }
+
+  function unregisterMaterial(texture) {
+    delete MATERIAL_INFO[texture];delete MATERIAL_COLORS[texture];delete CC0_TEXTURE_CATEGORIES[texture];delete materialImages[texture];
+    previewPatterns.clear();textureFavorites.delete(texture);
+    localStorage.setItem("blockout-texture-favorites",JSON.stringify([...textureFavorites]));
+    ["materialSelect","floorMaterialSelect","ceilingMaterialSelect","doorMaterialSelect","environmentGroundMaterialSelect"].forEach((id)=>{
+      const option=$(`#${id}`)?.querySelector(`option[value="${texture}"]`);if(option)option.remove();
+    });
+  }
+
+  function textureUsageCount(texture) {
+    let count=environmentFor().groundMaterial===texture?1:0;
+    state.rooms.forEach((room)=>{
+      count += [room.texture,room.floorTexture,room.ceilingTexture].filter((value)=>value===texture).length;
+      count += Object.values(room.wallTextures||{}).filter((value)=>value===texture).length;
+      count += Object.values(room.edgeTextures||{}).filter((value)=>value===texture).length;
+    });
+    count += state.props.filter((item)=>item.texture===texture).length;
+    count += state.doors.filter((item)=>item.texture===texture).length;
+    count += state.windows.filter((item)=>item.texture===texture).length;
+    return count;
+  }
+
+  async function deleteImportedTexture(texture) {
+    if(!texture.startsWith("USR_"))return;
+    const usage=textureUsageCount(texture);
+    if(usage){showToast(`Used by ${usage} current surface${usage===1?"":"s"} — replace it before deleting`);return;}
+    if(!confirm(`Delete ${MATERIAL_INFO[texture]||texture}? This removes its source, preview, and WAD entry.`))return;
+    try{
+      await companionRequest("/api/textures/remove",{method:"POST",body:JSON.stringify({name:texture})});
+      unregisterMaterial(texture);$("#textureSearch").value="";renderTextureBrowser();
+      const status=$("#textureImportStatus");status.classList.remove("hidden","error");status.textContent=`${texture} deleted. Its source, preview, and WAD entry were removed safely.`;
+      showToast(`${texture} deleted and texture pack rebuilt`);
+    }catch(error){showToast(`Delete stopped: ${error.message}`);}
+  }
+
+  function importedTextureCode(label) {
+    const base=String(label||"TEXTURE").toUpperCase().replace(/[^A-Z0-9]+/g,"_").replace(/^_+|_+$/g,"").slice(0,11)||"TEXTURE";
+    let code=`USR_${base}`.slice(0,15),index=2;
+    while(MATERIAL_INFO[code]){const suffix=String(index++);code=`USR_${base.slice(0,Math.max(1,11-suffix.length))}${suffix}`.slice(0,15);}
+    return code;
+  }
+
+  function analyzeImportedTexture(fileName,context) {
+    const normalized=String(fileName||"").replace(/\.[^.]+$/,"").replace(/[_-]+/g," ").replace(/\s+/g," ").trim();
+    const lower=normalized.toLowerCase(),keywords={
+      brick:["brick","masonry"],concrete:["concrete","cement"],wood:["wood","timber","oak","pine","cedar","plank"],metal:["metal","steel","iron","rust","aluminium","aluminum"],
+      stone:["stone","rock","marble","granite","slate","obsidian"],ground:["ground","sand","gravel","dirt","soil","pavement","asphalt","cobble"],nature:["grass","leaf","leaves","moss","bark","plant"],
+      fabric:["fabric","cloth","carpet","leather","felt","knit"],plaster:["plaster","stucco","foam"],floor:["floor","tile","tiles","parquet"],organic:["skin","organic","scale"]
+    };
+    let category=Object.entries(keywords).find(([,words])=>words.some((word)=>lower.includes(word)))?.[0]||null;
+    const pixels=context.getImageData(0,0,256,256).data;let red=0,green=0,blue=0,brightness=0,variation=0,edges=0,count=0;
+    for(let y=0;y<256;y+=8)for(let x=0;x<256;x+=8){const offset=(y*256+x)*4,r=pixels[offset],g=pixels[offset+1],b=pixels[offset+2],light=(r+g+b)/3;red+=r;green+=g;blue+=b;brightness+=light;count++;if(x>=8){const previous=offset-32;edges+=Math.abs(r-pixels[previous])+Math.abs(g-pixels[previous+1])+Math.abs(b-pixels[previous+2]);}variation+=Math.abs(r-light)+Math.abs(g-light)+Math.abs(b-light);}
+    red/=count;green/=count;blue/=count;brightness/=count;variation/=count;edges/=Math.max(1,count-32);
+    if(!category){
+      if(green>red*1.12&&green>blue*1.12)category="nature";
+      else if(brightness<62&&variation<24)category="stone";
+      else if(Math.max(red,green,blue)-Math.min(red,green,blue)<20)category=edges>85?"concrete":"plaster";
+      else if(red>green*1.18&&red>blue*1.35&&edges>80)category="brick";
+      else if(red>green&&green>blue&&red-blue>30)category=edges>95?"wood":"ground";
+      else category="architecture";
+    }
+    const label=(normalized&&!/^(img|image|photo|texture|untitled)(\s*\d*)?$/i.test(normalized)?normalized:`${category} texture`).replace(/\b\w/g,(letter)=>letter.toUpperCase()).slice(0,48);
+    return {category,label,code:importedTextureCode(label),summary:`Local image analysis suggests ${category} · average RGB ${Math.round(red)}, ${Math.round(green)}, ${Math.round(blue)}`};
+  }
+
+  function resetTextureImport() {
+    pendingTextureImport=null;$("#textureFileInput").value="";$("#textureImportEditor").classList.add("hidden");$("#textureDropZone").classList.remove("hidden","drag-over");$("#textureImportStatus").classList.add("hidden");$("#textureImportStatus").classList.remove("error");
+  }
+
+  async function prepareTextureImport(file) {
+    if(!file||!/^image\//.test(file.type)){showToast("Drop a PNG, JPG, WebP, or GIF image");return;}
+    if(file.size>12_000_000){showToast("Choose an image smaller than 12 MB");return;}
+    const image=new Image(),url=URL.createObjectURL(file);
+    try{image.src=url;await image.decode();}catch(_){URL.revokeObjectURL(url);showToast("That image could not be decoded");return;}
+    const canvas=$("#textureImportCanvas"),context=canvas.getContext("2d",{willReadFrequently:true}),scale=Math.max(256/image.naturalWidth,256/image.naturalHeight),width=image.naturalWidth*scale,height=image.naturalHeight*scale;
+    context.clearRect(0,0,256,256);context.drawImage(image,(256-width)/2,(256-height)/2,width,height);URL.revokeObjectURL(url);
+    const analysis=analyzeImportedTexture(file.name,context);pendingTextureImport={fileName:file.name,imageData:canvas.toDataURL("image/png")};
+    $("#textureImportLabel").value=analysis.label;$("#textureImportName").value=analysis.code;$("#textureImportCategory").value=analysis.category;$("#textureImportAnalysis").textContent=analysis.summary;
+    $("#textureDropZone").classList.add("hidden");$("#textureImportEditor").classList.remove("hidden");$("#textureImportStatus").classList.add("hidden");
+  }
+
+  async function installImportedTexture() {
+    if(!pendingTextureImport)return;
+    const button=$("#installTextureImport"),status=$("#textureImportStatus"),name=$("#textureImportName").value.toUpperCase().replace(/[^A-Z0-9_]+/g,"_").slice(0,15),label=$("#textureImportLabel").value.trim(),category=$("#textureImportCategory").value;
+    button.disabled=true;button.textContent="Building WAD…";status.classList.remove("hidden","error");status.textContent="Normalizing mipmaps and rebuilding the compile-ready texture pack…";
+    try{
+      const result=await companionRequest("/api/textures/import",{method:"POST",body:JSON.stringify({name,label,category,imageData:pendingTextureImport.imageData})}),item=result.texture;
+      registerMaterial(item.name,item.label,item.category,Date.now());installMaterialOptions();$("#textureSearch").value=item.name;$("#textureCategory").value="all";resetTextureImport();renderTextureBrowser();status.classList.remove("hidden","error");status.textContent=`${item.label} installed as ${item.name}. Click its card below to apply it.`;showToast("Texture installed and added to the GoldSrc WAD");
+    }catch(error){status.classList.remove("hidden");status.classList.add("error");status.textContent=`Import stopped: ${error.message}`;}
+    finally{button.disabled=false;button.textContent="Install texture";}
+  }
+
+  function selectedTextureForTarget() {
+    const item = selectedItem(), target = $("#textureTarget").value;
+    if (target === "ground") return environmentFor().groundMaterial;
+    if (!item) return "";
+    if (selected.type === "room" && target === "floor") return item.floorTexture;
+    if (selected.type === "room" && target === "ceiling") return item.ceilingTexture;
+    return surfaceTextureFor(item,selected.type);
+  }
+
+  function renderTextureBrowser() {
+    const query = $("#textureSearch").value.trim().toLowerCase(), category = $("#textureCategory").value;
+    const selectedTexture = selectedTextureForTarget();
+    const textures = Object.keys(MATERIAL_INFO).filter((texture) => {
+      const matchesSearch = !query || texture.toLowerCase().includes(query) || MATERIAL_INFO[texture].toLowerCase().includes(query);
+      const matchesCategory = category === "all" || (category === "favorites" ? textureFavorites.has(texture) : textureCategory(texture) === category);
+      return matchesSearch && matchesCategory;
+    });
+    const categoryLabels = {architecture:"Architecture",concrete:"Concrete",brick:"Brick",stone:"Stone & gems",ground:"Ground",nature:"Nature",organic:"Organic patterns",fabric:"Fabric & leather",plaster:"Plaster",floor:"Floors",metal:"Metal",wood:"Wood",sunburst:"Sunburst"};
+    const categoryOrder = ["architecture","concrete","brick","stone","ground","nature","organic","fabric","plaster","floor","metal","wood","sunburst"];
+    const sourceLabel = (texture) => texture.startsWith("USR_") ? "IMPORTED" : texture.startsWith("BO_") ? "CC0" : texture.startsWith("SUN_") ? "ORIGINAL" : "STOCK WAD";
+    const card = (texture) => {const label=html(MATERIAL_INFO[texture]);return `<button class="texture-card ${texture === selectedTexture ? "selected" : ""}" data-texture="${texture}" type="button" title="Apply ${label}"><span class="texture-source">${sourceLabel(texture)}</span><img loading="lazy" src="${texturePreviewUrl(texture)}" alt="Miniature preview of ${label}"><strong>${label}</strong><small>${texture}</small><span class="texture-category-badge">${categoryLabels[textureCategory(texture)] || textureCategory(texture)}</span><span class="favorite-texture ${textureFavorites.has(texture) ? "active" : ""}" data-favorite="${texture}">★</span>${texture.startsWith("USR_")?`<span class="delete-texture" data-delete-texture="${texture}" title="Delete imported texture">×</span>`:""}</button>`;};
+    const groups = categoryOrder.map((key) => [key,textures.filter((texture) => textureCategory(texture) === key)]).filter(([,items]) => items.length);
+    $("#textureSummary").textContent = `Showing ${textures.length} of ${Object.keys(MATERIAL_INFO).length} materials · every card has a real preview miniature`;
+    $("#textureGrid").innerHTML = groups.map(([key,items]) => `<section class="texture-category-section"><h3>${categoryLabels[key] || key}<span>${items.length}</span></h3><div class="texture-category-grid">${items.map(card).join("")}</div></section>`).join("") || `<p class="analysis-intro">No textures match this filter.</p>`;
+  }
+
+  function renderPrefabLibrary() {
+    const query = $("#prefabSearch").value.trim().toLowerCase();
+    const category = $("#prefabCategory").value;
+    const prefabs = PREFAB_LIBRARY.filter((prefab) => {
+      const matchesSearch = !query || `${prefab.name} ${prefab.description} ${prefab.size}`.toLowerCase().includes(query);
+      return matchesSearch && (category === "all" || prefab.category === category);
+    });
+    $("#prefabGrid").innerHTML = prefabs.map((prefab) => `<button class="prefab-card" data-prefab="${prefab.id}" type="button"><span class="prefab-card-icon">${prefab.icon}</span><span><strong>${prefab.name}</strong><small>${prefab.description}</small><em>${prefab.category} · ${prefab.size}</em></span></button>`).join("") || `<p class="analysis-intro">No prefabs match this filter.</p>`;
+  }
+
+  function renderLayoutLibrary() {
+    const query = $("#layoutSearch").value.trim().toLowerCase();
+    const category = $("#layoutCategory").value;
+    const layouts = LAYOUT_LIBRARY.filter((layout) => {
+      const matchesSearch = !query || `${layout.name} ${layout.description} ${layout.size}`.toLowerCase().includes(query);
+      return matchesSearch && (category === "all" || layout.category === category);
+    });
+    $("#layoutGrid").innerHTML = layouts.map((layout) => `<button class="prefab-card layout-card" data-layout="${layout.id}" type="button"><span class="prefab-card-icon layout-card-icon">${layout.icon}</span><span><strong>${layout.name}</strong><small>${layout.description}</small><span class="layout-material-strip">${(layout.materials || []).map((texture) => `<img src="${texturePreviewUrl(texture)}" alt="${MATERIAL_INFO[texture] || texture} miniature" title="${MATERIAL_INFO[texture] || texture}">`).join("")}</span><em>${layout.category} · ${layout.size} grid</em></span></button>`).join("") || `<p class="analysis-intro">No layouts match this filter.</p>`;
+  }
+
+  function updateSkyThemePreview() {
+    const environment = environmentFor();
+    const theme = SKY_THEMES[environment.skyName] || SKY_THEMES.desert;
+    $("#skyThemePreview").style.background = `linear-gradient(${theme.colors.join(",")})`;
+    $("#skyThemeLabel").textContent = `${theme.label} · ${environment.skyName}`;
+  }
+
+  function syncEnvironmentDialog() {
+    const environment = environmentFor();
+    $("#groundEnabled").checked = environment.groundEnabled;
+    $("#groundSize").value = environment.groundSize;
+    $("#groundPadding").value = environment.groundPadding;
+    $("#environmentGroundMaterialSelect").value = environment.groundMaterial;
+    $("#openSkyDefault").checked = environment.openSkyDefault;
+    $("#skyNameSelect").value = environment.skyName;
+    updateSurfaceMiniature("environmentGroundMiniature", environment.groundMaterial);
+    updateSkyThemePreview();
+  }
+
+  function changeEnvironment(update, message) {
+    const before = snapshot();
+    update(environmentFor());
+    environmentFor();
+    commit(before);
+    syncEnvironmentDialog();
+    if (message) showToast(message);
+  }
+
+  function openTextureLibrary(target = "material") {
+    const roomSelected = selected?.type === "room";
+    $("#textureTarget").value = target;
+    [...$("#textureTarget").options].forEach((option) => { if (["floor","ceiling"].includes(option.value)) option.disabled = !roomSelected; });
+    $("#textureSearch").value = ""; $("#textureCategory").value = "all"; renderTextureBrowser(); $("#textureDialog").showModal();
+    refreshTextureCatalog();
+  }
+
+  function choosePrefab(prefabId) {
+    const prefab = PREFAB_LIBRARY.find((item) => item.id === prefabId);
+    if (!prefab) return;
+    activePrefabId = prefab.id;
+    $("#prefabDialog").close();
+    setTool(prefab.tool || "prefab");
+    showToast(prefab.tool ? `${prefab.name}: ${TOOL_INFO[prefab.tool].tip}` : `${prefab.name} selected - click inside a clear room area`);
+  }
+
+  function filterSidebarTools() {
+    const query = $("#toolSearch").value.trim().toLowerCase();
+    $$(".tool-group").forEach((group) => {
+      const tools = [...group.querySelectorAll(".tool")];
+      tools.forEach((tool) => {
+        const matches = !query || `${tool.textContent} ${tool.title}`.toLowerCase().includes(query);
+        tool.classList.toggle("search-hidden", !matches);
+      });
+      const hasMatch = tools.some((tool) => !tool.classList.contains("search-hidden"));
+      group.classList.toggle("search-hidden", !!query && !hasMatch);
+      if (query && hasMatch) group.open = true;
+    });
+  }
+
+  function applyBrowserTexture(texture) {
+    const item = selectedItem();
+    const before = snapshot(), target = $("#textureTarget").value;
+    if (target === "ground") environmentFor().groundMaterial = texture;
+    else if (!item || !["room", "prop"].includes(selected.type)) return;
+    else setSurfaceTexture(item,selected.type,texture,target==="material"?surfaceTarget:target);
+    commit(before); $("#textureDialog").close(); showToast(`${MATERIAL_INFO[texture]} applied`);
+  }
+
+  function analysisLineClear(from, to, walls) {
+    const dx=to.x-from.x, dy=to.y-from.y, distance=Math.hypot(dx,dy);
+    if (distance < .01) return true;
+    return !walls.some((wall) => !wall.walkable && rayWallDistance(from.x,from.y,dx/distance,dy/distance,wall) < distance-.08);
+  }
+
+  function findAnalysisRoute(start, goal, walls) {
+    const sx=Math.floor(start.x), sy=Math.floor(start.y), gx=Math.floor(goal.x), gy=Math.floor(goal.y);
+    const bounds={
+      minX:Math.floor(Math.min(...state.rooms.map((room)=>room.x)))-1,
+      minY:Math.floor(Math.min(...state.rooms.map((room)=>room.y)))-1,
+      maxX:Math.ceil(Math.max(...state.rooms.map((room)=>room.x+room.w)))+1,
+      maxY:Math.ceil(Math.max(...state.rooms.map((room)=>room.y+room.d)))+1
+    };
+    const key=(x,y)=>`${x},${y}`, queue=[[sx,sy]], previous=new Map([[key(sx,sy),null]]);
+    for(let cursor=0;cursor<queue.length && cursor<24000;cursor++){
+      const [x,y]=queue[cursor];
+      if(x===gx&&y===gy) break;
+      for(const [nx,ny] of [[x+1,y],[x-1,y],[x,y+1],[x,y-1]]){
+        const id=key(nx,ny); if(previous.has(id)||nx<bounds.minX||nx>bounds.maxX||ny<bounds.minY||ny>bounds.maxY) continue;
+        const from={x:x+.5,y:y+.5}, to={x:nx+.5,y:ny+.5};
+        if(!isPointInSpace(to.x,to.y)) continue;
+        const distance=1, dx=to.x-from.x, dy=to.y-from.y;
+        if(walls.some((wall)=>!wall.walkable&&rayWallDistance(from.x,from.y,dx,dy,wall)<distance+.02)) continue;
+        if(walkSurfaceHeightAt(to.x,to.y)-walkSurfaceHeightAt(from.x,from.y)>.75) continue;
+        previous.set(id,[x,y]); queue.push([nx,ny]);
+      }
+    }
+    if(!previous.has(key(gx,gy))) return null;
+    const path=[]; let current=[gx,gy];
+    while(current){path.push({x:current[0]+.5,y:current[1]+.5});current=previous.get(key(current[0],current[1]));}
+    path.reverse(); return path;
+  }
+
+  function calculateCompetitiveAnalysis() {
+    if(!state.rooms.length) return {routes:[],direct:0};
+    const walls=buildWalkWalls(), teams={CT:state.entities.filter((item)=>item.kind==="ct"),T:state.entities.filter((item)=>item.kind==="t")};
+    const objectives=state.entities.filter((item)=>["bombA","bombB"].includes(item.kind));
+    const routes=[];
+    Object.entries(teams).forEach(([team,spawns])=>objectives.forEach((objective)=>{
+      let best=null;
+      spawns.forEach((spawn)=>{
+        const from={x:spawn.x+.5,y:spawn.y+.5},to={x:objective.x+.5,y:objective.y+.5},path=findAnalysisRoute(from,to,walls);
+        if(path&&(!best||path.length<best.path.length)) best={from,to,path};
+      });
+      if(best){const units=Math.max(0,best.path.length-1)*GRID,direct=analysisLineClear(best.from,best.to,walls),enemies=teams[team==="CT"?"T":"CT"],samples=best.path.filter((_,index)=>index%2===0),exposed=samples.length?samples.filter((point)=>enemies.some((enemy)=>analysisLineClear(point,{x:enemy.x+.5,y:enemy.y+.5},walls))).length/samples.length:0;routes.push({team,target:objective.kind==="bombA"?"Bombsite A":"Bombsite B",units,seconds:units/250,direct,exposure:Math.round(exposed*100),path:best.path,from:best.from,to:best.to});}
+      else routes.push({team,target:objective.kind==="bombA"?"Bombsite A":"Bombsite B",units:null,seconds:null,direct:false,path:[]});
+    }));
+    const direct=routes.filter((route)=>route.direct).length;
+    const narrowOpenings=[...state.doors,...state.windows].filter((item)=>(item.width||1)*GRID<96).length;
+    const tacticalCover=state.props.filter((item)=>["crate","wall","wallPolygon","diagonal","breakable"].includes(item.kind)&&(item.height||1)*GRID>=40&&(item.height||1)*GRID<=96).length;
+    const longSightlines=routes.filter((route)=>route.direct&&(route.units||0)>1024).length;
+    return {routes,direct,walls,narrowOpenings,tacticalCover,longSightlines};
+  }
+
+  function runCompetitiveAnalysis() {
+    analysisOverlay=calculateCompetitiveAnalysis();
+    const valid=analysisOverlay.routes.filter((route)=>route.seconds!=null), average=valid.length?valid.reduce((sum,route)=>sum+route.seconds,0)/valid.length:0;
+    $("#analysisSummary").innerHTML=`<div><strong>${valid.length}</strong><small>reachable team routes</small></div><div><strong>${average.toFixed(1)}s</strong><small>average objective timing</small></div><div><strong>${analysisOverlay.direct}</strong><small>direct spawn-to-site sightlines</small></div><div><strong>${analysisOverlay.narrowOpenings}</strong><small>openings below 96 units</small></div><div><strong>${analysisOverlay.tacticalCover}</strong><small>combat-height cover pieces</small></div><div><strong>${analysisOverlay.longSightlines}</strong><small>long direct sightlines</small></div>`;
+    $("#analysisRoutes").innerHTML=analysisOverlay.routes.length?analysisOverlay.routes.map((route)=>`<div class="route-row"><strong>${route.team} → ${route.target}</strong><span>${route.units==null?"Blocked":`${route.units} units`}</span><span>${route.seconds==null?"—":`${route.seconds.toFixed(1)} sec`}</span><span class="${route.direct?"clear-shot":""}">${route.direct?"Direct sightline":"Covered route"} · ${route.exposure||0}% exposed</span></div>`).join(""):`<div class="route-row"><strong>Add CT/T spawns and bombsites to analyze competitive routes.</strong></div>`;
+    drawEditor();
+  }
+
+  function drawAnalysisOverlay() {
+    if(!analysisOverlay||!$("#showAnalysisOverlay")?.checked) return;
+    ectx.save(); ectx.lineCap="round"; ectx.lineJoin="round";
+    analysisOverlay.routes.forEach((route)=>{
+      if(!route.path?.length) return;
+      ectx.beginPath(); route.path.forEach((point,index)=>{const screen=cellToScreen(point.x,point.y);index?ectx.lineTo(screen.x,screen.y):ectx.moveTo(screen.x,screen.y);});
+      ectx.strokeStyle=route.team==="CT"?"rgba(98,169,255,.72)":"rgba(240,156,74,.72)";ectx.lineWidth=3;ectx.setLineDash([6,5]);ectx.stroke();
+      if(route.direct){const a=cellToScreen(route.from.x,route.from.y),b=cellToScreen(route.to.x,route.to.y);ectx.beginPath();ectx.moveTo(a.x,a.y);ectx.lineTo(b.x,b.y);ectx.strokeStyle="rgba(255,90,80,.8)";ectx.lineWidth=1.5;ectx.setLineDash([2,3]);ectx.stroke();}
+    });
+    ectx.restore();
+  }
+
+  function verticalBounds(ref,item) {
+    const center={x:item.x+(item.w||1)/2,y:item.y+(item.d||1)/2};
+    if(ref.type==="room"){const base=roomFloor(item);return{base,top:base+(item.height||4)};}
+    if(ref.type==="prop"&&["floor","floorPolygon"].includes(item.kind)){const top=Number(item.elevation)||0;return{base:top-(Number(item.thickness)||.25),top};}
+    if(ref.type==="prop"){const base=Number(item.floorLevel)||0;return{base,top:base+(item.height||1)};}
+    if(ref.type==="zone"){const base=floorLevelAt(center.x,center.y);return{base,top:base+(item.height||2)};}
+    return null;
+  }
+
+  function syncElevationSelectionFields() {
+    const entries=selectedEntries(),baseInput=$("#elevationBase"),topInput=$("#elevationTop");
+    if(entries.length!==1){baseInput.disabled=topInput.disabled=true;baseInput.value=topInput.value="";$("#elevationClearance").textContent="Select one room, floor, structure, or trigger profile.";return;}
+    const bounds=verticalBounds(entries[0].ref,entries[0].item);
+    if(!bounds){baseInput.disabled=topInput.disabled=true;$("#elevationClearance").textContent="This point entity has no editable vertical volume.";return;}
+    baseInput.disabled=topInput.disabled=false;baseInput.value=Math.round(bounds.base*GRID);topInput.value=Math.round(bounds.top*GRID);
+    const height=Math.round((bounds.top-bounds.base)*GRID),host=entries[0].ref.type==="room"?null:state.rooms.find((room)=>pointInRoom(entries[0].item.x+(entries[0].item.w||1)/2,entries[0].item.y+(entries[0].item.d||1)/2,room)),clearance=host?Math.round((roomFloor(host)+host.height-bounds.top)*GRID):null;
+    $("#elevationClearance").textContent=`Height ${height} units${clearance==null?"":` · ${clearance} units clear below host ceiling`}${clearance!=null&&clearance<72?" · WARNING: player clearance is tight":""}.`;
+  }
+
+  function drawElevationEditor() {
+    if(!$("#elevationDialog").open)return;
+    const rect=resizeCanvas(elevationCanvas,elevationCtx),axis=elevationAxis,perp=axis==="x"?"y":"x",all=[...state.rooms.map((item)=>({ref:{type:"room",id:item.id},item})),...state.props.map((item)=>({ref:{type:"prop",id:item.id},item})),...state.zones.map((item)=>({ref:{type:"zone",id:item.id},item}))];
+    elevationCtx.clearRect(0,0,rect.width,rect.height);elevationHitRegions=[];
+    if(!all.length){elevationCtx.fillStyle="#81907a";elevationCtx.textAlign="center";elevationCtx.fillText("Draw a room or ground structure first",rect.width/2,rect.height/2);return;}
+    const mins=all.map(({item})=>item[axis]||0),maxs=all.map(({item})=>(item[axis]||0)+(item[axis==="x"?"w":"d"]||1)),pmins=all.map(({item})=>item[perp]||0),pmaxs=all.map(({item})=>(item[perp]||0)+(item[perp==="x"?"w":"d"]||1));
+    const min=Math.min(...mins)-1,max=Math.max(...maxs)+1,pmin=Math.min(...pmins),pmax=Math.max(...pmaxs),slice=pmin+(pmax-pmin)*(Number($("#elevationSlice").value)||50)/100;
+    const vertical=all.map((entry)=>verticalBounds(entry.ref,entry.item)).filter(Boolean),zmin=Math.min(-1,...vertical.map((item)=>item.base))-1,zmax=Math.max(5,...vertical.map((item)=>item.top))+1,pad={l:48,r:18,t:20,b:32},sx=(rect.width-pad.l-pad.r)/Math.max(1,max-min),sz=(rect.height-pad.t-pad.b)/Math.max(1,zmax-zmin),screenX=(value)=>pad.l+(value-min)*sx,screenY=(value)=>rect.height-pad.b-(value-zmin)*sz;
+    elevationCtx.strokeStyle="rgba(100,120,91,.22)";elevationCtx.fillStyle="#73806d";elevationCtx.font="7px ui-monospace";
+    for(let z=Math.ceil(zmin);z<=zmax;z++){const y=screenY(z);elevationCtx.beginPath();elevationCtx.moveTo(pad.l,y);elevationCtx.lineTo(rect.width-pad.r,y);elevationCtx.stroke();elevationCtx.fillText(`${z*GRID}`,6,y+3);}
+    const visible=all.filter(({item})=>slice>=(item[perp]||0)-.001&&slice<=(item[perp]||0)+(item[perp==="x"?"w":"d"]||1)+.001).sort((a,b)=>a.ref.type==="room"?-1:b.ref.type==="room"?1:0);
+    visible.forEach(({ref,item})=>{const vb=verticalBounds(ref,item);if(!vb)return;const x=screenX(item[axis]||0),right=screenX((item[axis]||0)+(item[axis==="x"?"w":"d"]||1)),y=screenY(vb.top),bottom=screenY(vb.base),active=isRefSelected(ref.type,ref.id),color=ref.type==="room"?"#637354":ref.type==="zone"?"#a27ee8":MATERIAL_COLORS[item.texture]||"#a37954";elevationCtx.globalAlpha=ref.type==="room"?.28:.72;elevationCtx.fillStyle=color;elevationCtx.fillRect(x,y,Math.max(2,right-x),Math.max(2,bottom-y));elevationCtx.globalAlpha=1;elevationCtx.strokeStyle=active?"#d7f45a":"#819276";elevationCtx.lineWidth=active?2.5:1;elevationCtx.strokeRect(x+.5,y+.5,Math.max(1,right-x-1),Math.max(1,bottom-y-1));if(right-x>42){elevationCtx.fillStyle=active?"#d7f45a":"#d9e2d3";elevationCtx.font="700 7px system-ui";elevationCtx.fillText(item.label||item.kind||ref.type,x+5,y+12);}elevationHitRegions.push({ref,x1:x,y1:y,x2:right,y2:bottom});});
+    elevationCtx.strokeStyle="#72ddec";elevationCtx.setLineDash([4,4]);elevationCtx.beginPath();elevationCtx.moveTo(pad.l,screenY(0));elevationCtx.lineTo(rect.width-pad.r,screenY(0));elevationCtx.stroke();elevationCtx.setLineDash([]);$("#elevationSliceLabel").textContent=`${perp.toUpperCase()} slice ${Math.round(slice*GRID)} units · ${visible.length} profiles`;
+    syncElevationSelectionFields();
+  }
+
+  function applyElevationField(which,value) {
+    const entry=selectedEntries()[0];if(!entry)return;const vb=verticalBounds(entry.ref,entry.item);if(!vb)return;const before=snapshot(),next=Number(value)/GRID,item=entry.item;
+    if(which==="base"){
+      if(entry.ref.type==="room"){const delta=next-roomFloor(item);item.floorLevel=next;state.props.filter((prop)=>pointInRoom(prop.x+(prop.w||1)/2,prop.y+(prop.d||1)/2,item)).forEach((prop)=>{prop.floorLevel=(Number(prop.floorLevel)||0)+delta;if(["floor","floorPolygon"].includes(prop.kind))prop.elevation=(Number(prop.elevation)||0)+delta;});}
+      else if(entry.ref.type==="prop"&&["floor","floorPolygon"].includes(item.kind))item.thickness=Math.max(.125,(Number(item.elevation)||vb.top)-next);
+      else if(entry.ref.type==="prop")item.floorLevel=next;
+    }else{
+      if(entry.ref.type==="prop"&&["floor","floorPolygon"].includes(item.kind))item.elevation=next;else item.height=Math.max(.25,next-vb.base);
+    }
+    commit(before);drawElevationEditor();
+  }
+
+  function footprintsOverlap(a,b) {
+    const polygons=[roomPlanPoints(a),roomPlanPoints(b)];
+    for(const points of polygons)if(!points?.length)return false;
+    for(const points of polygons){
+      for(let index=0;index<points.length;index++){
+        const first=points[index],second=points[(index+1)%points.length],axis=[-(second[1]-first[1]),second[0]-first[0]];
+        const projections=polygons.map((polygon)=>polygon.map((point)=>point[0]*axis[0]+point[1]*axis[1]));
+        if(Math.max(...projections[0])<=Math.min(...projections[1])+.001||Math.max(...projections[1])<=Math.min(...projections[0])+.001)return false;
+      }
+    }
+    return true;
+  }
+
+  function footprintContains(item,x,y) {
+    if(item.points?.length)return pointInPolygon(x,y,item.points);
+    return x>=item.x&&x<=item.x+(item.w||1)&&y>=item.y&&y<=item.y+(item.d||1);
+  }
+
+  function playableSurfaceAt(x,y,level) {
+    if(environmentFor().groundEnabled&&Math.abs(environmentFor().groundElevation-level)<.13&&pointInEnvironmentGround(x,y))return true;
+    if(state.rooms.some((room)=>Math.abs(roomFloor(room)-level)<.13&&pointInRoom(x,y,room)&&!pointInFloorOpening(x,y,level,room.id)))return true;
+    return state.props.some((prop)=>{
+      const top=["floor","floorPolygon"].includes(prop.kind)?Number(prop.elevation)||0:["platform","platformPolygon"].includes(prop.kind)?(Number(prop.floorLevel)||0)+(Number(prop.height)||1):null;
+      return top!=null&&Math.abs(top-level)<.13&&footprintContains(prop,x,y);
+    });
+  }
+
+  function connectorTopPoint(prop,offset=.32) {
+    if(prop.direction==="w")return{x:prop.x-offset,y:prop.y+prop.d/2};
+    if(prop.direction==="s")return{x:prop.x+prop.w/2,y:prop.y+prop.d+offset};
+    if(prop.direction==="n")return{x:prop.x+prop.w/2,y:prop.y-offset};
+    return{x:prop.x+prop.w+offset,y:prop.y+prop.d/2};
+  }
+
+  function hasLandingNear(point,level,radius=.55) {
+    return [[0,0],[radius,0],[-radius,0],[0,radius],[0,-radius],[radius,radius],[-radius,radius],[radius,-radius],[-radius,-radius]].some(([dx,dy])=>playableSurfaceAt(point.x+dx,point.y+dy,level));
+  }
+
+  function calculatePreflight() {
+    const issues=[],add=(severity,title,detail,ref=null)=>issues.push({severity,title,detail,ref});
+    if(!state.rooms.length&&!environmentFor().groundEnabled)add("error","No sealed world","Draw a room or enable map-wide ground before compiling.");
+    if(!state.entities.some((item)=>item.kind==="ct"))add("error","Missing CT spawn","Competitive and hostage maps need at least one Counter-Terrorist spawn.");
+    if(!state.entities.some((item)=>item.kind==="t"))add("error","Missing T spawn","Add at least one Terrorist spawn.");
+    if(!state.entities.some((item)=>["bombA","bombB","hostage"].includes(item.kind)))add("error","Missing objective","Add a bombsite or hostage objective.");
+    if(state.entities.some((item)=>item.kind==="hostage")&&!state.zones.some((item)=>item.kind==="rescue"))add("error","Hostages have no rescue zone","Draw at least one hostage rescue volume.");
+    state.rooms.forEach((room)=>{if(room.points?.length){const error=polygonValidation(room.points);if(error)add("error","Invalid room polygon",error,{type:"room",id:room.id});}if((room.height||0)*GRID<128)add("warning","Low room clearance",`${Math.round((room.height||0)*GRID)} units high; standing players need about 128 units.`,{type:"room",id:room.id});});
+    for(let first=0;first<state.rooms.length;first++)for(let second=first+1;second<state.rooms.length;second++){
+      const a=state.rooms[first],b=state.rooms[second],aBase=roomFloor(a),bBase=roomFloor(b);
+      if(Math.abs(aBase-bBase)<.13||!footprintsOverlap(a,b))continue;
+      const overlap=Math.min(aBase+(a.height||4),bBase+(b.height||4))-Math.max(aBase,bBase);
+      if(overlap>.13)add("error","Building levels overlap",`${a.label||"Room"} and ${b.label||"Room"} occupy the same horizontal and vertical space by ${Math.round(overlap*GRID)} units.`,{type:"room",id:b.id});
+    }
+    state.props.forEach((prop)=>{if(prop.points?.length){const error=polygonValidation(prop.points);if(error)add("error","Invalid structure polygon",error,{type:"prop",id:prop.id});}if(!(["platformPolygon","floorPolygon","wallPolygon","cylinder"].includes(prop.kind)?polygonIsInsideSpace(prop.points||[]):rectIsInsideSpace(prop)))add("error","Structure outside buildable space",`${prop.kind} is not fully supported by a room or map ground.`,{type:"prop",id:prop.id});const propLevel=itemLevel("prop",prop),host=state.rooms.find((room)=>Math.abs(roomFloor(room)-propLevel)<.13&&pointInRoom(prop.x+(prop.w||1)/2,prop.y+(prop.d||1)/2,room)),vb=verticalBounds({type:"prop"},prop);if(host&&vb?.top>roomFloor(host)+host.height+.01)add("error","Structure crosses the ceiling",`Top is ${Math.round((vb.top-roomFloor(host))*GRID)} units above this floor, beyond the room ceiling.`,{type:"prop",id:prop.id});if(prop.kind==="stairs"&&prop.height*GRID/Math.max(1,prop.steps||1)>18)add("warning","Stair risers are too tall","Keep individual risers at or below 18 GoldSrc units.",{type:"prop",id:prop.id});if(["ramp","wedge"].includes(prop.kind)&&prop.height/Math.max(.01,structureRun(prop))>1)add("warning","Ramp is steeper than 45°","Reduce its rise or lengthen the run.",{type:"prop",id:prop.id});});
+    state.props.filter((prop)=>prop.kind==="floorHole").forEach((prop)=>{const host=state.rooms.find((room)=>room.id===prop.hostRoomId),level=Number(prop.floorLevel)||0,cx=prop.x+prop.w/2,cy=prop.y+prop.d/2,lowerRooms=state.rooms.filter((room)=>room.id!==prop.hostRoomId&&roomFloor(room)<level-.1&&pointInRoom(cx,cy,room)).sort((a,b)=>roomFloor(b)-roomFloor(a)),lower=lowerRooms[0];if(!host||host.points?.length)add("error","Unsupported floor opening","Floor openings require one rectangular host room.",{type:"prop",id:prop.id});if(!lower&&!(environmentFor().groundEnabled&&environmentFor().groundElevation<level-.1))add("error","Floor opening has no lower landing","Add a lower room or terrain below this opening to avoid a void leak.",{type:"prop",id:prop.id});if(lower&&lower.points?.length)add("error","Unsupported lower shaft ceiling","The room below a floor opening must be rectangular so its ceiling can be cut safely.",{type:"room",id:lower.id});if(lower&&Math.abs(roomFloor(lower)+(lower.height||4)-level)>.13)add("error","Floor opening crosses a sealed gap",`${lower.label||"Lower room"}'s ceiling does not meet this floor. Align the levels or add a connecting shaft room.`,{type:"prop",id:prop.id});if(Math.min(prop.w,prop.d)<.5)add("error","Floor opening is too small","Use an opening at least 32 units wide.",{type:"prop",id:prop.id});else if(Math.min(prop.w,prop.d)<1)add("warning","Tight floor opening","A 64-unit opening is safer for players and ladders.",{type:"prop",id:prop.id});});
+    state.props.filter((prop)=>["stairs","stairPrefab","ramp","ladder"].includes(prop.kind)).forEach((prop)=>{const topLevel=(Number(prop.floorLevel)||0)+(Number(prop.height)||1),topPoint=connectorTopPoint(prop);if(!hasLandingNear(topPoint,topLevel))add("error","Vertical connector has no top landing",`${prop.kind} ends at Z ${Math.round(topLevel*GRID)}, but no room floor or platform supports its exit.`,{type:"prop",id:prop.id});if(prop.kind==="ladder"&&(prop.height||0)*GRID<64)add("warning","Short ladder","This ladder climbs less than 64 units.",{type:"prop",id:prop.id});});
+    state.props.filter((prop)=>prop.kind==="elevator").forEach((prop)=>{const top=(Number(prop.floorLevel)||0)+(Number(prop.travel)||2),center={x:prop.x+prop.w/2,y:prop.y+prop.d/2};if(!hasLandingNear(center,top,Math.max(prop.w,prop.d)/2+.35))add("error","Elevator has no destination landing",`Add a room floor or platform beside the elevator at Z ${Math.round(top*GRID)}.`,{type:"prop",id:prop.id});});
+    [...state.doors.map((item)=>({type:"door",item})),...state.windows.map((item)=>({type:"window",item}))].forEach(({type,item})=>{if(!doorIsConnected(item))add("error","Disconnected opening","The opening no longer has playable space on both sides.",{type,id:item.id});const segment=openingSegment(item);if(Math.hypot(segment[1][0]-segment[0][0],segment[1][1]-segment[0][1])<.5)add("error","Opening is too narrow","Use at least 32 GoldSrc units of width.",{type,id:item.id});});
+    state.entities.forEach((entity)=>{if(!isPointInSpace(entity.x+.5,entity.y+.5))add("error","Entity outside playable space",`${entity.kind} is outside every floor.`,{type:"entity",id:entity.id});if(entity.kind==="ambient"&&!/\.wav$/i.test(entity.sound||""))add("warning","Ambient sound is not a WAV","GoldSrc ambient_generic expects an installed .wav path.",{type:"entity",id:entity.id});});
+    state.zones.forEach((zone)=>{if(!rectIsInsideSpace(zone))add("error","Trigger outside playable space",`${zone.kind} extends beyond the floor.`,{type:"zone",id:zone.id});if(zone.kind==="teleport"&&!state.entities.some((entity)=>entity.kind==="teleDest"&&entity.target===(zone.target||"tele_dest_1")))add("error","Teleporter target is missing",`No destination named ${zone.target||"tele_dest_1"}.`,{type:"zone",id:zone.id});});
+    const namedTargetList=[
+      ...state.props.map((item)=>item.targetName).filter(Boolean),
+      ...state.entities.map((item)=>item.kind==="pathCorner"?item.targetName:["light","spotlight"].includes(item.kind)?item.target:null).filter(Boolean)
+    ];
+    const namedTargets=new Set(namedTargetList);
+    state.entities.filter((item)=>item.kind==="button").forEach((item)=>{if(item.target&&!namedTargets.has(item.target))add("warning","Button target is unresolved",`No mover or switchable light is named ${item.target}.`,{type:"entity",id:item.id});});
+    state.props.filter((item)=>item.kind==="train").forEach((item)=>{if(!state.entities.some((entity)=>entity.kind==="pathCorner"&&entity.targetName===(item.target||"path_1")))add("error","Moving platform has no first path",`Add a path corner named ${item.target||"path_1"}.`,{type:"prop",id:item.id});});
+    state.entities.filter((item)=>item.kind==="pathCorner"&&item.target).forEach((item)=>{if(!state.entities.some((next)=>next.kind==="pathCorner"&&next.targetName===item.target))add("error","Broken path chain",`${item.targetName||"Path corner"} points to missing ${item.target}.`,{type:"entity",id:item.id});});
+    [...new Set(namedTargetList.filter((name,index)=>namedTargetList.indexOf(name)!==index))].forEach((name)=>add("warning","Duplicate target name",`${name} is used by more than one object.`));
+    state.props.filter((item)=>item.kind==="elevator").forEach((item)=>{const base=Number(item.floorLevel)||0,target=base+(Number(item.travel)||2),host=state.rooms.find((room)=>Math.abs(roomFloor(room)-base)<.13&&pointInRoom(item.x+item.w/2,item.y+item.d/2,room)),shaft=state.props.some((prop)=>prop.kind==="floorHole"&&Math.abs((Number(prop.floorLevel)||0)-target)<.13&&prop.x<=item.x+.01&&prop.y<=item.y+.01&&prop.x+prop.w>=item.x+item.w-.01&&prop.y+prop.d>=item.y+item.d-.01);if(host&&!shaft&&base+(item.height||1)+(item.travel||2)>roomFloor(host)+host.height)add("warning","Elevator travel crosses ceiling","Add a floor opening around the elevator shaft, increase room height, or reduce travel.",{type:"prop",id:item.id});});
+    const solids=state.props.filter((prop)=>["crate","wall","wallPolygon","cylinder","arch","breakable"].includes(prop.kind));for(let i=0;i<solids.length;i++)for(let j=i+1;j<solids.length;j++)if(rectanglesOverlap(solids[i],solids[j])&&Math.abs((solids[i].floorLevel||0)-(solids[j].floorLevel||0))<.1)add("warning","Overlapping solid brushes",`${solids[i].kind} overlaps ${solids[j].kind}; this may create unnecessary cuts.`,{type:"prop",id:solids[j].id});
+    const all=[...state.rooms,...state.props,...state.zones,...state.entities],extent=all.length?Math.max(...all.flatMap((item)=>[Math.abs((item.x||0)*GRID),Math.abs(((item.x||0)+(item.w||1))*GRID),Math.abs((item.y||0)*GRID),Math.abs(((item.y||0)+(item.d||1))*GRID)])):0;if(extent>4096)add(extent>8192?"error":"warning","Large world coordinates",`The map reaches ${Math.round(extent)} units from origin; GoldSrc is safest inside ±4096.`);
+    const mapText=generateMapText();if(mapText&&/undefined|NaN/.test(mapText))add("error","Invalid exported number","The generated MAP contains an undefined or NaN value.");const entityCount=state.entities.length+state.zones.length+state.doors.length+state.windows.length;if(entityCount>450)add(entityCount>512?"error":"warning","Entity limit pressure",`${entityCount} designed entities; GoldSrc's practical limit is near 512.`);
+    return {issues,errors:issues.filter((issue)=>issue.severity==="error").length,warnings:issues.filter((issue)=>issue.severity==="warning").length,infos:issues.filter((issue)=>issue.severity==="info").length};
+  }
+
+  function renderPreflight() {
+    lastPreflight=calculatePreflight();const result=lastPreflight;
+    $("#preflightSummary").innerHTML=`<div class="${result.errors?"error":"good"}"><strong>${result.errors}</strong><small>blocking errors</small></div><div class="${result.warnings?"warning":"good"}"><strong>${result.warnings}</strong><small>warnings</small></div><div class="good"><strong>${result.errors?"FIX":"READY"}</strong><small>compile recommendation</small></div>`;
+    $("#preflightList").innerHTML=result.issues.length?result.issues.map((issue,index)=>`<button class="preflight-issue ${issue.severity}" data-preflight-index="${index}"><em>${issue.severity.toUpperCase()}</em><span><strong>${issue.title}</strong><small>${issue.detail}</small></span><b>${issue.ref?"SELECT":""}</b></button>`).join(""):`<div class="preflight-empty">No blocking geometry or gameplay issues found.</div>`;
+    return result;
+  }
+
+  function html(value) {
+    return String(value ?? "").replace(/[&<>"']/g,(character)=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"})[character]);
+  }
+
+  function productionObjects() {
+    return [
+      ...state.rooms.map((item,index)=>({type:"room",item,label:item.label||`Room ${index+1}`})),
+      ...state.props.map((item,index)=>({type:"prop",item,label:item.label||({wall:"Wall",wallPolygon:"Polygon wall",platform:"Platform",floor:"Floor",crate:"Crate",stairs:"Stairs",ramp:"Ramp",elevator:"Elevator",rotatingDoor:"Rotating door",train:"Moving platform"}[item.kind]||item.kind||`Geometry ${index+1}`)})),
+      ...state.doors.map((item,index)=>({type:"door",item,label:`${item.mode==="sliding"?"Sliding door":"Opening"} ${index+1}`})),
+      ...state.windows.map((item,index)=>({type:"window",item,label:`Window ${index+1}`})),
+      ...state.zones.map((item,index)=>({type:"zone",item,label:`${item.kind} ${index+1}`})),
+      ...state.entities.map((item,index)=>({type:"entity",item,label:`${item.kind} ${index+1}`}))
+    ];
+  }
+
+  function renderOutliner() {
+    const search=$("#outlinerSearch").value.trim().toLowerCase(),type=$("#outlinerType").value;
+    const rows=productionObjects().filter((entry)=>(type==="all"||entry.type===type)&&(!search||`${entry.label} ${entry.item.kind||""}`.toLowerCase().includes(search)));
+    $("#outlinerList").innerHTML=rows.length?rows.map(({type,item,label})=>`<div class="outliner-row ${isRefSelected(type,item.id)?"selected":""}" data-outline-select="${type}:${item.id}"><span><strong>${html(label)}</strong><small>${type} · Z ${Math.round(itemLevel(type,item)*GRID)}${item.groupId?" · grouped":""}</small></span><span>${item.locked?"LOCKED":""}${item.hidden?" HIDDEN":""}</span><span class="row-actions"><button data-outline-lock="${type}:${item.id}" title="Lock">L</button><button data-outline-hide="${type}:${item.id}" title="Hide">H</button></span></div>`).join(""):`<div class="preflight-empty">No matching objects.</div>`;
+  }
+
+  function syncStories() {
+    state.stories ||= [];
+    const levels=[...new Set(state.rooms.map((room)=>Math.round(roomFloor(room)*4)/4))].sort((a,b)=>a-b);
+    levels.forEach((elevation)=>{if(!state.stories.some((story)=>Math.abs(Number(story.elevation)-elevation)<.01))state.stories.push({id:crypto.randomUUID(),name:elevation===0?"Ground floor":elevation>0?`Upper ${Math.round(elevation*GRID)}`:`Lower ${Math.abs(Math.round(elevation*GRID))}`,elevation});});
+    state.stories.sort((a,b)=>Number(a.elevation)-Number(b.elevation));
+  }
+
+  function renderStories() {
+    syncStories();
+    $("#storyList").innerHTML=state.stories.map((story)=>{const level=Number(story.elevation)||0,count=state.rooms.filter((room)=>Math.abs(roomFloor(room)-level)<.13).length;return `<div class="story-row"><span><strong>${html(story.name)}</strong><small>Z ${Math.round(level*GRID)} · ${count} room${count===1?"":"s"}</small></span><span>${planLevel!=null&&Math.abs(planLevel-level)<.13?"ACTIVE":""}</span><span class="row-actions"><button data-story-view="${story.id}" title="View level">V</button><button data-story-copy="${story.id}" title="Duplicate above the tallest room">+</button><button data-story-remove="${story.id}" title="Remove empty level">×</button></span></div>`;}).join("");
+  }
+
+  function duplicateStory(story) {
+    const source=Number(story.elevation)||0,storyHeight=Math.max(3,...state.rooms.filter((room)=>Math.abs(roomFloor(room)-source)<.13).map((room)=>room.height||4)),target=source+storyHeight,before=snapshot(),idMap=new Map(),clone=(item)=>{const copy=structuredClone(item);idMap.set(item.id,crypto.randomUUID());copy.id=idMap.get(item.id);if(copy.groupId)copy.groupId=`${copy.groupId}-${copy.id.slice(0,6)}`;return copy;};
+    const rooms=state.rooms.filter((item)=>Math.abs(roomFloor(item)-source)<.13).map((item)=>{const copy=clone(item);copy.floorLevel=target;copy.label=`${item.label||"ROOM"} · COPY`;return copy;});
+    const props=state.props.filter((item)=>Math.abs(itemLevel("prop",item)-source)<.13).map((item)=>{const copy=clone(item);if(["floor","floorPolygon"].includes(copy.kind))copy.elevation=(Number(copy.elevation)||source)+storyHeight;else copy.floorLevel=target;if(copy.hostRoomId)copy.hostRoomId=idMap.get(copy.hostRoomId)||copy.hostRoomId;return copy;});
+    const entities=state.entities.filter((item)=>Math.abs(itemLevel("entity",item)-source)<.13).map((item)=>{const copy=clone(item);copy.floorLevel=target;if(copy.targetName)copy.targetName=`${copy.targetName}_up`;return copy;});
+    const zones=state.zones.filter((item)=>Math.abs(itemLevel("zone",item)-source)<.13).map((item)=>{const copy=clone(item);copy.floorLevel=target;return copy;});
+    const doors=state.doors.filter((item)=>Math.abs(itemLevel("door",item)-source)<.13).map((item)=>{const copy=clone(item);copy.floorLevel=target;copy.edgeRoomId=idMap.get(item.edgeRoomId)||item.edgeRoomId;return copy;});
+    const windows=state.windows.filter((item)=>Math.abs(itemLevel("window",item)-source)<.13).map((item)=>{const copy=clone(item);copy.floorLevel=target;copy.edgeRoomId=idMap.get(item.edgeRoomId)||item.edgeRoomId;return copy;});
+    state.rooms.push(...rooms);state.props.push(...props);state.entities.push(...entities);state.zones.push(...zones);state.doors.push(...doors);state.windows.push(...windows);
+    state.stories.push({id:crypto.randomUUID(),name:`${story.name} copy`,elevation:target});planLevel=target;ghostLevels=true;selection=[];selected=null;commit(before);renderProduction();showToast(`Level duplicated at Z ${target*GRID}`);
+  }
+
+  function roomLightingScore(room) {
+    const center={x:room.x+room.w/2,y:room.y+room.d/2};
+    const lights=state.entities.filter((entity)=>["light","spotlight"].includes(entity.kind)&&Math.abs(itemLevel("entity",entity)-roomFloor(room))<room.height+1);
+    return lights.reduce((score,light)=>{const distance=Math.hypot(light.x+.5-center.x,light.y+.5-center.y)*GRID,radius=light.radius||512;if(distance>radius)return score;return score+(light.brightness||300)*(1-distance/radius);},0);
+  }
+
+  function darkestRoom() { return [...state.rooms].sort((a,b)=>roomLightingScore(a)-roomLightingScore(b))[0]||null; }
+
+  function renderLightingWorkspace() {
+    const rows=state.rooms.map((room)=>({room,score:roomLightingScore(room)})).sort((a,b)=>a.score-b.score),dark=rows.filter((row)=>row.score<80).length,lights=state.entities.filter((item)=>["light","spotlight"].includes(item.kind)).length;
+    $("#lightingSummary").innerHTML=`<div><strong>${lights}</strong><small>authored lights</small></div><div><strong>${dark}</strong><small>dark rooms</small></div><div><strong>${rows.length?Math.round(rows.reduce((sum,row)=>sum+row.score,0)/rows.length):0}</strong><small>average coverage</small></div>`;
+    $("#lightingList").innerHTML=rows.length?rows.map(({room,score})=>`<button class="lighting-row" data-light-room="${room.id}"><span><strong>${html(room.label||"Room")}</strong><small>Z ${Math.round(roomFloor(room)*GRID)}</small></span><span>${score<80?"DARK":score<180?"LOW":"LIT"}</span><strong>${Math.round(score)}</strong></button>`).join(""):`<div class="preflight-empty">Draw rooms to analyze light coverage.</div>`;
+  }
+
+  function routeReport() {
+    if(recordedRoute.length<2)return "No route recorded yet.";
+    const distance=recordedRoute.slice(1).reduce((sum,point,index)=>sum+Math.hypot(point.x-recordedRoute[index].x,point.y-recordedRoute[index].y)*GRID,0),duration=(recordedRoute.at(-1).time-recordedRoute[0].time)/1000,zValues=recordedRoute.map((point)=>point.z*GRID),threats=state.entities.filter((item)=>["ct","t","targetDummy"].includes(item.kind));
+    const exposed=recordedRoute.filter((point)=>threats.some((threat)=>clearSight(point,{x:threat.x+.5,y:threat.y+.5}))).length/recordedRoute.length*100;
+    return `<strong>${Math.round(distance)} units</strong> traveled in <strong>${duration.toFixed(1)} seconds</strong><br>Elevation range: ${Math.round(Math.min(...zValues))} to ${Math.round(Math.max(...zValues))} units · Exposure samples: ${Math.round(exposed)}%`;
+  }
+
+  function renderSnapshots() {
+    $("#snapshotList").innerHTML=projectSnapshots.length?projectSnapshots.map((entry)=>`<div class="snapshot-row"><span><strong>${html(entry.name)}</strong><small>${new Date(entry.createdAt).toLocaleString()}</small></span><span>${Math.round((entry.project?.length||0)/1024)} KB</span><span class="row-actions"><button data-snapshot-restore="${entry.id}" title="Restore">R</button><button data-snapshot-delete="${entry.id}" title="Delete">×</button></span></div>`).join(""):`<div class="preflight-empty">No named versions yet. Autosave is still active.</div>`;
+  }
+
+  function renderProduction() {
+    if(!$("#productionDialog")?.open)return;
+    $$("[data-production-tab]").forEach((button)=>button.classList.toggle("active",button.dataset.productionTab===productionTab));
+    $$("[data-production-pane]").forEach((pane)=>pane.classList.toggle("active",pane.dataset.productionPane===productionTab));
+    lightingOverlay=productionTab==="lighting";
+    if(productionTab==="outliner")renderOutliner();
+    if(productionTab==="stories")renderStories();
+    if(productionTab==="lighting")renderLightingWorkspace();
+    if(productionTab==="playtest")$("#routeReport").innerHTML=routeReport();
+    if(productionTab==="project")renderSnapshots();
+    drawEditor();
+  }
+
+  function startWalkAt(entity) {
+    if(!entity)return showToast("Add or select a spawn first");
+    setPreviewMode("walk");player={x:entity.x+.5,y:entity.y+.5,z:Number(entity.floorLevel??floorLevelAt(entity.x+.5,entity.y+.5)),angle:(Number(entity.angle)||0)*Math.PI/180};preview.focus();$("#productionDialog").close();showToast("Walkthrough started at selected spawn");
+  }
+
+  function downloadBlob(content,type,name) {
+    const blob=content instanceof Blob?content:new Blob([content],{type}),url=URL.createObjectURL(blob),link=document.createElement("a");link.href=url;link.download=name;link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
+  }
+
+  function projectDocument() { return JSON.stringify({format:"blockout-project",version:2,exportedAt:new Date().toISOString(),project:state},null,2); }
+
+  function crc32(bytes) {
+    let crc=-1;for(const byte of bytes){crc^=byte;for(let bit=0;bit<8;bit++)crc=(crc>>>1)^((crc&1)?0xedb88320:0);}return (crc^-1)>>>0;
+  }
+  function zipBytes(files) {
+    const encoder=new TextEncoder(),parts=[],central=[];let offset=0;
+    const u16=(value)=>new Uint8Array([value&255,(value>>>8)&255]),u32=(value)=>new Uint8Array([value&255,(value>>>8)&255,(value>>>16)&255,(value>>>24)&255]),join=(items)=>{const output=new Uint8Array(items.reduce((sum,item)=>sum+item.length,0));let at=0;items.forEach((item)=>{output.set(item,at);at+=item.length;});return output;};
+    Object.entries(files).forEach(([name,value])=>{const filename=encoder.encode(name),data=typeof value==="string"?encoder.encode(value):value,crc=crc32(data),header=join([u32(0x04034b50),u16(20),u16(0x800),u16(0),u16(0),u16(0),u32(crc),u32(data.length),u32(data.length),u16(filename.length),u16(0),filename]);parts.push(header,data);central.push(join([u32(0x02014b50),u16(20),u16(20),u16(0x800),u16(0),u16(0),u16(0),u32(crc),u32(data.length),u32(data.length),u16(filename.length),u16(0),u16(0),u16(0),u16(0),u32(0),u32(offset),filename]));offset+=header.length+data.length;});
+    const directory=join(central),end=join([u32(0x06054b50),u16(0),u16(0),u16(central.length),u16(central.length),u32(directory.length),u32(offset),u16(0)]);return join([...parts,directory,end]);
+  }
+
+  function exportProductionPackage() {
+    const map=generateMapText();if(!map)return showToast("Draw a room or enable ground before packaging");
+    const textures=[...new Set([...state.rooms.flatMap((room)=>[room.texture,room.floorTexture,room.ceilingTexture,...Object.values(room.wallTextures||{}),...Object.values(room.edgeTextures||{})]),...state.props.map((prop)=>prop.texture),...state.doors.map((door)=>door.texture)].filter(Boolean))];
+    const report=calculatePreflight(),name=safeName(state.name),files={[`${name}.map`]:map,[`${name}.blockout.json`]:projectDocument(),"resources.txt":`Textures (${textures.length})\n${textures.join("\n")}\n\nSky\n${environmentFor().skyName}\n`,"BUILD_README.txt":`${state.name}\nGenerated ${new Date().toISOString()}\nPreflight: ${report.errors} errors, ${report.warnings} warnings\n\nOpen the MAP in J.A.C.K./Hammer or use Blockout Build & Test.\n`};
+    downloadBlob(new Blob([zipBytes(files)],{type:"application/zip"}),"application/zip",`${name}_production.zip`);showToast("Production package downloaded");
+  }
+
+  function refresh() {
+    $("#projectName").value = state.name;
+    $("#emptyHint").classList.toggle("hidden", state.rooms.length > 0);
+    $("#undoButton").disabled = history.length === 0;
+    $("#redoButton").disabled = future.length === 0;
+    updateLevelControls();
+    updateChecklist();
+    updateInspector();
+    updateBuildDialog();
+    drawEditor();
+    drawPreview();
+    if($("#elevationDialog")?.open)drawElevationEditor();
+    if($("#productionDialog")?.open)renderProduction();
+  }
+
+  function fitView() {
+    const rect = editor.getBoundingClientRect();
+    if (!state.rooms.length) {
+      const bounds = environmentBounds([]);
+      cellSize = Math.max(7,Math.min(28,(rect.width-100)/(bounds.maxX-bounds.minX),(rect.height-90)/(bounds.maxY-bounds.minY)));
+      viewOffset = { x:(rect.width-(bounds.maxX-bounds.minX)*cellSize)/2-bounds.minX*cellSize, y:(rect.height-(bounds.maxY-bounds.minY)*cellSize)/2-bounds.minY*cellSize };
+    } else {
+      const xs = state.rooms.flatMap((r) => [r.x, r.x + r.w]);
+      const ys = state.rooms.flatMap((r) => [r.y, r.y + r.d]);
+      const minX = Math.min(...xs), maxX = Math.max(...xs), minY = Math.min(...ys), maxY = Math.max(...ys);
+      cellSize = Math.max(7, Math.min(42, (rect.width - 100) / Math.max(maxX - minX, 5), (rect.height - 90) / Math.max(maxY - minY, 4)));
+      viewOffset = { x: (rect.width - (maxX - minX) * cellSize) / 2 - minX * cellSize, y: (rect.height - (maxY - minY) * cellSize) / 2 - minY * cellSize };
+    }
+    drawEditor();
+  }
+
+  function placeEntity(cell, kind) {
+    const hostRoom = state.rooms.find((room) => pointInRoom(cell.x + .5, cell.y + .5, room));
+    if (!isPointInSpace(cell.x + .5,cell.y + .5)) {
+      showToast(["light","spotlight"].includes(kind) ? "Place lights on a room floor or map ground" : "Place gameplay markers on a room floor or map ground");
+      return;
+    }
+    const occupied = state.entities.some((entity) => entity.x === cell.x && entity.y === cell.y);
+    if (occupied) {
+      showToast("That grid cell already has a marker");
+      return;
+    }
+    const before = snapshot();
+    const entity = { id: crypto.randomUUID(), kind, x: cell.x, y: cell.y, floorLevel:roomFloor(hostRoom) };
+    if (["ct", "t"].includes(kind)) entity.angle = 0;
+    if(kind==="teleDest")Object.assign(entity,{target:"tele_dest_1",angle:0});
+    if(kind==="button")entity.target="target_1";
+    if(kind==="decal")entity.decal="{lambda01";
+    if(kind==="ambient")Object.assign(entity,{sound:"ambience/wind1.wav",volume:7});
+    if (["light","spotlight"].includes(kind)) {
+      entity.z = Math.max(.5, (hostRoom?.height || 4) - .75);
+      entity.brightness = 300;
+      entity.radius = 512;
+      entity.style = "0";
+      entity.target = "";
+      entity.color = "#fff0d0";
+      if(kind === "spotlight") Object.assign(entity,{angle:0,pitch:-45,cone:45});
+    }
+    if(kind === "pathCorner") Object.assign(entity,{targetName:`path_${state.entities.filter((item)=>item.kind==="pathCorner").length+1}`,target:"",wait:0});
+    if(kind === "targetDummy") entity.angle=0;
+    state.entities.push(entity);
+    selected = { type: "entity", id: entity.id };
+    commit(before);
+    if (["light","spotlight"].includes(kind)) showToast(`${kind === "spotlight" ? "Spotlight" : "Light"} placed — adjust it in Selection`);
+    else if (["hostage","button","teleDest","decal","ambient"].includes(kind)) showToast(`${TOOL_INFO[kind].title.replace("Place ","")} placed — configure it in Selection`);
+  }
+
+  function placeCrate(cell) {
+    const box = { x: cell.x, y: cell.y, w: 1, d: 1 };
+    if (!rectIsInsideSpace(box)) { showToast("Place crates on a room floor or map ground"); return; }
+    if (state.props.some((prop) => pointInProp(cell.x, cell.y, prop))) { showToast("That grid cell already has a structure"); return; }
+    const hostRoom = state.rooms.find((room) => pointInRoom(cell.x + .5, cell.y + .5, room));
+    const before = snapshot();
+    const prop = { id: crypto.randomUUID(), kind: "crate", ...box, height: 1, floorLevel: floorLevelAt(cell.x+.5,cell.y+.5), texture: "BCRATE02", direction: "e" };
+    state.props.push(prop);
+    selected = { type: "prop", id: prop.id };
+    if (previewMode !== "orbit") setPreviewMode("orbit");
+    commit(before);
+    showToast("Crate placed — physical 3D object shown in Orbit");
+  }
+
+  function placeLadder(cell) {
+    const hostRoom = state.rooms.find((room) => pointInRoom(cell.x + .5, cell.y + .5, room));
+    if (!isPointInSpace(cell.x+.5,cell.y+.5)) { showToast("Place ladders on a room floor or map ground"); return; }
+    if (state.props.some((prop) => pointInProp(cell.x, cell.y, prop))) { showToast("That grid cell already has a structure"); return; }
+    const before = snapshot();
+    const prop = {
+      id: crypto.randomUUID(), kind: "ladder", x: cell.x, y: cell.y, w: 1, d: 1,
+      height: Math.max(1, (hostRoom?.height || 3.5) - .5), floorLevel: floorLevelAt(cell.x+.5,cell.y+.5), direction: "n", texture: "CSTRIKE_ME4METL"
+    };
+    state.props.push(prop);
+    selected = { type: "prop", id: prop.id };
+    if (previewMode !== "orbit") setPreviewMode("orbit");
+    commit(before);
+    showToast("Ladder placed — choose its facing and height in Selection");
+  }
+
+  function placeColumn(cell) {
+    const center = [cell.x + .5, cell.y + .5];
+    const host = state.rooms.find((room) => pointInRoom(center[0], center[1], room));
+    if (!isPointInSpace(center[0],center[1])) { showToast("Place columns on a room floor or map ground"); return; }
+    const points = Array.from({length:8}, (_, index) => {
+      const angle = Math.PI / 8 + index * Math.PI / 4;
+      return [center[0] + Math.cos(angle) * .43, center[1] + Math.sin(angle) * .43];
+    });
+    if (!polygonIsInsideSpace(points) || state.props.some((prop) => pointInProp(center[0], center[1], prop))) { showToast("That column needs a free grid cell"); return; }
+    const before = snapshot(), bounds = polygonBounds(points);
+    const prop = { id:crypto.randomUUID(), kind:"wallPolygon", label:"COLUMN", points, ...bounds, height:Math.min(host?.height || 4,4), floorLevel:floorLevelAt(center[0],center[1]), texture:host?.texture || "CSTRIKE_WR4RGH", direction:"e" };
+    state.props.push(prop); selected = {type:"prop", id:prop.id}; commit(before);
+    showToast("Octagonal column placed—resize or edit its corners in Selection");
+  }
+
+  function prefabColumn(x, y, floorLevel, texture = "BO_CONCRETE") {
+    const center = [x + .5, y + .5];
+    const points = Array.from({ length:8 }, (_, index) => {
+      const angle = Math.PI / 8 + index * Math.PI / 4;
+      return [center[0] + Math.cos(angle) * .43, center[1] + Math.sin(angle) * .43];
+    });
+    return { id:crypto.randomUUID(), kind:"wallPolygon", label:"PREFAB COLUMN", points, ...polygonBounds(points), height:3, floorLevel, texture, direction:"e" };
+  }
+
+  function prefabProp(kind, x, y, w, d, height, floorLevel, texture, extra = {}) {
+    return { id:crypto.randomUUID(), kind, x, y, w, d, height, floorLevel, texture, direction:"e", ...extra };
+  }
+
+  function placePrefab(cell) {
+    const prefab = PREFAB_LIBRARY.find((item) => item.id === activePrefabId);
+    if (!prefab || prefab.tool) return;
+    const footprints = {
+      halfCover:[2,1], doubleCrate:[2,1], crateCorner:[2,2], pillarPair:[4,1], coverLane:[5,3], bombCover:[4,4],
+      catwalk:[5,2], rampLanding:[5,2], ladderTower:[3,2], windowNest:[4,3], columnArc:[5,2],
+      archFrame:[4,1], cratePyramid:[2,2], tCover:[4,3], zigzag:[7,4], bridge:[6,3], sniperNest:[5,4],
+      marketStall:[6,3], bollardRow:[7,1], highLowCover:[5,2], stairTower:[8,4]
+    };
+    const [w,d] = footprints[prefab.id] || [1,1];
+    const area = { x:cell.x, y:cell.y, w, d };
+    if (!rectIsInsideSpace(area)) { showToast(`Keep the whole ${prefab.name} on a room floor or map ground`); return; }
+    if (state.props.some((prop) => rectanglesOverlap(area, prop))) { showToast("That prefab needs a clear area"); return; }
+    const host = state.rooms.find((room) => pointInRoom(cell.x + .5, cell.y + .5, room));
+    const z = floorLevelAt(cell.x+.5,cell.y+.5), x = cell.x, y = cell.y;
+    let props = [];
+    if (prefab.id === "halfCover") props = [prefabProp("wall",x,y,2,1,.75,z,"BO_CONCRETE")];
+    if (prefab.id === "doubleCrate") props = [0,1].map((offset) => prefabProp("crate",x+offset,y,1,1,1,z,"BO_WOOD01"));
+    if (prefab.id === "crateCorner") props = [[0,0],[1,0],[0,1]].map(([dx,dy]) => prefabProp("crate",x+dx,y+dy,1,1,1,z,"BO_WOODREAL"));
+    if (prefab.id === "pillarPair") props = [prefabColumn(x,y,z), prefabColumn(x+3,y,z)];
+    if (prefab.id === "coverLane") props = [
+      prefabProp("diagonal",x,y,2,2,1.25,z,"BO_RUST",{slope:"up",thickness:.42}),
+      prefabProp("wall",x+2,y+1,1,1,.75,z,"BO_CONCRETE"),
+      prefabProp("diagonal",x+3,y+1,2,2,1.25,z,"BO_RUST",{slope:"down",thickness:.42})
+    ];
+    if (prefab.id === "bombCover") props = [[0,0],[3,0],[0,3],[3,3]].map(([dx,dy],index) => prefabProp(index % 2 ? "wall" : "crate",x+dx,y+dy,1,1,index % 2 ? .75 : 1,z,index % 2 ? "BO_CONCBRICK" : "BO_WOOD02"));
+    if (prefab.id === "catwalk") props = [
+      prefabProp("stairs",x,y,2,2,1,z,"BO_CONCRETE",{direction:"e",steps:4}),
+      prefabProp("platform",x+2,y,3,2,1,z,"BO_PAVEMENT")
+    ];
+    if (prefab.id === "rampLanding") props = [
+      prefabProp("ramp",x,y,3,2,1,z,"BO_CONCRETE",{direction:"e"}),
+      prefabProp("platform",x+3,y,2,2,1,z,"BO_PAVEMENT")
+    ];
+    if (prefab.id === "ladderTower") props = [
+      prefabProp("ladder",x,y,1,1,2,z,"BO_RUST",{direction:"e"}),
+      prefabProp("platform",x+1,y,2,2,2,z,"BO_CONCBRICK")
+    ];
+    if (prefab.id === "windowNest") props = [
+      prefabProp("wall",x,y,1,3,1.5,z,"BO_BRICK03"), prefabProp("wall",x+3,y,1,3,1.5,z,"BO_BRICK03"),
+      prefabProp("wall",x+1,y+2,2,1,.75,z,"BO_CONCRETE")
+    ];
+    if (prefab.id === "columnArc") props = [prefabColumn(x,y+1,z,"BO_STUCCO"), prefabColumn(x+2,y,z,"BO_STUCCO"), prefabColumn(x+4,y+1,z,"BO_STUCCO")];
+    if (prefab.id === "archFrame") props = [
+      prefabProp("wall",x,y,1,1,3,z,"BO_CONC1K2"), prefabProp("wall",x+3,y,1,1,3,z,"BO_CONC1K2"),
+      prefabProp("wall",x+1,y,2,1,.5,z+2.5,"BO_MARBLE")
+    ];
+    if (prefab.id === "cratePyramid") props = [
+      prefabProp("crate",x,y,1,1,1,z,"BO_CEDAR"), prefabProp("crate",x+1,y,1,1,1,z,"BO_CEDAR"),
+      prefabProp("crate",x+.5,y,1,1,1,z+1,"BO_WOOD02")
+    ];
+    if (prefab.id === "tCover") props = [
+      prefabProp("wall",x,y+1,4,1,.75,z,"BO_CONCRETE"), prefabProp("wall",x+1.5,y,1,3,1.5,z,"BO_REDBRICK")
+    ];
+    if (prefab.id === "zigzag") props = [
+      prefabProp("diagonal",x,y,2,2,1.25,z,"BO_RUSTIRON",{slope:"up",thickness:.42}),
+      prefabProp("diagonal",x+2.5,y+1,2,2,1.25,z,"BO_RUSTIRON",{slope:"down",thickness:.42}),
+      prefabProp("diagonal",x+5,y+2,2,2,1.25,z,"BO_RUSTIRON",{slope:"up",thickness:.42})
+    ];
+    if (prefab.id === "bridge") props = [
+      prefabProp("platform",x,y+1,6,1,1,z,"BO_FLOORTILE"),
+      prefabProp("wall",x,y,6,.25,.5,z+1,"BO_RUST"), prefabProp("wall",x,y+2.75,6,.25,.5,z+1,"BO_RUST")
+    ];
+    if (prefab.id === "sniperNest") props = [
+      prefabProp("stairs",x,y+1,2,2,1,z,"BO_CONCRETE",{direction:"e",steps:4}), prefabProp("platform",x+2,y,3,4,1,z,"BO_CONC1K1"),
+      prefabProp("wall",x+2,y,3,.5,.75,z+1,"BO_CONCRETE"), prefabProp("wall",x+4.5,y+.5,.5,3,.75,z+1,"BO_CONCRETE")
+    ];
+    if (prefab.id === "marketStall") props = [0,2,4].map((dx,index) => prefabProp("wall",x+dx,y+1,1.5,1,.75,z,index===1?"BO_MARBLE":"BO_WOODREAL"));
+    if (prefab.id === "bollardRow") props = [0,2,4,6].map((dx) => { const column=prefabColumn(x+dx,y,z,"BO_CONC1K2"); column.height=.75; return column; });
+    if (prefab.id === "highLowCover") props = [
+      prefabProp("wall",x,y,1,2,.75,z,"BO_CONCRETE"), prefabProp("wall",x+2,y,1,2,2,z,"BO_REDBRICK"), prefabProp("wall",x+4,y,1,2,.75,z,"BO_CONCRETE")
+    ];
+    if (prefab.id === "stairTower") props = [
+      prefabProp("stairs",x,y+1,2,2,1,z,"BO_CONCRETE",{direction:"e",steps:4}), prefabProp("platform",x+2,y,2,4,1,z,"BO_FLOORTILE"),
+      prefabProp("stairs",x+4,y+1,2,2,1,z+1,"BO_CONCRETE",{direction:"e",steps:4}), prefabProp("platform",x+6,y,2,4,1,z+1,"BO_MARBLE")
+    ];
+    if (!props.length) return;
+    const before = snapshot();
+    state.props.push(...props);
+    selected = { type:"prop", id:props.at(-1).id };
+    if (previewMode !== "orbit") setPreviewMode("orbit");
+    commit(before);
+    showToast(`${prefab.name} placed - ${props.length} physical piece${props.length === 1 ? "" : "s"}`);
+  }
+
+  function placeDrawnStructure(kind, start, end) {
+    const box = normalizeSnappedRect(start, end);
+    if (kind === "diagonal" && (box.w < 2 || box.d < 2)) {
+      showToast("Drag at least 2 by 2 grid cells for diagonal cover"); return;
+    }
+    if (!rectIsInsideSpace(box)) { showToast("Keep the whole structure on a room floor or map ground"); return; }
+    if (["wall", "diagonal", "cylinder"].includes(kind) && state.props.some((prop) => rectanglesOverlap(box, prop))) {
+      showToast("That wall would overlap another structure"); return;
+    }
+    const before = snapshot();
+    const hostRooms = state.rooms.filter((room) => pointInRoom(box.x + box.w / 2, box.y + box.d / 2, room));
+    const surfaceLevel = floorLevelAt(box.x+box.w/2,box.y+box.d/2);
+    const hostHeight = hostRooms[0]?.height || 4;
+    if(kind==="floorHole"){
+      const host=hostRooms.filter((room)=>!room.points?.length&&(planLevel==null||Math.abs(roomFloor(room)-planLevel)<.13)).sort((a,b)=>Math.abs(roomFloor(a)-surfaceLevel)-Math.abs(roomFloor(b)-surfaceLevel))[0];
+      if(!host||box.x<host.x+.25||box.y<host.y+.25||box.x+box.w>host.x+host.w-.25||box.y+box.d>host.y+host.d-.25){showToast("Floor openings must stay inside one rectangular room");return;}
+      if(state.props.some((item)=>item.kind==="floorHole"&&Math.abs((item.floorLevel||0)-roomFloor(host))<.13&&rectanglesOverlap(item,box))){showToast("That floor opening overlaps another opening");return;}
+      const hole={id:crypto.randomUUID(),kind:"floorHole",label:"FLOOR OPENING",...box,height:.25,floorLevel:roomFloor(host),hostRoomId:host.id,texture:"BLACK"};state.props.push(hole);selected={type:"prop",id:hole.id};commit(before);showToast("Compile-safe floor opening cut");return;
+    }
+    if (kind === "arch") {
+      if (box.w < 3*snapStep() || box.d < snapStep()) { showToast("Draw a wider arch opening"); return; }
+      const groupId=crypto.randomUUID(), thickness=Math.max(snapStep(),Math.min(1,box.w*.18)), lintel=.6, openingHeight=Math.min(3,hostHeight-1);
+      const props=[
+        {id:crypto.randomUUID(),kind:"arch",label:"ARCH SUPPORT",x:box.x,y:box.y,w:thickness,d:box.d,height:openingHeight,floorLevel:surfaceLevel,texture:"BO_ROCK",groupId},
+        {id:crypto.randomUUID(),kind:"arch",label:"ARCH SUPPORT",x:box.x+box.w-thickness,y:box.y,w:thickness,d:box.d,height:openingHeight,floorLevel:surfaceLevel,texture:"BO_ROCK",groupId},
+        {id:crypto.randomUUID(),kind:"arch",label:"ARCH LINTEL",x:box.x,y:box.y,w:box.w,d:box.d,height:lintel,floorLevel:surfaceLevel+openingHeight-lintel,texture:"BO_ROCK",groupId}
+      ];
+      state.props.push(...props); selection=props.map((prop)=>({type:"prop",id:prop.id})); selected=selection[0]; commit(before); showToast("Grouped three-brush archway created"); return;
+    }
+    const prop = {
+      id: crypto.randomUUID(), kind, ...box,
+      height: ["wall", "diagonal", "cylinder"].includes(kind) ? Math.min(hostHeight, kind === "diagonal" ? 1.5 : kind === "cylinder" ? 3 : 4) : ["platform","elevator","train"].includes(kind) ? 1 : kind === "rotatingDoor" ? Math.min(3,hostHeight-.25) : kind === "slopeRoof" ? 1.5 : kind === "water" ? 1 : 2,
+      direction: directionFromDrag(start, end),
+      texture: kind === "wall" ? (hostRooms[0]?.texture || "CSTRIKE_WR4RGH") : kind === "diagonal" ? "CSTRIKE_ME4METL" : ["platform","elevator","train"].includes(kind) ? "CSTRIKE_CH3TILE" : kind === "rotatingDoor" ? "BO_WOOD02" : kind === "cylinder" ? "BO_ROCK" : kind === "slopeRoof" ? "BO_REDBRICK" : kind === "water" ? "BO_TURQUOISE" : kind === "breakable" ? "BCRATE02" : "CSTRIKE_ME4METL"
+    };
+    prop.floorLevel = surfaceLevel;
+    if(kind === "elevator") Object.assign(prop,{targetName:`elevator_${state.props.filter((item)=>item.kind==="elevator").length+1}`,target:"",speed:120,wait:3,travel:2});
+    if(kind === "rotatingDoor") Object.assign(prop,{targetName:`rot_door_${state.props.filter((item)=>item.kind==="rotatingDoor").length+1}`,target:"",speed:100,wait:3,angle:90});
+    if(kind === "train") Object.assign(prop,{targetName:`train_${state.props.filter((item)=>item.kind==="train").length+1}`,target:"path_1",speed:100,wait:0});
+    if (kind === "cylinder") {
+      prop.points = Array.from({length:12},(_,index)=>{const angle=-Math.PI/2+index*Math.PI*2/12;return [box.x+box.w/2+Math.cos(angle)*box.w/2,box.y+box.d/2+Math.sin(angle)*box.d/2];});
+    }
+    if (kind === "slopeRoof") prop.floorLevel = surfaceLevel + Math.max(2,hostHeight-.75);
+    if (kind === "floor") {
+      prop.elevation = surfaceLevel + .25;
+      prop.thickness = .25;
+      prop.texture = hostRooms[0]?.floorTexture || environmentFor().groundMaterial;
+    }
+    if (kind === "diagonal") {
+      prop.slope = (end.x - start.x) * (end.y - start.y) >= 0 ? "down" : "up";
+      prop.thickness = .42;
+    }
+    if (kind === "stairs") prop.steps = recommendedStairSteps(prop);
+    state.props.push(prop);
+    selected = { type: "prop", id: prop.id };
+    if (previewMode !== "orbit") setPreviewMode("orbit");
+    commit(before);
+    showToast(`${kind === "stairs" ? "Stairs" : ["ramp","wedge"].includes(kind) ? (kind === "wedge" ? "Solid wedge" : "Ramp") : kind === "slopeRoof" ? "Sloped roof" : kind === "cylinder" ? "Cylinder" : kind === "water" ? "Water volume" : kind === "breakable" ? "Breakable brush" : kind === "platform" ? "Platform" : kind === "floor" ? "Floor slab" : kind === "diagonal" ? "Diagonal cover" : "Solid wall"} created — physical in Orbit and Walkthrough`);
+  }
+
+  function rectanglesOverlap(a, b) {
+    return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.d && a.y + a.d > b.y;
+  }
+
+  function findCopiedPosition(type, item) {
+    const offsets = [];
+    for (let distance = 1; distance <= 24; distance++) {
+      offsets.push([distance, 0], [0, distance], [-distance, 0], [0, -distance], [distance, distance], [-distance, distance]);
+    }
+    for (const [dx, dy] of offsets) {
+      const candidate = { ...item, x: item.x + dx, y: item.y + dy };
+      if (item.points) candidate.points = item.points.map(([x, y]) => [x + dx, y + dy]);
+      if (item.planPoints) candidate.planPoints = item.planPoints.map(([x, y]) => [x + dx, y + dy]);
+      if (type === "room" && !state.rooms.some((room) => rectanglesOverlap(candidate, room))) return candidate;
+      if (type === "prop" && (["platformPolygon", "floorPolygon", "wallPolygon"].includes(candidate.kind) ? polygonIsInsideSpace(candidate.points || []) : rectIsInsideSpace(candidate)) && !state.props.some((prop) => rectanglesOverlap(candidate, prop))) return candidate;
+      if (type === "zone" && rectIsInsideSpace(candidate) && !state.zones.some((zone) => rectanglesOverlap(candidate, zone))) return candidate;
+      if (type === "entity" && isPointInSpace(candidate.x + .5,candidate.y + .5)
+        && !state.entities.some((entity) => entity.x === candidate.x && entity.y === candidate.y)) return candidate;
+    }
+    return null;
+  }
+
+  function copySelected(showMessage = true) {
+    const entries = selectedEntries().filter((entry) => !["door","window"].includes(entry.ref.type));
+    if (!entries.length) {
+      if (showMessage) showToast("Select a room, structure, or marker to copy");
+      return false;
+    }
+    objectClipboard = { items:entries.map((entry) => ({ type:entry.ref.type, item:structuredClone(entry.item) })) };
+    if (showMessage) showToast(`${entries.length} object${entries.length === 1 ? "" : "s"} copied — paste with Ctrl+V`);
+    updateInspector();
+    return true;
+  }
+
+  function pasteCopied() {
+    if (!objectClipboard) { showToast("Copy something first"); return; }
+    const before = snapshot();
+    const sourceItems = objectClipboard.items || [{ type:objectClipboard.type, item:objectClipboard.item }];
+    const groupMap = new Map();
+    const pasted = sourceItems.map(({type,item}) => {
+      const candidate = structuredClone(item), offset = snapStep();
+      candidate.id = crypto.randomUUID(); candidate.x += offset; candidate.y += offset;
+      if (candidate.points) candidate.points = candidate.points.map(([x,y]) => [x+offset,y+offset]);
+      if (candidate.planPoints) candidate.planPoints = candidate.planPoints.map(([x,y]) => [x+offset,y+offset]);
+      if (candidate.groupId) {
+        if (!groupMap.has(candidate.groupId)) groupMap.set(candidate.groupId,crypto.randomUUID());
+        candidate.groupId = groupMap.get(candidate.groupId);
+      }
+      itemListFor(type).push(candidate);
+      return { type, id:candidate.id };
+    });
+    selection = pasted; selected = pasted[0] || null;
+    commit(before);
+    showToast(`${pasted.length} object${pasted.length === 1 ? "" : "s"} pasted ${snapUnits} units diagonally`);
+  }
+
+  function duplicateSelected() {
+    if (!copySelected(false)) return;
+    pasteCopied();
+  }
+
+  function rotateSelected(clockwise) {
+    const entries = selectedEntries();
+    if (entries.length > 1) {
+      const before = snapshot(), bounds = selectionBounds(entries), cx = bounds.x+bounds.w/2, cy = bounds.y+bounds.d/2;
+      entries.filter((entry) => !entry.item.locked && !["door","window"].includes(entry.ref.type)).forEach(({ref,item}) => {
+        const center = { x:item.x+(item.w||1)/2, y:item.y+(item.d||1)/2 };
+        const rx = clockwise ? cx-(center.y-cy) : cx+(center.y-cy), ry = clockwise ? cy+(center.x-cx) : cy-(center.x-cx);
+        if (item.points) item.points = item.points.map(([x,y]) => clockwise ? [cx-(y-cy),cy+(x-cx)] : [cx+(y-cy),cy-(x-cx)]);
+        const oldW=item.w||1; item.w=item.d||1; item.d=oldW; item.x=rx-item.w/2; item.y=ry-item.d/2;
+        if (item.points) updatePolygonBounds(item);
+        if (ref.type === "prop") item.direction = (clockwise ? {n:"e",e:"s",s:"w",w:"n"}:{n:"w",w:"s",s:"e",e:"n"})[item.direction] || item.direction;
+        if (ref.type === "entity" && ["ct","t"].includes(item.kind)) item.angle = ((Number(item.angle)||0)+(clockwise?90:-90)+360)%360;
+      });
+      commit(before); showToast(`${entries.length} objects rotated around their center`); return;
+    }
+    const item = selectedItem();
+    if (!item || selected.type !== "prop") { showToast("Select a wall, crate, stairs, or ramp to rotate"); return; }
+    const before = snapshot();
+    if (["platformPolygon", "floorPolygon", "wallPolygon"].includes(item.kind) && item.points?.length) {
+      const centerX = item.x + item.w / 2, centerY = item.y + item.d / 2;
+      item.points = item.points.map(([x,y]) => clockwise
+        ? [centerX - (y - centerY), centerY + (x - centerX)]
+        : [centerX + (y - centerY), centerY - (x - centerX)]);
+      updatePolygonBounds(item);
+      if (!polygonIsInsideSpace(item.points)) {
+        state = JSON.parse(before); showToast("Rotation would leave the room—move the platform first"); refresh(); return;
+      }
+      commit(before); showToast(clockwise ? "Rotated 90° right" : "Rotated 90° left"); return;
+    }
+    const oldWidth = item.w;
+    item.w = item.d;
+    item.d = oldWidth;
+    const directions = clockwise ? { n: "e", e: "s", s: "w", w: "n" } : { n: "w", w: "s", s: "e", e: "n" };
+    if (item.kind === "diagonal") item.slope = item.slope === "down" ? "up" : "down";
+    else item.direction = directions[item.direction] || "e";
+    if (!rectIsInsideSpace(item)) {
+      state = JSON.parse(before);
+      showToast("Rotation would leave the room — move the structure first");
+      refresh();
+      return;
+    }
+    commit(before);
+    showToast(clockwise ? "Rotated 90° right" : "Rotated 90° left");
+  }
+
+  function reverseSelected() {
+    const item = selectedItem();
+    if (!item || selected.type !== "prop" || !["stairs", "ramp", "wedge", "slopeRoof"].includes(item.kind)) {
+      showToast("Select stairs or a ramp to reverse"); return;
+    }
+    const before = snapshot();
+    item.direction = ({ n: "s", s: "n", e: "w", w: "e" })[item.direction] || "w";
+    commit(before);
+    showToast("Uphill direction reversed");
+  }
+
+  function groupSelected() {
+    const entries = selectedEntries();
+    if (entries.length < 2) { showToast("Select at least two objects to group"); return; }
+    const before = snapshot(), groupId = crypto.randomUUID();
+    entries.forEach((entry) => { entry.item.groupId = groupId; });
+    commit(before); showToast(`${entries.length} objects grouped`);
+  }
+
+  function ungroupSelected() {
+    const entries = selectedEntries().filter((entry) => entry.item.groupId);
+    if (!entries.length) return;
+    const before = snapshot(); entries.forEach((entry) => { delete entry.item.groupId; }); commit(before); showToast("Selection ungrouped");
+  }
+
+  function toggleLockSelected() {
+    const entries = selectedEntries(); if (!entries.length) return;
+    const before = snapshot(), lock = !entries.every((entry) => entry.item.locked);
+    entries.forEach((entry) => { entry.item.locked = lock; }); commit(before); showToast(lock ? "Selection locked" : "Selection unlocked");
+  }
+
+  function hideSelected() {
+    const entries = selectedEntries(); if (!entries.length) return;
+    const before = snapshot(); entries.forEach((entry) => { entry.item.hidden = true; }); selection=[]; selected=null; commit(before); showToast(`${entries.length} object${entries.length===1?"":"s"} hidden`);
+  }
+
+  function unhideAll() {
+    const hidden = ["room","door","window","zone","prop","entity"].flatMap((type) => itemListFor(type)).filter((item) => item.hidden);
+    if (!hidden.length) { showToast("Nothing is hidden"); return; }
+    const before = snapshot(); hidden.forEach((item) => { delete item.hidden; }); commit(before); showToast(`${hidden.length} hidden objects shown`);
+  }
+
+  function toggleVertexEditing() {
+    const item = selectedItem();
+    if (!item || !["room", "prop"].includes(selected?.type)) return;
+    if (!item.points?.length) {
+      const before = snapshot();
+      item.points = [[item.x,item.y],[item.x+item.w,item.y],[item.x+item.w,item.y+item.d],[item.x,item.y+item.d]];
+      if (selected.type === "prop") item.kind = ({ wall:"wallPolygon", platform:"platformPolygon", floor:"floorPolygon", cylinder:"wallPolygon" })[item.kind] || item.kind;
+      updatePolygonBounds(item);
+      commit(before);
+    }
+    editingVertices = !editingVertices;
+    selectedVertexIndex = -1;
+    selectedEdgeIndex = -1;
+    if (editingVertices) setTool("select");
+    refresh();
+    showToast(editingVertices ? "Corner editing on—drag a numbered handle" : "Corner editing finished");
+  }
+
+  function removeSelectedVertex() {
+    const item = selectedItem();
+    if (!item || !["room", "prop"].includes(selected?.type) || !item.points?.length || selectedVertexIndex < 0) return;
+    if (item.points.length <= 3) { showToast("A polygon needs at least three corners"); return; }
+    const before = snapshot();
+    const original = item.points.map((point) => [...point]);
+    item.points.splice(selectedVertexIndex, 1);
+    const error = polygonValidation(item.points);
+    updatePolygonBounds(item);
+    const editedPlatform = selected.type === "prop";
+    const orphaned = editedPlatform ? !polygonIsInsideSpace(item.points) : (
+      state.entities.some((entity) => !isPointInSpace(entity.x + .5,entity.y + .5))
+      || state.props.some((prop) => ["platformPolygon", "floorPolygon", "wallPolygon"].includes(prop.kind) ? !polygonIsInsideSpace(prop.points || []) : !rectIsInsideSpace(prop))
+      || state.zones.some((zone) => !rectIsInsideSpace(zone))
+    );
+    if (error || orphaned) {
+      item.points = original; updatePolygonBounds(item);
+      showToast(error || (editedPlatform ? "Keep the polygon platform on a buildable surface" : "Removing that corner would leave an object outside the build area"));
+      refresh(); return;
+    }
+    selectedVertexIndex = -1;
+    commit(before);
+    showToast("Corner removed");
+  }
+
+  function polygonEditWouldOrphan(item, type) {
+    if (type === "prop") return !polygonIsInsideSpace(item.points || []);
+    return state.entities.some((entity) => !isPointInSpace(entity.x + .5,entity.y + .5))
+      || state.props.some((prop) => ["platformPolygon","floorPolygon","wallPolygon"].includes(prop.kind) ? !polygonIsInsideSpace(prop.points || []) : !rectIsInsideSpace(prop))
+      || state.zones.some((zone) => !rectIsInsideSpace(zone));
+  }
+
+  function applySafePolygonEdit(nextPoints, message) {
+    const item = selectedItem();
+    if (!item || !["room","prop"].includes(selected?.type) || !item.points?.length) return false;
+    const before = snapshot(), original = item.points.map((point) => [...point]);
+    item.points = nextPoints.map((point) => [baseSnap(point[0]),baseSnap(point[1])]);
+    updatePolygonBounds(item);
+    const error = polygonValidation(item.points);
+    if (error || polygonEditWouldOrphan(item,selected.type)) {
+      item.points = original; updatePolygonBounds(item); refresh();
+      showToast(error || "That edit would leave existing geometry outside its floor"); return false;
+    }
+    commit(before); showToast(message); return true;
+  }
+
+  function clipSelectedVertex() {
+    const item=selectedItem(),index=selectedVertexIndex;
+    if(!item?.points?.length||index<0||item.points.length>=16)return;
+    const previous=item.points[(index-1+item.points.length)%item.points.length],current=item.points[index],next=item.points[(index+1)%item.points.length];
+    const amount=.28;
+    const first=[current[0]+(previous[0]-current[0])*amount,current[1]+(previous[1]-current[1])*amount];
+    const second=[current[0]+(next[0]-current[0])*amount,current[1]+(next[1]-current[1])*amount];
+    const points=[...item.points.slice(0,index),first,second,...item.points.slice(index+1)];
+    if(applySafePolygonEdit(points,"Corner clipped into two compile-safe faces")){selectedVertexIndex=-1;selectedEdgeIndex=index;}
+  }
+
+  function extrudeSelectedEdge() {
+    const item=selectedItem(),index=selectedEdgeIndex;
+    if(!item?.points?.length||index<0)return;
+    const a=item.points[index],b=item.points[(index+1)%item.points.length],dx=b[0]-a[0],dy=b[1]-a[1],length=Math.max(.001,Math.hypot(dx,dy));
+    const area=item.points.reduce((sum,point,i)=>{const next=item.points[(i+1)%item.points.length];return sum+point[0]*next[1]-next[0]*point[1];},0);
+    const normal=area>0?[dy/length,-dx/length]:[-dy/length,dx/length],distance=Math.max(.25,snapStep());
+    const points=item.points.map((point,i)=>i===index||i===(index+1)%item.points.length?[point[0]+normal[0]*distance,point[1]+normal[1]*distance]:[...point]);
+    applySafePolygonEdit(points,`Edge extruded ${Math.round(distance*GRID)} units`);
+  }
+
+  function offsetSelectedPolygon(direction) {
+    const item=selectedItem();if(!item?.points?.length)return;
+    const center=item.points.reduce((sum,point)=>[sum[0]+point[0]/item.points.length,sum[1]+point[1]/item.points.length],[0,0]);
+    const distance=Math.max(.25,snapStep())*direction;
+    const points=item.points.map((point)=>{const dx=center[0]-point[0],dy=center[1]-point[1],length=Math.max(.001,Math.hypot(dx,dy));return [point[0]+dx/length*distance,point[1]+dy/length*distance];});
+    applySafePolygonEdit(points,direction>0?"Polygon inset safely":"Polygon outset safely");
+  }
+
+  function deleteSelected() {
+    const entries = selectedEntries();
+    if (!entries.length) return;
+    const before = snapshot();
+    const ids = new Map();
+    entries.forEach((entry) => { if (!entry.item.locked) { if (!ids.has(entry.ref.type)) ids.set(entry.ref.type,new Set()); ids.get(entry.ref.type).add(entry.ref.id); } });
+    if (!ids.size) { showToast("Unlock the selection before deleting it"); return; }
+    ["room","door","window","zone","prop","entity"].forEach((type) => {
+      const remove = ids.get(type); if (!remove) return;
+      const key = type === "room" ? "rooms" : type === "entity" ? "entities" : `${type}s`;
+      state[key] = state[key].filter((item) => !remove.has(item.id));
+    });
+    if (ids.has("room")) {
+      state.entities = state.entities.filter((entity) => isPointInSpace(entity.x + .5,entity.y + .5));
+      state.props = state.props.filter((prop) => ["platformPolygon", "floorPolygon", "wallPolygon"].includes(prop.kind) ? polygonIsInsideSpace(prop.points || []) : rectIsInsideSpace(prop));
+      state.zones = state.zones.filter((zone) => rectIsInsideSpace(zone));
+      state.doors = state.doors.filter(doorIsConnected);
+      state.windows = state.windows.filter(doorIsConnected);
+    }
+    selected = null; selection = [];
+    editingVertices = false;
+    selectedVertexIndex = -1;
+    commit(before);
+    showToast(`${[...ids.values()].reduce((sum,set)=>sum+set.size,0)} object${entries.length===1?"":"s"} deleted`);
+  }
+
+  function showToast(message) {
+    const toast = $("#toast");
+    toast.textContent = message;
+    toast.classList.add("show");
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => toast.classList.remove("show"), 2400);
+  }
+
+  function safeName(value) {
+    return (value || "my_first_map").trim().toLowerCase().replace(/[^a-z0-9_-]+/g, "_").replace(/^_+|_+$/g, "") || "my_first_map";
+  }
+
+  function hexToRgb(value) {
+    const match = /^#?([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(value || "");
+    return match ? [parseInt(match[1], 16), parseInt(match[2], 16), parseInt(match[3], 16)] : [255, 240, 208];
+  }
+
+  function textureFace(texture, uv = null) {
+    const value=normalizedUv(uv);
+    return `${texture} ${Math.round(value.shiftX)} ${Math.round(value.shiftY)} ${Math.round(value.rotation)} ${value.scaleX} ${value.scaleY}`;
+  }
+
+  function boxBrush(x1, y1, z1, x2, y2, z2, texture = "C1A0_LABW3", uv = null) {
+    const f = (a, b, c) => `( ${a.join(" ")} ) ( ${b.join(" ")} ) ( ${c.join(" ")} ) ${textureFace(texture,uv)}`;
+    return [
+      "{",
+      f([x1,y1,z2],[x2,y2,z2],[x2,y1,z2]),
+      f([x2,y1,z1],[x1,y2,z1],[x1,y1,z1]),
+      f([x1,y1,z1],[x1,y2,z2],[x1,y1,z2]),
+      f([x2,y2,z1],[x2,y1,z2],[x2,y2,z2]),
+      f([x2,y1,z1],[x1,y1,z2],[x2,y1,z2]),
+      f([x1,y2,z1],[x2,y2,z2],[x1,y2,z2]),
+      "}"
+    ].join("\n");
+  }
+
+  function polygonPrismBrush(corners, z1, z2, texture = "C1A0_LABW3", uv = null) {
+    let rounded = corners.map(([x, y]) => [Math.round(x), Math.round(y)]);
+    const signedArea = rounded.reduce((sum, point, index) => {
+      const next = rounded[(index + 1) % rounded.length];
+      return sum + point[0] * next[1] - next[0] * point[1];
+    }, 0);
+    if (signedArea > 0) rounded = [...rounded].reverse();
+    const f = (a, b, c) => `( ${a.join(" ")} ) ( ${b.join(" ")} ) ( ${c.join(" ")} ) ${textureFace(texture,uv)}`;
+    const top = rounded.map(([x, y]) => [x, y, Math.round(z2)]);
+    const bottom = rounded.map(([x, y]) => [x, y, Math.round(z1)]);
+    // diagonalCorners is clockwise. GoldSrc expects the top plane clockwise,
+    // the bottom plane reversed, and each side to follow its clockwise edge.
+    const faces = [f(top[0], top[1], top[2]), f(bottom[0], bottom[2], bottom[1])];
+    for (let index = 0; index < rounded.length; index++) {
+      const next = (index + 1) % rounded.length;
+      faces.push(f(bottom[index], top[next], top[index]));
+    }
+    return ["{", ...faces, "}"].join("\n");
+  }
+
+  function overlapPolygon(corners, amount) {
+    const center = corners.reduce((sum, point) => [sum[0] + point[0], sum[1] + point[1]], [0, 0])
+      .map((value) => value / corners.length);
+    return corners.map(([x, y]) => {
+      const dx = x - center[0], dy = y - center[1];
+      const length = Math.max(1, Math.hypot(dx, dy));
+      return [x + dx / length * amount, y + dy / length * amount];
+    });
+  }
+
+  function segmentPrismBrush(start, end, z1, z2, texture, thickness = 16, uv = null) {
+    const dx = end[0] - start[0], dy = end[1] - start[1];
+    const length = Math.max(.001, Math.hypot(dx, dy));
+    const nx = -dy / length * thickness / 2, ny = dx / length * thickness / 2;
+    return polygonPrismBrush([
+      [start[0] + nx, start[1] + ny], [end[0] + nx, end[1] + ny],
+      [end[0] - nx, end[1] - ny], [start[0] - nx, start[1] - ny]
+    ], z1, z2, texture, uv);
+  }
+
+  function buildPolygonRoomWalls(room, wall) {
+    const output = [];
+    const floorZ = Math.round(roomFloor(room) * GRID);
+    const ceiling = floorZ + room.height * GRID;
+    const lerp=(a,b,t)=>[(a[0]+(b[0]-a[0])*t)*GRID,(a[1]+(b[1]-a[1])*t)*GRID];
+    room.points.forEach((point, index) => {
+      const next = room.points[(index + 1) % room.points.length];
+      const texture=roomWallTexture(room,index,room.points),uv=roomWallUv(room,index,room.points);
+      const openings=edgeOpenings(point,next,roomFloor(room));
+      splitRange(0,1,openings.map((opening)=>[opening.start,opening.end])).forEach(([start,end])=>output.push(segmentPrismBrush(lerp(point,next,start),lerp(point,next,end),floorZ,ceiling,texture,wall,uv)));
+      openings.forEach((opening)=>{
+        const start=lerp(point,next,opening.start),end=lerp(point,next,opening.end);
+        if(opening.kind==="door"){
+          const doorHeight=Math.min(Math.round((opening.item.height||2)*GRID),room.height*GRID-16);
+          if(floorZ+doorHeight<ceiling)output.push(segmentPrismBrush(start,end,floorZ+doorHeight,ceiling,texture,wall,uv));
+        }else{
+          const sill=Math.round((opening.item.sill||.75)*GRID),top=Math.round(((opening.item.sill||.75)+(opening.item.height||1.5))*GRID);
+          if(sill>0)output.push(segmentPrismBrush(start,end,floorZ,floorZ+sill,texture,wall,uv));
+          if(floorZ+top<ceiling)output.push(segmentPrismBrush(start,end,floorZ+top,ceiling,texture,wall,uv));
+        }
+      });
+    });
+    return output;
+  }
+
+  function buildRoomWalls(room, wall) {
+    const output = [];
+    const floorZ = Math.round(roomFloor(room) * GRID);
+    const ceiling = floorZ + room.height * GRID;
+    const addHorizontal = (boundary, topSide, direction) => {
+      const texture=room.wallTextures?.[direction]||room.texture||"C1A0_LABW3",uv=resolvedSurfaceUv(room,"room",direction,room.wallUV?.[direction]||room.textureUV);
+      const openings = boundaryOpenings("h", boundary, room.x, room.x + room.w,roomFloor(room));
+      const cuts = openings.map((opening) => [opening.start, opening.end]);
+      const y1 = boundary * GRID + (topSide ? -wall : 0);
+      const y2 = boundary * GRID + (topSide ? 0 : wall);
+      splitRange(room.x, room.x + room.w, cuts).forEach(([start, end]) => {
+        const extendedStart = start === room.x ? start * GRID - wall : start * GRID;
+        const extendedEnd = end === room.x + room.w ? end * GRID + wall : end * GRID;
+        output.push(boxBrush(extendedStart, y1, floorZ, extendedEnd, y2, ceiling, texture,uv));
+      });
+      openings.forEach((opening) => {
+        if (opening.kind === "door") {
+          const doorHeight=Math.min(Math.round((opening.item.height||2)*GRID),room.height*GRID-16);
+          if (floorZ + doorHeight < ceiling) output.push(boxBrush(opening.start * GRID, y1, floorZ + doorHeight, opening.end * GRID, y2, ceiling, texture,uv));
+          return;
+        }
+        const sill = Math.round((opening.item.sill || .75) * GRID);
+        const top = Math.round(((opening.item.sill || .75) + (opening.item.height || 1.5)) * GRID);
+        if (sill > 0) output.push(boxBrush(opening.start * GRID, y1, floorZ, opening.end * GRID, y2, floorZ + sill, texture,uv));
+        if (floorZ + top < ceiling) output.push(boxBrush(opening.start * GRID, y1, floorZ + top, opening.end * GRID, y2, ceiling, texture,uv));
+      });
+    };
+    const addVertical = (boundary, leftSide, direction) => {
+      const texture=room.wallTextures?.[direction]||room.texture||"C1A0_LABW3",uv=resolvedSurfaceUv(room,"room",direction,room.wallUV?.[direction]||room.textureUV);
+      const openings = boundaryOpenings("v", boundary, room.y, room.y + room.d,roomFloor(room));
+      const cuts = openings.map((opening) => [opening.start, opening.end]);
+      const x1 = boundary * GRID + (leftSide ? -wall : 0);
+      const x2 = boundary * GRID + (leftSide ? 0 : wall);
+      splitRange(room.y, room.y + room.d, cuts).forEach(([start, end]) => {
+        output.push(boxBrush(x1, start * GRID, floorZ, x2, end * GRID, ceiling, texture,uv));
+      });
+      openings.forEach((opening) => {
+        if (opening.kind === "door") {
+          const doorHeight=Math.min(Math.round((opening.item.height||2)*GRID),room.height*GRID-16);
+          if (floorZ + doorHeight < ceiling) output.push(boxBrush(x1, opening.start * GRID, floorZ + doorHeight, x2, opening.end * GRID, ceiling, texture,uv));
+          return;
+        }
+        const sill = Math.round((opening.item.sill || .75) * GRID);
+        const top = Math.round(((opening.item.sill || .75) + (opening.item.height || 1.5)) * GRID);
+        if (sill > 0) output.push(boxBrush(x1, opening.start * GRID, floorZ, x2, opening.end * GRID, floorZ + sill, texture,uv));
+        if (floorZ + top < ceiling) output.push(boxBrush(x1, opening.start * GRID, floorZ + top, x2, opening.end * GRID, ceiling, texture,uv));
+      });
+    };
+    addHorizontal(room.y, true,"north");
+    addHorizontal(room.y + room.d, false,"south");
+    addVertical(room.x, true,"west");
+    addVertical(room.x + room.w, false,"east");
+    return output;
+  }
+
+  function buildPropBrushes(prop) {
+    const texture = prop.texture || (prop.kind === "crate" ? "BCRATE02" : prop.kind === "wall" ? "CSTRIKE_WR4RGH" : "CSTRIKE_ME4METL");
+    const uv=resolvedSurfaceUv(prop,"prop","object");
+    const x1 = prop.x * GRID, y1 = prop.y * GRID;
+    const x2 = (prop.x + prop.w) * GRID, y2 = (prop.y + prop.d) * GRID;
+    const totalHeight = prop.height * GRID;
+    const floorZ = Math.round((Number(prop.floorLevel) || 0) * GRID);
+    if (prop.kind === "ladder") return [];
+    if (["water","breakable","elevator","rotatingDoor","train","floorHole"].includes(prop.kind)) return [];
+    if (prop.kind === "diagonal") {
+      const corners = diagonalCorners(prop).map(([x, y]) => [x * GRID, y * GRID]);
+      return [polygonPrismBrush(corners, floorZ, floorZ + totalHeight, texture, uv)];
+    }
+    if (["wallPolygon","cylinder"].includes(prop.kind)) {
+      const corners = (prop.points || []).map(([x, y]) => [x * GRID, y * GRID]);
+      return [polygonPrismBrush(corners, floorZ, floorZ + totalHeight, texture, uv)];
+    }
+    if (prop.kind === "platformPolygon") {
+      const corners = (prop.points || []).map(([x, y]) => [x * GRID, y * GRID]);
+      return [polygonPrismBrush(corners, floorZ, floorZ + totalHeight, texture, uv)];
+    }
+    if (["floor", "floorPolygon"].includes(prop.kind)) {
+      const top = Math.round((Number(prop.elevation) || 0) * GRID);
+      const bottom = top - Math.max(8, Math.round((Number(prop.thickness) || .25) * GRID));
+      if (prop.kind === "floorPolygon") {
+        const corners = (prop.points || []).map(([x, y]) => [x * GRID, y * GRID]);
+        return [polygonPrismBrush(corners, bottom, top, texture, uv)];
+      }
+      return [boxBrush(x1, y1, bottom, x2, y2, top, texture, uv)];
+    }
+    if (["crate","wall","platform","arch"].includes(prop.kind)) return [boxBrush(x1, y1, floorZ, x2, y2, floorZ + totalHeight, texture, uv)];
+
+    const alongX = prop.direction === "e" || prop.direction === "w";
+    const segments = ["ramp","wedge","slopeRoof"].includes(prop.kind) ? Math.max(4, Math.round((alongX ? prop.w : prop.d) * 4)) : Math.max(1, Math.round(prop.steps || recommendedStairSteps(prop)));
+    const output = [];
+    for (let i = 0; i < segments; i++) {
+      const uphillIndex = prop.direction === "e" || prop.direction === "s" ? i : segments - 1 - i;
+      const height = Math.max(8, Math.round(totalHeight * (uphillIndex + 1) / segments));
+      if (alongX) {
+        const start = Math.round(x1 + (x2 - x1) * i / segments);
+        const end = Math.round(x1 + (x2 - x1) * (i + 1) / segments);
+        output.push(boxBrush(start, y1, floorZ, end, y2, floorZ + height, texture, uv));
+      } else {
+        const start = Math.round(y1 + (y2 - y1) * i / segments);
+        const end = Math.round(y1 + (y2 - y1) * (i + 1) / segments);
+        output.push(boxBrush(x1, start, floorZ, x2, end, floorZ + height, texture, uv));
+      }
+    }
+    return output;
+  }
+
+  function buildRoomFloorBrushes(room,wall,floorZ,texture,uv) {
+    const x1=room.x*GRID-wall,y1=room.y*GRID-wall,x2=(room.x+room.w)*GRID+wall,y2=(room.y+room.d)*GRID+wall;
+    const holes=state.props.filter((prop)=>prop.kind==="floorHole"&&prop.hostRoomId===room.id&&Math.abs((Number(prop.floorLevel)||0)-roomFloor(room))<.13).map((prop)=>({x1:prop.x*GRID,y1:prop.y*GRID,x2:(prop.x+prop.w)*GRID,y2:(prop.y+prop.d)*GRID}));
+    let pieces=[{x1,y1,x2,y2}];
+    holes.forEach((hole)=>{pieces=pieces.flatMap((piece)=>{const ix1=Math.max(piece.x1,hole.x1),iy1=Math.max(piece.y1,hole.y1),ix2=Math.min(piece.x2,hole.x2),iy2=Math.min(piece.y2,hole.y2);if(ix1>=ix2||iy1>=iy2)return [piece];const result=[];if(piece.x1<ix1)result.push({x1:piece.x1,y1:piece.y1,x2:ix1,y2:piece.y2});if(ix2<piece.x2)result.push({x1:ix2,y1:piece.y1,x2:piece.x2,y2:piece.y2});if(piece.y1<iy1)result.push({x1:ix1,y1:piece.y1,x2:ix2,y2:iy1});if(iy2<piece.y2)result.push({x1:ix1,y1:iy2,x2:ix2,y2:piece.y2});return result;});});
+    return pieces.filter((piece)=>piece.x2-piece.x1>=8&&piece.y2-piece.y1>=8).map((piece)=>boxBrush(piece.x1,piece.y1,floorZ-wall,piece.x2,piece.y2,floorZ,texture,uv));
+  }
+
+  function buildRoomCeilingBrushes(room,wall,ceilingZ,texture,uv) {
+    const x1=room.x*GRID-wall,y1=room.y*GRID-wall,x2=(room.x+room.w)*GRID+wall,y2=(room.y+room.d)*GRID+wall;
+    const ceilingLevel=ceilingZ/GRID;
+    const holes=state.props.filter((prop)=>prop.kind==="floorHole"&&Math.abs((Number(prop.floorLevel)||0)-ceilingLevel)<.13&&pointInRoom(prop.x+prop.w/2,prop.y+prop.d/2,room)).map((prop)=>({x1:prop.x*GRID,y1:prop.y*GRID,x2:(prop.x+prop.w)*GRID,y2:(prop.y+prop.d)*GRID}));
+    let pieces=[{x1,y1,x2,y2}];
+    holes.forEach((hole)=>{pieces=pieces.flatMap((piece)=>{const ix1=Math.max(piece.x1,hole.x1),iy1=Math.max(piece.y1,hole.y1),ix2=Math.min(piece.x2,hole.x2),iy2=Math.min(piece.y2,hole.y2);if(ix1>=ix2||iy1>=iy2)return[piece];const result=[];if(piece.x1<ix1)result.push({x1:piece.x1,y1:piece.y1,x2:ix1,y2:piece.y2});if(ix2<piece.x2)result.push({x1:ix2,y1:piece.y1,x2:piece.x2,y2:piece.y2});if(piece.y1<iy1)result.push({x1:ix1,y1:piece.y1,x2:ix2,y2:iy1});if(iy2<piece.y2)result.push({x1:ix1,y1:iy2,x2:ix2,y2:piece.y2});return result;});});
+    return pieces.filter((piece)=>piece.x2-piece.x1>=8&&piece.y2-piece.y1>=8).map((piece)=>boxBrush(piece.x1,piece.y1,ceilingZ,piece.x2,piece.y2,ceilingZ+wall,texture,uv));
+  }
+
+  function buildTerrainFloorBrushes(bounds,terrainZ,texture) {
+    const holes=state.props.filter((prop)=>prop.kind==="floorHole"&&Math.abs((Number(prop.floorLevel)||0)-terrainZ/GRID)<.13).map((prop)=>({x1:prop.x*GRID,y1:prop.y*GRID,x2:(prop.x+prop.w)*GRID,y2:(prop.y+prop.d)*GRID}));
+    let pieces=[{x1:Math.round(bounds.minX*GRID),y1:Math.round(bounds.minY*GRID),x2:Math.round(bounds.maxX*GRID),y2:Math.round(bounds.maxY*GRID)}];
+    holes.forEach((hole)=>{pieces=pieces.flatMap((piece)=>{const ix1=Math.max(piece.x1,hole.x1),iy1=Math.max(piece.y1,hole.y1),ix2=Math.min(piece.x2,hole.x2),iy2=Math.min(piece.y2,hole.y2);if(ix1>=ix2||iy1>=iy2)return[piece];const result=[];if(piece.x1<ix1)result.push({x1:piece.x1,y1:piece.y1,x2:ix1,y2:piece.y2});if(ix2<piece.x2)result.push({x1:ix2,y1:piece.y1,x2:piece.x2,y2:piece.y2});if(piece.y1<iy1)result.push({x1:ix1,y1:piece.y1,x2:ix2,y2:iy1});if(iy2<piece.y2)result.push({x1:ix1,y1:iy2,x2:ix2,y2:piece.y2});return result;});});
+    return pieces.filter((piece)=>piece.x2-piece.x1>=8&&piece.y2-piece.y1>=8).map((piece)=>boxBrush(piece.x1,piece.y1,terrainZ-16,piece.x2,piece.y2,terrainZ,texture));
+  }
+
+  function generateMapText() {
+    if (!state.rooms.length && !environmentFor().groundEnabled) {
+      return null;
+    }
+    const wall = 16;
+    const brushes = [];
+    const environment = environmentFor();
+    const terrainBounds = environment.groundEnabled ? environmentBounds() : null;
+    const terrainZ = terrainBounds ? Math.round(terrainBounds.base * GRID) : null;
+    const skyEnabled = environment.groundEnabled || state.rooms.some((room) => room.ceilingMode === "sky");
+    state.rooms.forEach((room) => {
+      const floorZ = Math.round(roomFloor(room) * GRID);
+      const ceiling = floorZ + room.height * GRID;
+      const floorTexture = room.floorTexture || "CSTRIKE_FP2DARK";
+      const ceilingTexture = room.ceilingMode === "sky" ? "SKY" : (room.ceilingTexture || "C1A0_LABW3");
+      const floorUv=resolvedSurfaceUv(room,"room","floor"),ceilingUv=resolvedSurfaceUv(room,"room","ceiling");
+      if (room.points?.length >= 3) {
+        const corners = room.points.map(([x, y]) => [x * GRID, y * GRID]);
+        const shellCorners = overlapPolygon(corners, wall * 1.5);
+        if (!environment.groundEnabled || floorZ !== terrainZ) brushes.push(polygonPrismBrush(shellCorners, floorZ - wall, floorZ, floorTexture,floorUv));
+        brushes.push(polygonPrismBrush(shellCorners, ceiling, ceiling + wall, ceilingTexture,ceilingUv));
+        brushes.push(...buildPolygonRoomWalls(room, wall));
+      } else {
+        const x1 = room.x * GRID, y1 = room.y * GRID;
+        const x2 = (room.x + room.w) * GRID, y2 = (room.y + room.d) * GRID;
+        if (!environment.groundEnabled || floorZ !== terrainZ) brushes.push(...buildRoomFloorBrushes(room,wall,floorZ,floorTexture,floorUv));
+        brushes.push(...buildRoomCeilingBrushes(room,wall,ceiling,ceilingTexture,ceilingUv));
+        brushes.push(...buildRoomWalls(room, wall));
+      }
+    });
+    if (terrainBounds) {
+      const minX = Math.round(terrainBounds.minX * GRID), minY = Math.round(terrainBounds.minY * GRID);
+      const maxX = Math.round(terrainBounds.maxX * GRID), maxY = Math.round(terrainBounds.maxY * GRID);
+      const highestRoom = state.rooms.length ? Math.max(...state.rooms.map((room) => roomFloor(room) + room.height)) : terrainBounds.base + 6;
+      const skyTop = Math.round(highestRoom * GRID + GRID * 4);
+      const shell = 32;
+      brushes.push(...buildTerrainFloorBrushes(terrainBounds,terrainZ,environment.groundMaterial));
+      brushes.push(boxBrush(minX,minY,skyTop-shell,maxX,maxY,skyTop,"SKY"));
+      brushes.push(boxBrush(minX,minY,terrainZ,minX+shell,maxY,skyTop,"SKY"));
+      brushes.push(boxBrush(maxX-shell,minY,terrainZ,maxX,maxY,skyTop,"SKY"));
+      brushes.push(boxBrush(minX,minY,terrainZ,maxX,minY+shell,skyTop,"SKY"));
+      brushes.push(boxBrush(minX,maxY-shell,terrainZ,maxX,maxY,skyTop,"SKY"));
+    }
+    // Faceted rooms create many angled floor/ceiling seams. A thin outer hull
+    // keeps GoldSrc's flood-fill outside those seams without changing the
+    // playable room outlines or collision surfaces.
+    if (!environment.groundEnabled && state.rooms.some((room) => room.points?.length >= 3)) {
+      const minX = Math.min(...state.rooms.map((room) => room.x)) * GRID - GRID * 2;
+      const minY = Math.min(...state.rooms.map((room) => room.y)) * GRID - GRID * 2;
+      const maxX = Math.max(...state.rooms.map((room) => room.x + room.w)) * GRID + GRID * 2;
+      const maxY = Math.max(...state.rooms.map((room) => room.y + room.d)) * GRID + GRID * 2;
+      const hullBottom = Math.min(...state.rooms.map((room) => roomFloor(room) * GRID)) - GRID;
+      const hullTop = Math.max(...state.rooms.map((room) => (roomFloor(room) + room.height) * GRID)) + GRID;
+      const hullWall = 32;
+      brushes.push(boxBrush(minX, minY, hullBottom, maxX, maxY, hullBottom + hullWall, "CSTRIKE_FP2DARK"));
+      brushes.push(boxBrush(minX, minY, hullTop - hullWall, maxX, maxY, hullTop, skyEnabled ? "SKY" : "C1A0_LABW3"));
+      brushes.push(boxBrush(minX, minY, hullBottom, minX + hullWall, maxY, hullTop, "C1A0_LABW3"));
+      brushes.push(boxBrush(maxX - hullWall, minY, hullBottom, maxX, maxY, hullTop, "C1A0_LABW3"));
+      brushes.push(boxBrush(minX, minY, hullBottom, maxX, minY + hullWall, hullTop, "C1A0_LABW3"));
+      brushes.push(boxBrush(minX, maxY - hullWall, hullBottom, maxX, maxY, hullTop, "C1A0_LABW3"));
+    }
+    state.props.forEach((prop) => brushes.push(...buildPropBrushes(prop)));
+
+    const world = ["{", '"classname" "worldspawn"', '"wad" "cstrike.wad;halflife.wad"', '"message" "Created with Blockout"', ...(skyEnabled ? [`"skyname" "${environment.skyName}"`] : []), ...brushes, "}"].join("\n");
+    const entities = state.entities.map((entity) => {
+      const x = entity.x * GRID + GRID / 2;
+      const y = entity.y * GRID + GRID / 2;
+      const floorZ = Math.round(Number(entity.floorLevel ?? floorLevelAt(entity.x + .5, entity.y + .5)) * GRID);
+      if (["light","spotlight"].includes(entity.kind)) {
+        const [red, green, blue] = hexToRgb(entity.color);
+        const z = floorZ + Math.round((entity.z || 2.5) * GRID);
+        const classname=entity.kind==="spotlight"?"light_spot":"light";
+        return ["{", `"classname" "${classname}"`, `"origin" "${x} ${y} ${z}"`, `"_light" "${red} ${green} ${blue} ${entity.brightness || 300}"`,
+          ...(entity.kind==="spotlight"?[`"angles" "${entity.pitch??-45} ${entity.angle||0} 0"`,`"_cone" "${entity.cone||45}"`,`"_cone2" "${Math.min(90,(entity.cone||45)+10)}"`]:[]),
+          ...(entity.style==="switch"&&entity.target?[`"targetname" "${entity.target}"`]:entity.style&&entity.style!=="0"?[`"style" "${entity.style}"`]:[]), "}"].join("\n");
+      }
+      if (entity.kind === "bombA" || entity.kind === "bombB") {
+        const target = boxBrush(x-64, y-64, floorZ, x+64, y+64, floorZ + 64, "AAATRIGGER");
+        return ["{", '"classname" "func_bomb_target"', `"targetname" "bombsite_${entity.kind === "bombA" ? "a" : "b"}"`, target, "}"].join("\n");
+      }
+      if(entity.kind==="hostage")return ["{",'"classname" "hostage_entity"',`"origin" "${x} ${y} ${floorZ+36}"`,"}"].join("\n");
+      if(entity.kind==="teleDest")return ["{",'"classname" "info_teleport_destination"',`"targetname" "${entity.target||"tele_dest_1"}"`,`"origin" "${x} ${y} ${floorZ+36}"`,`"angles" "0 ${Number(entity.angle)||0} 0"`,"}"].join("\n");
+      if(entity.kind==="decal")return ["{",'"classname" "infodecal"',`"texture" "${entity.decal||"{lambda01"}"`,`"origin" "${x} ${y} ${floorZ+48}"`,"}"].join("\n");
+      if(entity.kind==="ambient")return ["{",'"classname" "ambient_generic"',`"message" "${entity.sound||"ambience/wind1.wav"}"`,`"health" "${Math.max(0,Math.min(10,Number.isFinite(Number(entity.volume))?Number(entity.volume):7))*10}"`,`"origin" "${x} ${y} ${floorZ+48}"`,"}"].join("\n");
+      if(entity.kind==="button"){
+        const brush=boxBrush(x-12,y-4,floorZ+32,x+12,y+4,floorZ+64,"CSTRIKE_ME4METL");
+        return ["{",'"classname" "func_button"',`"target" "${entity.target||"target_1"}"`,'"speed" "5"',brush,"}"].join("\n");
+      }
+      if(entity.kind==="pathCorner")return ["{",'"classname" "path_corner"',`"targetname" "${entity.targetName||"path_1"}"`,...(entity.target?[`"target" "${entity.target}"`]:[]),`"wait" "${entity.wait||0}"`,`"origin" "${x} ${y} ${floorZ+16}"`,"}"].join("\n");
+      if(entity.kind==="targetDummy")return null;
+      const classname = entity.kind === "ct" ? "info_player_start" : "info_player_deathmatch";
+      return ["{", `"classname" "${classname}"`, `"origin" "${x} ${y} ${floorZ + 36}"`, `"angles" "0 ${Number(entity.angle) || 0} 0"`, "}"].join("\n");
+    }).filter(Boolean);
+
+    const ladderEntities = state.props.filter((prop) => prop.kind === "ladder").map((ladder) => {
+      const x1 = ladder.x * GRID, y1 = ladder.y * GRID;
+      const x2 = (ladder.x + ladder.w) * GRID, y2 = (ladder.y + ladder.d) * GRID;
+      const floorZ = Math.round((Number(ladder.floorLevel) || 0) * GRID);
+      const top = floorZ + Math.round((ladder.height || 3) * GRID);
+      const thickness = 4;
+      const brush = ladder.direction === "n" ? boxBrush(x1, y1, floorZ, x2, y1 + thickness, top, ladder.texture || "CSTRIKE_ME4METL")
+        : ladder.direction === "s" ? boxBrush(x1, y2 - thickness, floorZ, x2, y2, top, ladder.texture || "CSTRIKE_ME4METL")
+          : ladder.direction === "w" ? boxBrush(x1, y1, floorZ, x1 + thickness, y2, top, ladder.texture || "CSTRIKE_ME4METL")
+            : boxBrush(x2 - thickness, y1, floorZ, x2, y2, top, ladder.texture || "CSTRIKE_ME4METL");
+      return ["{", '"classname" "func_ladder"', brush, "}"].join("\n");
+    });
+
+    const buyZoneEntities = state.zones.filter((zone)=>["buyCt","buyT"].includes(zone.kind)).map((zone) => {
+      const floorZ = Math.round(Number(zone.floorLevel ?? floorLevelAt(zone.x + zone.w / 2, zone.y + zone.d / 2)) * GRID);
+      const brush = boxBrush(zone.x * GRID, zone.y * GRID, floorZ, (zone.x + zone.w) * GRID, (zone.y + zone.d) * GRID, floorZ + 64, "AAATRIGGER");
+      const team = zone.kind === "buyCt" ? 2 : 1;
+      return ["{", '"classname" "func_buyzone"', `"team" "${team}"`, brush, "}"].join("\n");
+    });
+    const gameplayZoneEntities=state.zones.filter((zone)=>["rescue","triggerHurt","teleport"].includes(zone.kind)).map((zone)=>{
+      const floorZ=Math.round(Number(zone.floorLevel ?? floorLevelAt(zone.x+zone.w/2,zone.y+zone.d/2))*GRID),brush=boxBrush(zone.x*GRID,zone.y*GRID,floorZ,(zone.x+zone.w)*GRID,(zone.y+zone.d)*GRID,floorZ+Math.max(64,Math.round((zone.height||2)*GRID)),"AAATRIGGER");
+      if(zone.kind==="rescue")return ["{",'"classname" "func_hostage_rescue"',brush,"}"].join("\n");
+      if(zone.kind==="triggerHurt")return ["{",'"classname" "trigger_hurt"',`"dmg" "${zone.damage||25}"`,brush,"}"].join("\n");
+      return ["{",'"classname" "trigger_teleport"',`"target" "${zone.target||"tele_dest_1"}"`,brush,"}"].join("\n");
+    });
+    const specialBrushEntities=state.props.filter((prop)=>["water","breakable","elevator","rotatingDoor","train"].includes(prop.kind)).map((prop)=>{
+      const x1=prop.x*GRID,y1=prop.y*GRID,x2=(prop.x+prop.w)*GRID,y2=(prop.y+prop.d)*GRID,floorZ=Math.round((Number(prop.floorLevel)||0)*GRID),top=floorZ+Math.round((prop.height||1)*GRID);
+      if(prop.kind==="water")return ["{",'"classname" "func_water"','"renderamt" "120"','"rendermode" "2"',boxBrush(x1,y1,floorZ,x2,y2,top,"!WATERBLUE"),"}"].join("\n");
+      if(prop.kind==="breakable")return ["{",'"classname" "func_breakable"',`"health" "${prop.health||40}"`,'"material" "1"',boxBrush(x1,y1,floorZ,x2,y2,top,prop.texture||"BCRATE02",resolvedSurfaceUv(prop,"prop","object")),"}"].join("\n");
+      const brush=boxBrush(x1,y1,floorZ,x2,y2,top,prop.texture||"CSTRIKE_ME4METL",resolvedSurfaceUv(prop,"prop","object"));
+      if(prop.kind==="elevator")return ["{",'"classname" "func_plat"',`"targetname" "${prop.targetName||"elevator_1"}"`,`"speed" "${prop.speed||120}"`,`"height" "${Math.round((prop.travel||2)*GRID)}"`,brush,"}"].join("\n");
+      if(prop.kind==="rotatingDoor")return ["{",'"classname" "func_door_rotating"',`"targetname" "${prop.targetName||"rot_door_1"}"`,`"speed" "${prop.speed||100}"`,`"wait" "${prop.wait??3}"`,`"distance" "${prop.angle||90}"`,brush,"}"].join("\n");
+      return ["{",'"classname" "func_train"',`"targetname" "${prop.targetName||"train_1"}"`,`"target" "${prop.target||"path_1"}"`,`"speed" "${prop.speed||100}"`,brush,"}"].join("\n");
+    });
+
+    const doorEntities = state.doors.filter((door) => door.mode === "sliding").map((door) => {
+      const rooms=adjacentRoomsForOpening(door),segment=openingSegment(door),start=segment[0].map((value)=>value*GRID),end=segment[1].map((value)=>value*GRID);
+      const maxHeight=rooms.length?Math.min(...rooms.map((room)=>room.height))*GRID-16:128;
+      const doorHeight=Math.min(Math.round((door.height||2)*GRID),Math.max(64,maxHeight));
+      const floorZ=Math.round((rooms.length?Math.max(...rooms.map((room)=>roomFloor(room))):0)*GRID);
+      const brush=segmentPrismBrush(start,end,floorZ,floorZ+doorHeight,door.texture||"CSTRIKE_ME4METL",16);
+      const angle=Math.round((Math.atan2(end[1]-start[1],end[0]-start[0])*180/Math.PI+360)%360);
+      return ["{", '"classname" "func_door"', `"angle" "${angle}"`, `"speed" "${door.speed || 100}"`, '"wait" "3"', '"lip" "4"', brush, "}"].join("\n");
+    });
+
+    const windowEntities = state.windows.filter((window) => window.mode !== "open").map((window) => {
+      const bottom = Math.round((window.sill || .75) * GRID);
+      const top = Math.round(((window.sill || .75) + (window.height || 1.5)) * GRID);
+      const segment=openingSegment(window),start=segment[0].map((value)=>value*GRID),end=segment[1].map((value)=>value*GRID),rooms=adjacentRoomsForOpening(window);
+      const floorZ=Math.round((rooms.length?Math.max(...rooms.map((room)=>roomFloor(room))):floorLevelAt((segment[0][0]+segment[1][0])/2,(segment[0][1]+segment[1][1])/2))*GRID);
+      const brush=segmentPrismBrush(start,end,floorZ+bottom,floorZ+top,window.texture||"GLASS_BRIGHT",4);
+      const common = ['"rendermode" "2"', '"renderamt" "90"', '"rendercolor" "180 225 255"'];
+      return window.mode === "breakable"
+        ? ["{", '"classname" "func_breakable"', '"material" "0"', `"health" "${window.health || 20}"`, ...common, brush, "}"].join("\n")
+        : ["{", '"classname" "func_wall"', ...common, brush, "}"].join("\n");
+    });
+
+    const manualLights = state.entities.filter((entity) => ["light","spotlight"].includes(entity.kind));
+    const lights = state.rooms.filter((room) => !manualLights.some((light) => pointInRoom(light.x + .5, light.y + .5, room))).map((room) => {
+      const x = Math.round((room.x + room.w / 2) * GRID);
+      const y = Math.round((room.y + room.d / 2) * GRID);
+      const z = Math.round(roomFloor(room) * GRID) + Math.max(64, room.height * GRID - 48);
+      return ["{", '"classname" "light"', `"origin" "${x} ${y} ${z}"`, '"_light" "230 225 205 300"', "}"].join("\n");
+    });
+    if (skyEnabled) {
+      const skyTheme = currentSkyTheme();
+      lights.push(["{", '"classname" "light_environment"', `"angles" "${skyTheme.angles}"`, `"_light" "${skyTheme.light}"`, "}"].join("\n"));
+    }
+
+    return ["// Generated by Blockout — CS 1.6 Map Builder", "// Editable GoldSrc MAP source", world, ...entities, ...ladderEntities, ...buyZoneEntities, ...gameplayZoneEntities, ...specialBrushEntities, ...doorEntities, ...windowEntities, ...lights, ""].join("\n");
+  }
+
+  function exportMap() {
+    const mapText = generateMapText();
+    if (!mapText) {
+      showToast("Draw at least one room before exporting");
+      return;
+    }
+    const blob = new Blob([mapText], { type: "text/plain" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url; link.download = `${safeName(state.name)}.map`; link.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    showToast("GoldSrc .map exported");
+  }
+
+  function mapIsReady() {
+    const hasPlayableBase = state.rooms.length > 0 || environmentFor().groundEnabled;
+    return hasPlayableBase
+      && state.entities.some((item) => item.kind === "ct")
+      && state.entities.some((item) => item.kind === "t")
+      && (state.entities.some((item) => item.kind === "bombA" || item.kind === "bombB") || (state.entities.some((item)=>item.kind==="hostage")&&state.zones.some((zone)=>zone.kind==="rescue")))
+      && (environmentFor().groundEnabled || state.rooms.length === 1 || state.doors.length > 0 || state.props.some((item)=>item.kind==="floorHole"));
+  }
+
+  async function companionRequest(path, options = {}) {
+    if (HOSTED_MODE) throw new Error("The local companion is available only in the Windows edition.");
+    const response = await fetch(`${COMPANION_API}${path}`, {
+      ...options,
+      headers: { "Content-Type": "application/json", ...(options.headers || {}) }
+    });
+    const data = await response.json().catch(() => ({ error: `HTTP ${response.status}` }));
+    if (!response.ok) {
+      const error = new Error(data.error || `HTTP ${response.status}`);
+      error.log = data.log || "";
+      error.status = response.status;
+      throw error;
+    }
+    return data;
+  }
+
+  function versionAtLeast(version, minimum) {
+    const current = String(version || "0").split(".").map(Number);
+    const required = minimum.split(".").map(Number);
+    for (let index = 0; index < Math.max(current.length, required.length); index++) {
+      if ((current[index] || 0) > (required[index] || 0)) return true;
+      if ((current[index] || 0) < (required[index] || 0)) return false;
+    }
+    return true;
+  }
+
+  function updateBuildDialog() {
+    const connected = !!companionStatus?.connected;
+    const currentCompanion = connected && versionAtLeast(companionStatus.version, MIN_COMPANION_VERSION);
+    const gameFound = !!companionStatus?.gameFound;
+    const compilersFound = !!companionStatus?.compilersFound;
+    const stockWadsFound = !!companionStatus?.stockWadsFound;
+    const mapsWritable = !!companionStatus?.mapsWritable;
+    const preflight=calculatePreflight();
+    const ready = mapIsReady() && preflight.errors===0;
+    const banner = $("#connectionBanner");
+    banner.classList.toggle("connected", currentCompanion);
+    banner.classList.toggle("error", !currentCompanion);
+    $(".build-status-dot").classList.toggle("connected", currentCompanion);
+    $("#connectionTitle").textContent = HOSTED_MODE ? "Online browser edition" : !connected ? "Companion is not running" : currentCompanion ? "Companion connected" : "Companion restart required";
+    $("#connectionText").textContent = HOSTED_MODE
+      ? "Build & Test runs in the local Windows edition. Export or download your project here, then open it locally to compile and launch CS 1.6."
+      : !connected
+      ? "Double-click Start Blockout.cmd in the project folder, then reopen this panel."
+      : currentCompanion
+        ? `Blockout build service ${companionStatus.version || ""} is ready on this computer.`
+        : `Close the old companion console (${companionStatus.version || "unknown"}) and reopen Start Blockout.cmd to load ${MIN_COMPANION_VERSION}.`;
+    if (connected && document.activeElement !== $("#gamePathInput")) $("#gamePathInput").value = companionStatus.gamePath || "";
+    if (connected && document.activeElement !== $("#compilerPathInput")) $("#compilerPathInput").value = companionStatus.compilerPath || "";
+
+    const setCheck = (selector, good, goodText, badText) => {
+      const element = $(selector);
+      element.textContent = good ? goodText : badText;
+      element.classList.toggle("good", good);
+      element.classList.toggle("bad", !good);
+    };
+    setCheck("#gameCheck", gameFound, "CS 1.6 found", connected ? "Select folder" : "Companion offline");
+    setCheck("#compilerCheck", compilersFound, "4 tools found", connected ? (companionStatus?.missingTools?.length ? `Missing ${companionStatus.missingTools.join(", ")}` : "Select folder") : "Companion offline");
+    setCheck("#wadCheck", stockWadsFound, "Stock WADs found", connected ? (companionStatus?.missingWads?.length ? `Missing ${companionStatus.missingWads.join(", ")}` : "Select Half-Life") : "Companion offline");
+    setCheck("#installCheck", mapsWritable, "Maps folder ready", connected ? "Folder not writable" : "Companion offline");
+    setCheck("#mapCheck", ready, "Ready", preflight.errors?`${preflight.errors} preflight error${preflight.errors===1?"":"s"}`:"Checklist incomplete");
+    $("#savePathsButton").disabled = !connected;
+    $("#runBuildButton").disabled = !(currentCompanion && gameFound && compilersFound && stockWadsFound && mapsWritable && ready);
+    $("#buildHelp").textContent = HOSTED_MODE ? "This online copy never connects to programs or files on your computer."
+      : !connected ? "Start the companion to enable compilation."
+      : !currentCompanion ? "Restart Start Blockout.cmd to enable safe locked-map builds."
+      : !gameFound ? "Choose the folder containing hl.exe."
+      : !compilersFound ? "Choose a VHLT/ZHLT compiler folder."
+      : !stockWadsFound ? `Restore ${companionStatus?.missingWads?.join(" and ") || "the stock texture WADs"}.`
+      : !mapsWritable ? "The cstrike/maps folder is not writable. Check folder permissions."
+      : !ready ? (preflight.errors?"Open Preflight and fix blocking errors.":"Complete all five map checks first.")
+      : $("#launchAfterBuild").checked ? "The BSP will be installed and launched locally." : "The BSP will be compiled and installed without launching the game.";
+    $("#runBuildButton").textContent = $("#launchAfterBuild").checked ? "Build & launch CS 1.6" : "Build without launch";
+  }
+
+  async function refreshCompanionStatus() {
+    try {
+      companionStatus = await companionRequest("/api/status");
+    } catch (_) {
+      companionStatus = null;
+    }
+    updateBuildDialog();
+  }
+
+  async function saveCompanionPaths() {
+    $("#buildLog").textContent = "Checking the selected folders…";
+    try {
+      companionStatus = await companionRequest("/api/config", {
+        method: "POST",
+        body: JSON.stringify({ gamePath: $("#gamePathInput").value.trim(), compilerPath: $("#compilerPathInput").value.trim() })
+      });
+      const notes=[];
+      notes.push(companionStatus.compilersFound ? "All four compiler tools were found." : `Missing compiler tools: ${(companionStatus.missingTools||[]).join(", ") || "hlcsg, hlbsp, hlvis or hlrad"}.`);
+      notes.push(companionStatus.stockWadsFound ? "cstrike.wad and halflife.wad were found." : `Missing texture WADs: ${(companionStatus.missingWads||[]).join(", ")}.`);
+      notes.push(companionStatus.mapsWritable ? `BSP installation is ready: ${companionStatus.mapsPath}.` : `The maps destination is not writable: ${companionStatus.mapsPath || "unknown"}.`);
+      $("#buildLog").textContent = `Configuration saved.\n${notes.join("\n")}`;
+    } catch (error) {
+      $("#buildLog").textContent = `Could not save configuration:\n${error.message}`;
+    }
+    updateBuildDialog();
+  }
+
+  async function runBuildAndTest() {
+    const preflight=calculatePreflight();
+    if(preflight.errors){renderPreflight();$("#buildDialog").close();$("#preflightDialog").showModal();showToast("Build blocked — fix the preflight errors first");return;}
+    const mapText = generateMapText();
+    if (!mapText) return;
+    const button = $("#runBuildButton");
+    const launch = $("#launchAfterBuild").checked;
+    button.disabled = true;
+    button.textContent = "Building…";
+    $("#buildLog").textContent = "Sending map to the local compiler…\n";
+    try {
+      const result = await companionRequest("/api/build", {
+        method: "POST",
+        body: JSON.stringify({ mapName: safeName(state.name), mapText, launch })
+      });
+      $("#buildLog").textContent = result.log || "Build finished.";
+      showToast(result.launched ? "Map built — launching CS 1.6" : "Map built successfully");
+    } catch (error) {
+      $("#buildLog").textContent = `Build stopped:\n${error.message}${error.log?`\n\nCOMPILER LOG\n${error.log}`:""}`;
+      showToast("Build failed — see the build log");
+    } finally {
+      updateBuildDialog();
+    }
+  }
+
+  editor.addEventListener("pointerdown", (event) => {
+    editor.setPointerCapture(event.pointerId);
+    const point = canvasPoint(event, editor);
+    const cell = screenToCell(point);
+    const world = screenToWorld(point);
+    const snapped = snapWorldPoint(world, selection);
+    const gridPoint = [snapped.x, snapped.y];
+    if (activeTool === "pan" || event.button === 1) {
+      event.preventDefault();
+      panning = { start: point, offset: { ...viewOffset } };
+      $("#canvasWrap").style.cursor = "grabbing";
+    } else if (["polygon", "polyPlatform", "polyFloor", "polyWall"].includes(activeTool)) {
+      event.preventDefault();
+      const first = polygonDraft[0];
+      if (first && polygonDraft.length >= 3 && Math.hypot(gridPoint[0] - first[0], gridPoint[1] - first[1]) < .5) {
+        finishPolygonDraft();
+      } else if (!polygonDraft.length || polygonDraft.at(-1)[0] !== gridPoint[0] || polygonDraft.at(-1)[1] !== gridPoint[1]) {
+        if (polygonDraft.length >= 16) showToast("Maximum 16 corners—click the first corner or press Enter");
+        else { polygonDraft.push(gridPoint); selected = null; drawEditor(); }
+      }
+    } else if (["room", "triangle", "octagon", "corridor", "vent", "wall", "diagonal", "platform", "floor", "floorHole", "stairs", "stairPrefab", "ramp", "buyCt", "buyT", "rescue", "triggerHurt", "teleport", "water", "breakable", "cylinder", "wedge", "arch", "slopeRoof", "elevator", "rotatingDoor", "train"].includes(activeTool)) {
+      drawing = { start: snapped, end: snapped };
+    } else if (activeTool === "ruler") {
+      measurement = { start:snapped, end:snapped, active:true }; drawEditor();
+    } else if (activeTool === "door") {
+      placeDoor(screenToWorld(point));
+    } else if (activeTool === "wideDoor") {
+      placeDoor(screenToWorld(point), 2);
+    } else if (activeTool === "window") {
+      placeWindow(screenToWorld(point));
+    } else if (activeTool === "crate") {
+      placeCrate(cell);
+    } else if (activeTool === "ladder") {
+      placeLadder(cell);
+    } else if (activeTool === "column") {
+      placeColumn(cell);
+    } else if (activeTool === "prefab") {
+      placePrefab(cell);
+    } else if (["eyedropper","paint"].includes(activeTool)) {
+      const hit = hitTest(cell), item = itemForRef(hit);
+      if (!item || !["room","prop"].includes(hit.type)) { showToast("Choose a room or structure surface"); return; }
+      if (activeTool === "eyedropper") {
+        sampledMaterial = surfaceTextureFor(item,hit.type);
+        applySelectionHit(hit,false); setTool("paint"); refresh(); showToast(`${MATERIAL_INFO[sampledMaterial] || sampledMaterial} sampled — click surfaces to paint`);
+      } else if (!sampledMaterial) { showToast("Use the eyedropper first"); setTool("eyedropper"); }
+      else if (item.locked) showToast("Unlock this object before painting it");
+      else { const before=snapshot(); setSurfaceTexture(item,hit.type,sampledMaterial); applySelectionHit(hit,false); commit(before); showToast(`${MATERIAL_INFO[sampledMaterial] || sampledMaterial} applied`); }
+    } else if (activeTool === "select") {
+      if (event.altKey) {
+        if (!event.shiftKey) { selection=[]; selected=null; }
+        marquee={start:snapped,end:snapped,additive:event.shiftKey}; moving=null; refresh(); return;
+      }
+      const transformHandle=transformHandleHit(point);
+      if(transformHandle){
+        const entry=selectedEntries()[0];
+        transformDrag={...transformHandle,before:snapshot(),ref:{...entry.ref},original:structuredClone(entry.item),startPoint:{...point}};
+        moving=null;return;
+      }
+      const vertexItem = editingVertices && ["room", "prop"].includes(selected?.type) ? selectedItem() : null;
+      if (vertexItem?.points?.length) {
+        const handleIndex = vertexItem.points.findIndex(([x, y]) => {
+          const handle = cellToScreen(x, y);
+          return Math.hypot(handle.x - point.x, handle.y - point.y) <= 11;
+        });
+        if (handleIndex >= 0) {
+          selectedVertexIndex = handleIndex;
+          selectedEdgeIndex = -1;
+          movingVertex = { before:snapshot(), index:handleIndex, points:vertexItem.points.map((corner) => [...corner]) };
+          movingEdge = null;
+          moving = null;
+          refresh();
+          return;
+        }
+        const edgeIndex = vertexItem.points.findIndex((corner,index) => {
+          const next=vertexItem.points[(index+1)%vertexItem.points.length],handle=cellToScreen((corner[0]+next[0])/2,(corner[1]+next[1])/2);
+          return Math.hypot(handle.x-point.x,handle.y-point.y)<=10;
+        });
+        if(edgeIndex>=0){
+          const a=vertexItem.points[edgeIndex],b=vertexItem.points[(edgeIndex+1)%vertexItem.points.length],dx=b[0]-a[0],dy=b[1]-a[1],length=Math.max(.001,Math.hypot(dx,dy));
+          selectedEdgeIndex=edgeIndex;selectedVertexIndex=-1;movingVertex=null;moving=null;
+          movingEdge={before:snapshot(),index:edgeIndex,points:vertexItem.points.map((corner)=>[...corner]),midpoint:[(a[0]+b[0])/2,(a[1]+b[1])/2],normal:[-dy/length,dx/length]};
+          refresh();return;
+        }
+      }
+      const hit = hitTest(cell);
+      if (!hit) {
+        if (!event.shiftKey) { selection=[]; selected=null; }
+        marquee = { start:snapped, end:snapped, additive:event.shiftKey };
+        moving = null; refresh(); return;
+      }
+      applySelectionHit(hit,event.shiftKey);
+      const movable = selectedEntries().filter((entry) => !entry.item.locked && !["door","window"].includes(entry.ref.type));
+      moving = !event.shiftKey && movable.length ? {
+        before:snapshot(), start:snapped,
+        entries:movable.map(({ref,item}) => ({ ref:{...ref}, original:{ x:item.x, y:item.y, points:item.points?.map((corner)=>[...corner]), planPoints:item.planPoints?.map((corner)=>[...corner]), textureUV:structuredClone(item.textureUV||null), floorUV:structuredClone(item.floorUV||null), ceilingUV:structuredClone(item.ceilingUV||null), wallUV:structuredClone(item.wallUV||null), edgeUV:structuredClone(item.edgeUV||null) } }))
+      } : null;
+      refresh();
+    } else {
+      placeEntity(cell, activeTool);
+    }
+  });
+
+  editor.addEventListener("pointermove", (event) => {
+    const point = canvasPoint(event, editor);
+    const world = screenToWorld(point);
+    const snapped = snapWorldPoint(world, moving?.entries?.map((entry)=>entry.ref) || selection);
+    hoverWorld = { x:snapped.x, y:snapped.y };
+    if (panning) {
+      viewOffset.x = panning.offset.x + point.x - panning.start.x;
+      viewOffset.y = panning.offset.y + point.y - panning.start.y;
+      hoverCell = null;
+      drawEditor();
+      return;
+    }
+    const cell = screenToCell(point);
+    hoverCell = cell;
+    $("#coordinates").innerHTML = `X ${Math.round(snapped.x * GRID)} &nbsp; Y ${Math.round(snapped.y * GRID)} &nbsp; SNAP ${snapUnits}`;
+    if (drawing) drawing.end = snapped;
+    if (measurement?.active) { measurement.end = snapped; drawEditor(); return; }
+    if (marquee) { marquee.end = snapped; drawEditor(); return; }
+    if(transformDrag){
+      const item=itemForRef(transformDrag.ref),original=transformDrag.original;if(!item)return;
+      if(transformDrag.mode==="height"){
+        const delta=(transformDrag.startPoint.y-point.y)/cellSize,next=Math.max(.25,baseSnap((original.height||1)+delta));
+        if(["floor","floorPolygon"].includes(item.kind))item.elevation=(Number(original.elevation)||0)+delta;else item.height=next;
+      }else if(transformDrag.mode==="resize"){
+        const bounds={x:original.x,y:original.y,w:original.w||1,d:original.d||1},cursor=snapped,corner=transformDrag.corner;
+        let left=bounds.x,right=bounds.x+bounds.w,top=bounds.y,bottom=bounds.y+bounds.d;
+        if(corner.includes("w"))left=Math.min(cursor.x,right-snapStep());else right=Math.max(cursor.x,left+snapStep());
+        if(corner.includes("n"))top=Math.min(cursor.y,bottom-snapStep());else bottom=Math.max(cursor.y,top+snapStep());
+        item.x=left;item.y=top;item.w=right-left;item.d=bottom-top;
+        if(original.points?.length)item.points=original.points.map(([x,y])=>[left+(x-bounds.x)/Math.max(.001,bounds.w)*(right-left),top+(y-bounds.y)/Math.max(.001,bounds.d)*(bottom-top)]);
+      }
+      drawEditor();drawPreview();if($("#elevationDialog").open)drawElevationEditor();return;
+    }
+    if (movingVertex && ["room", "prop"].includes(selected?.type)) {
+      const item = selectedItem();
+      if (item?.points) {
+        item.points[movingVertex.index] = [hoverWorld.x, hoverWorld.y];
+        updatePolygonBounds(item);
+      }
+      drawEditor(); drawPreview();
+      return;
+    }
+    if(movingEdge&&["room","prop"].includes(selected?.type)){
+      const item=selectedItem();
+      if(item?.points){
+        const dx=hoverWorld.x-movingEdge.midpoint[0],dy=hoverWorld.y-movingEdge.midpoint[1],amount=dx*movingEdge.normal[0]+dy*movingEdge.normal[1];
+        const next=(movingEdge.index+1)%item.points.length;
+        item.points[movingEdge.index]=[movingEdge.points[movingEdge.index][0]+movingEdge.normal[0]*amount,movingEdge.points[movingEdge.index][1]+movingEdge.normal[1]*amount];
+        item.points[next]=[movingEdge.points[next][0]+movingEdge.normal[0]*amount,movingEdge.points[next][1]+movingEdge.normal[1]*amount];
+        updatePolygonBounds(item);
+      }
+      drawEditor();drawPreview();return;
+    }
+    if (moving?.entries?.length) {
+      const dx = snapped.x - moving.start.x, dy = snapped.y - moving.start.y;
+      moving.entries.forEach((entry) => {
+        const item=itemForRef(entry.ref); if (!item) return;
+        item.x=entry.original.x+dx; item.y=entry.original.y+dy;
+        if (entry.original.points) item.points=entry.original.points.map(([x,y])=>[x+dx,y+dy]);
+        if (entry.original.planPoints) item.planPoints=entry.original.planPoints.map(([x,y])=>[x+dx,y+dy]);
+        if(!textureLock){const shifted=(uv)=>uv?{...uv,shiftX:(Number(uv.shiftX)||0)+dx*GRID,shiftY:(Number(uv.shiftY)||0)+dy*GRID}:uv,shiftCollection=(collection)=>collection?Object.fromEntries(Object.entries(collection).map(([key,uv])=>[key,shifted(uv)])):collection;item.textureUV=shifted(entry.original.textureUV);item.floorUV=shifted(entry.original.floorUV);item.ceilingUV=shifted(entry.original.ceilingUV);item.wallUV=shiftCollection(entry.original.wallUV);item.edgeUV=shiftCollection(entry.original.edgeUV);}
+      });
+    }
+    drawEditor(); drawPreview();
+  });
+
+  editor.addEventListener("pointerup", (event) => {
+    if (panning) {
+      panning = null;
+      $("#canvasWrap").style.cursor = activeTool === "pan" ? "grab" : activeTool === "select" ? "default" : "crosshair";
+      return;
+    }
+    if (marquee) { finishMarqueeSelection(); return; }
+    if (measurement?.active) { measurement.active=false; drawEditor(); showToast("Measurement pinned — drag again to replace it"); return; }
+    if(transformDrag){
+      const drag=transformDrag;transformDrag=null;
+      if(drag.mode==="rotate"){
+        const clockwise=(event?.clientX||drag.startPoint.x)>=drag.startPoint.x,item=itemForRef(drag.ref);
+        if(drag.ref.type==="prop")rotateSelected(clockwise);
+        else if(item){const cx=item.x+(item.w||1)/2,cy=item.y+(item.d||1)/2,oldW=item.w||1;item.w=item.d||1;item.d=oldW;item.x=cx-item.w/2;item.y=cy-item.d/2;if(item.points)item.points=item.points.map(([x,y])=>clockwise?[cx-(y-cy),cy+(x-cx)]:[cx+(y-cy),cy-(x-cx)]);commit(drag.before);showToast("Shape rotated 90°");}
+      }
+      else {commit(drag.before);showToast(drag.mode==="height"?"Height updated":"Shape resized");}
+      return;
+    }
+    if (movingVertex || movingEdge) {
+      const item = selectedItem();
+      const editMove=movingVertex||movingEdge;
+      const error = item?.points ? polygonValidation(item.points) : "The polygon no longer exists";
+      const editedPlatform = selected?.type === "prop";
+      const orphaned = !error && (editedPlatform ? !polygonIsInsideSpace(item.points) : (
+        state.entities.some((entity) => !isPointInSpace(entity.x + .5,entity.y + .5))
+        || state.props.some((prop) => ["platformPolygon", "floorPolygon", "wallPolygon"].includes(prop.kind) ? !polygonIsInsideSpace(prop.points || []) : !rectIsInsideSpace(prop))
+        || state.zones.some((zone) => !rectIsInsideSpace(zone))
+      ));
+      if (error || orphaned) {
+        if (item) { item.points = editMove.points; updatePolygonBounds(item); }
+        showToast(error || (editedPlatform ? "Keep the polygon platform on a buildable surface" : "That corner would leave an existing object outside the map"));
+        refresh();
+      } else {
+        commit(editMove.before);
+        showToast(movingEdge ? "Polygon edge updated" : "Polygon corner updated");
+      }
+      movingVertex = null; movingEdge=null;
+      return;
+    }
+    if (drawing) {
+      if (["buyCt","buyT","rescue","triggerHurt","teleport"].includes(activeTool)) {
+        const before = snapshot();
+        const box = normalizeSnappedRect(drawing.start, drawing.end);
+        drawing = null;
+        if (!rectIsInsideSpace(box)) { showToast("Keep the whole buy zone on a room floor or map ground"); refresh(); }
+        else {
+          const zone = { id: crypto.randomUUID(), kind: activeTool, damage:25, target:"tele_dest_1", floorLevel:floorLevelAt(box.x+box.w/2,box.y+box.d/2), ...box };
+          state.zones.push(zone);
+          selected = { type: "zone", id: zone.id };
+          commit(before);
+          showToast({buyCt:"CT buy zone created",buyT:"T buy zone created",rescue:"Hostage rescue zone created",triggerHurt:"Damage trigger created",teleport:"Teleport trigger created"}[activeTool]);
+        }
+      } else if (["wall","diagonal","platform","floor","floorHole","stairs","stairPrefab","ramp","water","breakable","cylinder","wedge","arch","slopeRoof","elevator","rotatingDoor","train"].includes(activeTool)) {
+        placeDrawnStructure(activeTool === "stairPrefab" ? "stairs" : activeTool, drawing.start, drawing.end);
+        drawing = null;
+      } else {
+        const before = snapshot();
+        const box = normalizeSnappedRect(drawing.start, drawing.end);
+        const presetPoints = presetRoomPoints(activeTool, box);
+        if (presetPoints && (box.w < 3 || box.d < 3)) {
+          drawing = null; showToast("Drag at least 3 by 3 grid cells for this shape"); refresh(); return;
+        }
+        const room = presetPoints ? roomFromPoints(presetPoints, activeTool === "triangle" ? "TRIANGLE ROOM" : "OCTAGON ROOM") : {
+          id: crypto.randomUUID(), ...box,
+          kind: ["corridor", "vent"].includes(activeTool) ? "corridor" : "room",
+          label: activeTool === "vent" ? "VENT PASSAGE" : undefined,
+          floorLevel: planLevel ?? 0,
+          height: activeTool === "vent" ? 1 : activeTool === "corridor" ? 3 : 4,
+          texture: "C1A0_LABW3", floorTexture: "CSTRIKE_FP2DARK",
+          ceilingTexture: "C1A0_LABW3", ceilingMode: environmentFor().openSkyDefault ? "sky" : "ceiling"
+        };
+        state.rooms.push(room);
+        selected = { type: "room", id: room.id };
+        drawing = null;
+        commit(before);
+        showToast(room.kind === "corridor" ? "Corridor created — connect it with a door" : presetPoints ? `${room.label} created—use Edit corners to reshape it` : "Room created — add another or place team spawns");
+      }
+    }
+    if (moving?.entries?.length) {
+      const movedEntries = moving.entries.map((entry)=>({ref:entry.ref,item:itemForRef(entry.ref)})).filter((entry)=>entry.item);
+      const roomMoveInvalid = movedEntries.some((entry)=>entry.ref.type === "room") && (
+        state.entities.some((entity) => !isPointInSpace(entity.x + .5,entity.y + .5))
+        || state.props.some((prop) => ["platformPolygon", "floorPolygon", "wallPolygon"].includes(prop.kind) ? !polygonIsInsideSpace(prop.points || []) : !rectIsInsideSpace(prop))
+        || state.zones.some((zone) => !rectIsInsideSpace(zone))
+        || state.doors.some((door) => !doorIsConnected(door)) || state.windows.some((window) => !doorIsConnected(window))
+      );
+      if (roomMoveInvalid) {
+        state = JSON.parse(moving.before);
+        showToast("Move blocked because connected objects would be left behind");
+        refresh();
+      } else if (movedEntries.some(({ref,item}) => ref.type === "prop" && !(["platformPolygon", "floorPolygon", "wallPolygon"].includes(item.kind) ? polygonIsInsideSpace(item.points || []) : rectIsInsideSpace(item)))) {
+        state = JSON.parse(moving.before);
+        showToast("Keep structures on a room floor or map ground");
+        refresh();
+      } else if (movedEntries.some(({ref,item}) => ref.type === "entity" && !isPointInSpace(item.x + .5,item.y + .5))) {
+        state = JSON.parse(moving.before);
+        showToast("Keep markers and lights on a room floor or map ground");
+        refresh();
+      } else if (movedEntries.some(({ref,item}) => ref.type === "zone" && !rectIsInsideSpace(item))) {
+        state = JSON.parse(moving.before);
+        showToast("Keep buy zones on a room floor or map ground");
+        refresh();
+      } else {
+        movedEntries.filter(({ref,item})=>ref.type === "entity" && item.kind === "light").forEach(({item}) => {
+          const lightRoom = state.rooms.find((room) => pointInRoom(item.x + .5, item.y + .5, room));
+          item.z = Math.min(item.z || 2.5, Math.max(.5, (lightRoom?.height || 4) - .25));
+        });
+        commit(moving.before);
+      }
+      moving = null;
+    }
+  });
+
+  editor.addEventListener("pointercancel", () => {
+    if(transformDrag){state=JSON.parse(transformDrag.before);transformDrag=null;refresh();}
+    if (movingVertex || movingEdge) {
+      const room = selectedItem();
+      const editMove=movingVertex||movingEdge;
+      if (room) { room.points = editMove.points; updatePolygonBounds(room); }
+      movingVertex = null; movingEdge=null;
+    }
+    panning = null;
+    $("#canvasWrap").style.cursor = activeTool === "pan" ? "grab" : activeTool === "select" ? "default" : "crosshair";
+  });
+
+  editor.addEventListener("pointerleave", () => { hoverCell = null; hoverWorld = null; if (!drawing && !moving && !movingVertex) drawEditor(); });
+  editor.addEventListener("wheel", (event) => {
+    event.preventDefault();
+    const point = canvasPoint(event, editor);
+    const old = cellSize;
+    cellSize = Math.max(10, Math.min(55, cellSize * (event.deltaY < 0 ? 1.1 : .9)));
+    viewOffset.x = point.x - (point.x - viewOffset.x) * (cellSize / old);
+    viewOffset.y = point.y - (point.y - viewOffset.y) * (cellSize / old);
+    drawEditor();
+  }, { passive: false });
+  preview.addEventListener("pointerdown", (event) => {
+    preview.focus();
+    if (previewMode !== "orbit" || ![0, 1, 2].includes(event.button)) return;
+    event.preventDefault();
+    preview.setPointerCapture(event.pointerId);
+    const local=canvasPoint(event,preview);
+    if(event.button===0&&previewTransformHandle&&Math.hypot(local.x-previewTransformHandle.x,local.y-previewTransformHandle.y)<=12){
+      const item=itemForRef(previewTransformHandle.ref);previewDrag={mode:"height",x:event.clientX,y:event.clientY,moved:false,before:snapshot(),ref:{...previewTransformHandle.ref},startHeight:Number(item?.height)||1,startElevation:Number(item?.elevation)||0};return;
+    }
+    const panGesture = previewPanMode || event.shiftKey || event.button === 1 || event.button === 2;
+    previewDrag = {
+      mode: panGesture ? "pan" : "rotate",
+      x: event.clientX, y: event.clientY,
+      moved: false,
+      angle: previewAngle,
+      pan: { ...previewPan }
+    };
+    $("#previewWrap").classList.toggle("panning", panGesture);
+  });
+  preview.addEventListener("pointermove", (event) => {
+    if (!previewDrag) return;
+    previewDrag.moved ||= Math.hypot(event.clientX-previewDrag.x,event.clientY-previewDrag.y) > 4;
+    if(previewDrag.mode==="height"){
+      const item=itemForRef(previewDrag.ref),delta=baseSnap((previewDrag.y-event.clientY)/28);
+      if(item){if(["floor","floorPolygon"].includes(item.kind))item.elevation=previewDrag.startElevation+delta;else item.height=Math.max(.25,previewDrag.startHeight+delta);}
+    } else if (previewDrag.mode === "pan") {
+      previewPan.x = previewDrag.pan.x + event.clientX - previewDrag.x;
+      previewPan.y = previewDrag.pan.y + event.clientY - previewDrag.y;
+    } else {
+      previewAngle = previewDrag.angle + (event.clientX - previewDrag.x) * .012;
+    }
+    drawPreview();
+  });
+  const finishPreviewDrag = (event) => {
+    if(previewDrag?.mode==="height"){
+      const before=previewDrag.before;previewDrag=null;commit(before);showToast("Height updated from 3D");return;
+    }
+    const clickSelect = previewDrag?.mode === "rotate" && !previewDrag.moved && event?.type === "pointerup";
+    previewDrag = null;
+    $("#previewWrap").classList.remove("panning");
+    if (clickSelect) {
+      const point=canvasPoint(event,preview);
+      const region=[...previewPickRegions].reverse().find((candidate)=>pointInScreenPolygon(point,candidate.points));
+      applySelectionHit(region?.ref || null,event.shiftKey);
+      if (region?.ref?.type === "room" && region.surface) surfaceTarget = region.surface;
+      if (region) setTool("select");
+      refresh();
+      if (region) showToast("Selected from 3D — edit it in the inspector or plan");
+    }
+  };
+  preview.addEventListener("pointerup", finishPreviewDrag);
+  preview.addEventListener("pointercancel", finishPreviewDrag);
+  preview.addEventListener("contextmenu", (event) => { if (previewMode === "orbit") event.preventDefault(); });
+  preview.addEventListener("wheel", (event) => {
+    if (previewMode !== "orbit") return;
+    event.preventDefault();
+    const rect = preview.getBoundingClientRect();
+    setPreviewZoom(previewZoom * (event.deltaY < 0 ? 1.14 : 1 / 1.14), { x: event.clientX - rect.left, y: event.clientY - rect.top });
+  }, { passive: false });
+  preview.addEventListener("keydown", (event) => {
+    if (previewMode !== "orbit") return;
+    if (["+", "="].includes(event.key)) { event.preventDefault(); event.stopPropagation(); setPreviewZoom(previewZoom * 1.2); }
+    else if (event.key === "-") { event.preventDefault(); event.stopPropagation(); setPreviewZoom(previewZoom / 1.2); }
+    else if (event.key === "0") { event.preventDefault(); event.stopPropagation(); fitPreview(); }
+  });
+
+  $$(".tool[data-tool]").forEach((button) => button.addEventListener("click", () => setTool(button.dataset.tool)));
+  $("#undoButton").addEventListener("click", undo);
+  $("#redoButton").addEventListener("click", redo);
+  $("#deleteButton").addEventListener("click", deleteSelected);
+  $("#rotateLeftSelection").addEventListener("click", () => rotateSelected(false));
+  $("#rotateRightSelection").addEventListener("click", () => rotateSelected(true));
+  $("#reverseSelection").addEventListener("click", reverseSelected);
+  $("#editVerticesButton").addEventListener("click", toggleVertexEditing);
+  $("#removeVertexButton").addEventListener("click", removeSelectedVertex);
+  $("#clipVertexButton").addEventListener("click",clipSelectedVertex);
+  $("#extrudeEdgeButton").addEventListener("click",extrudeSelectedEdge);
+  $("#insetPolygonButton").addEventListener("click",()=>offsetSelectedPolygon(1));
+  $("#outsetPolygonButton").addEventListener("click",()=>offsetSelectedPolygon(-1));
+  $("#duplicateSelection").addEventListener("click", duplicateSelected);
+  $("#levelDownSelection").addEventListener("click", () => shiftSelectedLevel(-1));
+  $("#levelUpSelection").addEventListener("click", () => shiftSelectedLevel(1));
+  $("#copySelection").addEventListener("click", () => copySelected());
+  $("#pasteSelection").addEventListener("click", pasteCopied);
+  $("#groupSelection").addEventListener("click", groupSelected);
+  $("#ungroupSelection").addEventListener("click", ungroupSelected);
+  $("#lockSelection").addEventListener("click", toggleLockSelected);
+  $("#hideSelection").addEventListener("click", hideSelected);
+  $("#unhideAll").addEventListener("click", unhideAll);
+  $("#exportButton").addEventListener("click", exportMap);
+  $("#buildButton").addEventListener("click", () => { $("#buildDialog").showModal(); refreshCompanionStatus(); });
+  $("#closeBuildDialog").addEventListener("click", () => $("#buildDialog").close());
+  $("#savePathsButton").addEventListener("click", saveCompanionPaths);
+  $("#runBuildButton").addEventListener("click", runBuildAndTest);
+  $("#launchAfterBuild").addEventListener("change", updateBuildDialog);
+  $("#fitButton").addEventListener("click", fitView);
+  $("#levelSelect").addEventListener("change", (event) => {
+    planLevel = event.target.value === "all" ? null : Number(event.target.value);
+    if (selected && !onPlanLevel(selected.type, selectedItem())) selected = null;
+    refresh();
+  });
+  $("#ghostLevels").addEventListener("change", (event) => { ghostLevels = event.target.checked; drawEditor(); });
+  $("#snapUnits").addEventListener("change", (event) => { snapUnits = Number(event.target.value) || 64; showToast(`Snap set to ${snapUnits} GoldSrc units`); drawEditor(); });
+  $("#objectSnap").addEventListener("change", (event) => { objectSnapEnabled = event.target.checked; showToast(objectSnapEnabled ? "Object edge and center snapping enabled" : "Object snapping disabled"); });
+  $("#previewLevelButton").addEventListener("click", () => {
+    if (planLevel == null) { showToast("Choose a plan level first"); return; }
+    previewLevelOnly = !previewLevelOnly; updateLevelControls(); drawPreview();
+  });
+  $("#rotateButton").addEventListener("click", () => { previewAngle += Math.PI / 2; drawPreview(); });
+  $("#previewModeButton").addEventListener("click", () => setPreviewMode(previewMode === "orbit" ? "walk" : "orbit"));
+  $("#previewZoomOut").addEventListener("click", () => setPreviewZoom(previewZoom / 1.2));
+  $("#previewZoomIn").addEventListener("click", () => setPreviewZoom(previewZoom * 1.2));
+  $("#previewPanButton").addEventListener("click", () => { previewPanMode = !previewPanMode; updatePreviewNavigation(); preview.focus(); });
+  $("#previewFitButton").addEventListener("click", fitPreview);
+  $("#gridButton").addEventListener("click", () => showToast(`Major grid: 64 units · current snap: ${snapUnits} units`));
+  $("#analyzeButton").addEventListener("click", () => { runCompetitiveAnalysis(); $("#analysisDialog").showModal(); });
+  $("#closeAnalysisDialog").addEventListener("click", () => $("#analysisDialog").close());
+  $("#refreshAnalysis").addEventListener("click", runCompetitiveAnalysis);
+  $("#showAnalysisOverlay").addEventListener("change", drawEditor);
+  $("#elevationButton").addEventListener("click",()=>{$("#elevationDialog").showModal();requestAnimationFrame(drawElevationEditor);});
+  $("#closeElevationDialog").addEventListener("click",()=>$("#elevationDialog").close());
+  $("#elevationAxis").addEventListener("change",(event)=>{elevationAxis=event.target.value;drawElevationEditor();});
+  $("#elevationSlice").addEventListener("input",drawElevationEditor);
+  $("#elevationBase").addEventListener("change",(event)=>applyElevationField("base",event.target.value));
+  $("#elevationTop").addEventListener("change",(event)=>applyElevationField("top",event.target.value));
+  elevationCanvas.addEventListener("click",(event)=>{const point=canvasPoint(event,elevationCanvas),hit=[...elevationHitRegions].reverse().find((region)=>point.x>=region.x1&&point.x<=region.x2&&point.y>=region.y1&&point.y<=region.y2);if(hit){selection=[{...hit.ref}];selected={...hit.ref};refresh();drawElevationEditor();}});
+  $("#preflightButton").addEventListener("click",()=>{renderPreflight();$("#preflightDialog").showModal();});
+  $("#closePreflightDialog").addEventListener("click",()=>$("#preflightDialog").close());
+  $("#refreshPreflight").addEventListener("click",renderPreflight);
+  $("#preflightList").addEventListener("click",(event)=>{const button=event.target.closest("[data-preflight-index]");if(!button)return;const issue=lastPreflight?.issues[Number(button.dataset.preflightIndex)];if(issue?.ref){selection=[{...issue.ref}];selected={...issue.ref};setTool("select");$("#preflightDialog").close();refresh();showToast(`Selected issue: ${issue.title}`);}});
+  $("#productionButton").addEventListener("click",()=>{$("#productionDialog").showModal();renderProduction();});
+  $("#closeProductionDialog").addEventListener("click",()=>$("#productionDialog").close());
+  $("#productionDialog").addEventListener("close",()=>{lightingOverlay=false;drawEditor();});
+  $$("[data-production-tab]").forEach((button)=>button.addEventListener("click",()=>{productionTab=button.dataset.productionTab;renderProduction();}));
+  $("#outlinerSearch").addEventListener("input",renderOutliner);$("#outlinerType").addEventListener("change",renderOutliner);
+  $("#outlinerList").addEventListener("click",(event)=>{
+    const action=event.target.closest("[data-outline-lock],[data-outline-hide]");
+    if(action){const token=action.dataset.outlineLock||action.dataset.outlineHide,[type,id]=token.split(":"),item=itemForRef({type,id});if(!item)return;const before=snapshot();if(action.dataset.outlineLock)item.locked=!item.locked;else item.hidden=!item.hidden;commit(before);return;}
+    const row=event.target.closest("[data-outline-select]");if(!row)return;const [type,id]=row.dataset.outlineSelect.split(":");selection=[{type,id}];selected={type,id};setTool("select");refresh();
+  });
+  $("#addStory").addEventListener("click",()=>{const before=snapshot(),elevation=(Number($("#storyElevation").value)||0)/GRID,name=$("#storyName").value.trim()||`Level ${Math.round(elevation*GRID)}`;state.stories||=[];if(state.stories.some((story)=>Math.abs(Number(story.elevation)-elevation)<.01)){showToast("A level already uses that elevation");return;}state.stories.push({id:crypto.randomUUID(),name,elevation});planLevel=elevation;commit(before);renderProduction();});
+  $("#storyList").addEventListener("click",(event)=>{const view=event.target.closest("[data-story-view]"),copy=event.target.closest("[data-story-copy]"),remove=event.target.closest("[data-story-remove]"),id=view?.dataset.storyView||copy?.dataset.storyCopy||remove?.dataset.storyRemove,story=state.stories?.find((item)=>item.id===id);if(!story)return;if(view){planLevel=Number(story.elevation)||0;ghostLevels=true;refresh();}else if(copy)duplicateStory(story);else{const count=state.rooms.filter((room)=>Math.abs(roomFloor(room)-Number(story.elevation))<.13).length;if(count)return showToast("Delete or move this level's rooms first");const before=snapshot();state.stories=state.stories.filter((item)=>item.id!==id);commit(before);}});
+  $("#lightingList").addEventListener("click",(event)=>{const row=event.target.closest("[data-light-room]");if(!row)return;selection=[{type:"room",id:row.dataset.lightRoom}];selected=selection[0];refresh();});
+  $("#selectDarkRoom").addEventListener("click",()=>{const room=darkestRoom();if(!room)return;selection=[{type:"room",id:room.id}];selected=selection[0];refresh();});
+  $("#addLightToDarkRoom").addEventListener("click",()=>{const room=darkestRoom();if(!room)return showToast("Draw a room first");const before=snapshot(),entity={id:crypto.randomUUID(),kind:"light",x:Math.floor(room.x+room.w/2),y:Math.floor(room.y+room.d/2),floorLevel:roomFloor(room),z:Math.max(.5,room.height-.75),brightness:350,radius:Math.max(256,Math.round(Math.max(room.w,room.d)*GRID*.75)),style:"0",target:"",color:"#fff0d0"};state.entities.push(entity);selection=[{type:"entity",id:entity.id}];selected=selection[0];commit(before);showToast("Light added to the darkest room");});
+  $("#walkFromCt").addEventListener("click",()=>startWalkAt(state.entities.find((item)=>item.kind==="ct")));$("#walkFromT").addEventListener("click",()=>startWalkAt(state.entities.find((item)=>item.kind==="t")));$("#walkFromSelected").addEventListener("click",()=>{const item=selectedItem();startWalkAt(selected?.type==="entity"&&["ct","t"].includes(item?.kind)?item:null);});
+  $("#toggleRouteRecording").addEventListener("click",()=>{routeRecording=!routeRecording;if(routeRecording){recordedRoute=[];routeStartedAt=performance.now();lastRouteSampleAt=0;if(previewMode!=="walk")startWalkAt(state.entities.find((item)=>["ct","t"].includes(item.kind)));}$("#toggleRouteRecording").textContent=routeRecording?"Stop recording":"Record route";renderProduction();showToast(routeRecording?"Route recording started":"Route recording stopped");});
+  $("#clearRecordedRoute").addEventListener("click",()=>{routeRecording=false;recordedRoute=[];$("#toggleRouteRecording").textContent="Record route";renderProduction();});
+  $("#placeTargetFromProduction").addEventListener("click",()=>{$("#productionDialog").close();setTool("targetDummy");showToast("Click a floor to place the playtest target");});
+  $("#createSnapshot").addEventListener("click",()=>{const name=$("#snapshotName").value.trim()||`Version ${projectSnapshots.length+1}`;projectSnapshots.unshift({id:crypto.randomUUID(),name,createdAt:Date.now(),project:snapshot()});projectSnapshots=projectSnapshots.slice(0,20);localStorage.setItem("blockout-project-snapshots-v1",JSON.stringify(projectSnapshots));$("#snapshotName").value="";renderSnapshots();showToast("Named version saved locally");});
+  $("#snapshotList").addEventListener("click",(event)=>{const restore=event.target.closest("[data-snapshot-restore]"),remove=event.target.closest("[data-snapshot-delete]"),id=restore?.dataset.snapshotRestore||remove?.dataset.snapshotDelete,entry=projectSnapshots.find((item)=>item.id===id);if(!entry)return;if(restore){if(!confirm(`Restore ${entry.name}? The current state remains available through Undo.`))return;const before=snapshot();state=JSON.parse(entry.project);environmentFor(state);selected=null;selection=[];commit(before);showToast("Named version restored");}else{projectSnapshots=projectSnapshots.filter((item)=>item.id!==id);localStorage.setItem("blockout-project-snapshots-v1",JSON.stringify(projectSnapshots));renderSnapshots();}});
+  $("#exportProjectJson").addEventListener("click",()=>downloadBlob(projectDocument(),"application/json",`${safeName(state.name)}.blockout.json`));
+  $("#importProjectJson").addEventListener("change",async(event)=>{const file=event.target.files?.[0];if(!file)return;try{const document=JSON.parse(await file.text()),project=document.format==="blockout-project"?document.project:document;if(!project||!Array.isArray(project.rooms)||!Array.isArray(project.props))throw new Error("Not a Blockout project");const before=snapshot();state=project;environmentFor(state);state.doors||=[];state.windows||=[];state.zones||=[];state.entities||=[];state.stories||=[];selected=null;selection=[];commit(before);showToast("Project imported");}catch(error){showToast(`Import failed: ${error.message}`);}event.target.value="";});
+  $("#exportPackage").addEventListener("click",exportProductionPackage);
+  $("#openTextureBrowser").addEventListener("click", () => openTextureLibrary("material"));
+  $$(".material-miniature[data-texture-target]").forEach((image) => image.addEventListener("click", () => {
+    if (image.dataset.textureTarget === "ground" && $("#environmentDialog").open) $("#environmentDialog").close();
+    openTextureLibrary(image.dataset.textureTarget);
+  }));
+  $("#closeTextureDialog").addEventListener("click", () => $("#textureDialog").close());
+  $("#textureSearch").addEventListener("input", renderTextureBrowser);
+  $("#textureCategory").addEventListener("change", renderTextureBrowser);
+  $("#textureTarget").addEventListener("change", renderTextureBrowser);
+  $("#textureDropZone").addEventListener("click", () => $("#textureFileInput").click());
+  $("#textureFileInput").addEventListener("change", (event) => prepareTextureImport(event.target.files?.[0]));
+  ["dragenter", "dragover"].forEach((type) => $("#textureDropZone").addEventListener(type, (event) => {
+    event.preventDefault(); event.stopPropagation();
+    $("#textureDropZone").classList.add("drag-over");
+    if (event.dataTransfer) event.dataTransfer.dropEffect = "copy";
+  }));
+  ["dragleave", "drop"].forEach((type) => $("#textureDropZone").addEventListener(type, (event) => {
+    event.preventDefault(); event.stopPropagation();
+    $("#textureDropZone").classList.remove("drag-over");
+  }));
+  $("#textureDropZone").addEventListener("drop", (event) => prepareTextureImport(event.dataTransfer?.files?.[0]));
+  if (HOSTED_MODE) {
+    const textureDropZone = $("#textureDropZone");
+    textureDropZone.disabled = true;
+    textureDropZone.innerHTML = '<span class="texture-drop-icon">↧</span><span><strong>Custom texture installation is local-only</strong><small>Use the Windows edition to convert images into GoldSrc textures and add them to your WAD.</small></span><em>Local app</em>';
+  }
+  $("#cancelTextureImport").addEventListener("click", resetTextureImport);
+  $("#installTextureImport").addEventListener("click", installImportedTexture);
+  $("#textureImportName").addEventListener("input", (event) => {
+    const selectionStart=event.target.selectionStart;
+    event.target.value=event.target.value.toUpperCase().replace(/[^A-Z0-9_]+/g,"_").slice(0,15);
+    event.target.setSelectionRange(Math.min(selectionStart,event.target.value.length),Math.min(selectionStart,event.target.value.length));
+  });
+  $("#textureGrid").addEventListener("click", async (event) => {
+    const remove = event.target.closest("[data-delete-texture]");
+    if(remove){event.preventDefault();event.stopPropagation();await deleteImportedTexture(remove.dataset.deleteTexture);return;}
+    const favorite = event.target.closest("[data-favorite]");
+    if (favorite) {
+      event.preventDefault(); event.stopPropagation();
+      const texture = favorite.dataset.favorite;
+      textureFavorites.has(texture) ? textureFavorites.delete(texture) : textureFavorites.add(texture);
+      localStorage.setItem("blockout-texture-favorites", JSON.stringify([...textureFavorites])); renderTextureBrowser(); return;
+    }
+    const card = event.target.closest("[data-texture]");
+    if (card) applyBrowserTexture(card.dataset.texture);
+  });
+  $("#openPrefabLibrary").addEventListener("click", () => {
+    $("#prefabSearch").value = ""; $("#prefabCategory").value = "all"; renderPrefabLibrary(); $("#prefabDialog").showModal();
+  });
+  $("#closePrefabDialog").addEventListener("click", () => $("#prefabDialog").close());
+  $("#prefabSearch").addEventListener("input", renderPrefabLibrary);
+  $("#prefabCategory").addEventListener("change", renderPrefabLibrary);
+  $("#prefabGrid").addEventListener("click", (event) => {
+    const card = event.target.closest("[data-prefab]");
+    if (card) choosePrefab(card.dataset.prefab);
+  });
+  $("#toolSearch").addEventListener("input", filterSidebarTools);
+  $("#environmentButton").addEventListener("click", () => { syncEnvironmentDialog(); $("#environmentDialog").showModal(); });
+  $("#closeEnvironmentDialog").addEventListener("click", () => $("#environmentDialog").close());
+  $("#finishEnvironment").addEventListener("click", () => $("#environmentDialog").close());
+  $("#browseGroundTextures").addEventListener("click", () => { $("#environmentDialog").close(); openTextureLibrary("ground"); });
+  $("#groundEnabled").addEventListener("change", (event) => changeEnvironment((environment) => { environment.groundEnabled = event.target.checked; }, event.target.checked ? "Map-wide ground enabled" : "Map-wide ground disabled"));
+  $("#groundSize").addEventListener("change", (event) => changeEnvironment((environment) => { environment.groundSize = Math.max(16, Math.min(128, Number(event.target.value) || 32)); }));
+  $("#groundPadding").addEventListener("change", (event) => changeEnvironment((environment) => { environment.groundPadding = Math.max(2, Math.min(32, Number(event.target.value) || 4)); }));
+  $("#environmentGroundMaterialSelect").addEventListener("change", (event) => changeEnvironment((environment) => { environment.groundMaterial = event.target.value; }, `${MATERIAL_INFO[event.target.value]} ground applied`));
+  $("#openSkyDefault").addEventListener("change", (event) => changeEnvironment((environment) => { environment.openSkyDefault = event.target.checked; }, event.target.checked ? "New rooms will use open sky" : "New rooms will use solid ceilings"));
+  $("#skyNameSelect").addEventListener("change", (event) => changeEnvironment((environment) => { environment.skyName = event.target.value; }, `${SKY_THEMES[event.target.value]?.label || event.target.value} selected`));
+  $("#makeAllOpenSky").addEventListener("click", () => {
+    const before = snapshot();
+    environmentFor().openSkyDefault = true;
+    state.rooms.forEach((room) => { room.ceilingMode = "sky"; });
+    commit(before); syncEnvironmentDialog(); showToast("Every room now opens to the selected sky");
+  });
+  $("#layoutsButton").addEventListener("click", () => {
+    $("#layoutSearch").value = ""; $("#layoutCategory").value = "all"; renderLayoutLibrary(); $("#layoutDialog").showModal();
+  });
+  $("#closeLayoutDialog").addEventListener("click", () => $("#layoutDialog").close());
+  $("#layoutSearch").addEventListener("input", renderLayoutLibrary);
+  $("#layoutCategory").addEventListener("change", renderLayoutLibrary);
+  $("#layoutGrid").addEventListener("click", (event) => {
+    const card = event.target.closest("[data-layout]");
+    if (!card) return;
+    $("#layoutDialog").close();
+    loadLayoutProject(card.dataset.layout);
+  });
+  $("#newButton").addEventListener("click", () => {
+    if (state.rooms.length && !confirm("Start a new map? Your current map is saved in this browser.")) return;
+    history.push(snapshot()); future = []; state = freshProject(); selected = null; fitView(); commit();
+  });
+  $("#projectName").addEventListener("input", (event) => { state.name = event.target.value; scheduleSave(); });
+
+  function shiftSelectedLevel(delta) {
+    const entries=selectedEntries().filter((entry)=>["room","prop"].includes(entry.ref.type)&&!entry.item.locked);
+    if(entries.length>1){
+      const before=snapshot(),selectedRoomIds=new Set(entries.filter((entry)=>entry.ref.type==="room").map((entry)=>entry.item.id));
+      entries.forEach(({ref,item})=>{
+        if(ref.type==="room") item.floorLevel=Math.max(-8,Math.min(16,roomFloor(item)+delta));
+        else {
+          const host=state.rooms.find((room)=>pointInRoom(item.x+(item.w||1)/2,item.y+(item.d||1)/2,room));
+          if(host&&selectedRoomIds.has(host.id)) return;
+          if(["floor","floorPolygon"].includes(item.kind)) item.elevation=(Number(item.elevation)||0)+delta;
+          else item.floorLevel=(Number(item.floorLevel)||0)+delta;
+        }
+      });
+      commit(before);showToast(`${entries.length} objects moved ${delta>0?"up":"down"} ${Math.abs(delta*GRID)} units`);return;
+    }
+    const item = selectedItem();
+    if (!item || !["room", "prop"].includes(selected?.type)) return;
+    const before = snapshot();
+    if (selected.type === "room") {
+      const oldLevel = roomFloor(item), nextLevel = Math.max(-8, Math.min(16, oldLevel + delta));
+      const actualDelta = nextLevel - oldLevel;
+      item.floorLevel = nextLevel;
+      item.elevation = Math.round(nextLevel / .75);
+      state.props.forEach((prop) => {
+        if (!pointInRoom(prop.x + prop.w / 2, prop.y + prop.d / 2, item)) return;
+        if (["floor", "floorPolygon"].includes(prop.kind)) prop.elevation = (Number(prop.elevation) || 0) + actualDelta;
+        else prop.floorLevel = (prop.floorLevel == null ? oldLevel : Number(prop.floorLevel)) + actualDelta;
+      });
+      planLevel = nextLevel;
+    } else if (["floor", "floorPolygon"].includes(item.kind)) {
+      item.elevation = Math.max(-8, Math.min(16, (Number(item.elevation) || 0) + delta));
+      planLevel = item.elevation;
+    } else {
+      item.floorLevel = Math.max(-8, Math.min(16, (Number(item.floorLevel) || floorLevelAt(item.x + item.w / 2, item.y + item.d / 2)) + delta));
+      planLevel = item.floorLevel;
+    }
+    commit(before);
+    showToast(`Moved to Z ${Math.round(itemLevel(selected.type, item) * GRID)}`);
+  }
+
+  ["roomWidth", "roomDepth", "roomHeight"].forEach((id) => {
+    $(`#${id}`).addEventListener("change", (event) => {
+      const item = selectedItem();
+      if (!item || !["room", "prop", "zone"].includes(selected.type)) return;
+      const before = snapshot();
+      const parsed = Number(event.target.value);
+      const value = Math.max(Number(event.target.min), Math.min(Number(event.target.max), Number.isFinite(parsed) ? parsed : 1));
+      if (id === "roomWidth") {
+        const oldWidth = Math.max(.001, item.w);
+        if (item.points) item.points = item.points.map(([x, y]) => [item.x + (x - item.x) * value / oldWidth, y]);
+        if (item.planPoints) item.planPoints = item.planPoints.map(([x, y]) => [item.x + (x - item.x) * value / oldWidth, y]);
+        item.w = value;
+      }
+      if (id === "roomDepth") {
+        const oldDepth = Math.max(.001, item.d);
+        if (item.points) item.points = item.points.map(([x, y]) => [x, item.y + (y - item.y) * value / oldDepth]);
+        if (item.planPoints) item.planPoints = item.planPoints.map(([x, y]) => [x, item.y + (y - item.y) * value / oldDepth]);
+        item.d = value;
+      }
+      if (id === "roomHeight" && selected.type !== "zone") {
+        if (selected.type === "prop" && ["floor", "floorPolygon"].includes(item.kind)) item.elevation = value;
+        else item.height = value;
+      }
+      if (selected.type === "prop" && !(["platformPolygon", "floorPolygon", "wallPolygon"].includes(item.kind) ? polygonIsInsideSpace(item.points || []) : rectIsInsideSpace(item))) {
+        state = JSON.parse(before);
+        showToast("That size would extend outside the room");
+        refresh();
+        return;
+      }
+      if (selected.type === "zone" && !rectIsInsideSpace(item)) {
+        state = JSON.parse(before);
+        showToast("That size would extend outside the room");
+        refresh();
+        return;
+      }
+      commit(before);
+    });
+  });
+
+  $("#materialSelect").addEventListener("change", (event) => {
+    const item = selectedItem();
+    if (!item || !["room", "prop"].includes(selected.type)) return;
+    const before = snapshot();
+    setSurfaceTexture(item,selected.type,event.target.value);
+    commit(before);
+  });
+
+  $("#surfaceTargetSelect").addEventListener("change", (event) => { surfaceTarget=event.target.value; updateInspector(); drawPreview(); });
+  $("#textureMappingMode").addEventListener("change",(event)=>{
+    const item=selectedItem();if(!item||!["room","prop"].includes(selected?.type))return;
+    const before=snapshot(),uv=surfaceUvFor(item,selected.type,surfaceTarget,true);uv.mode=event.target.value==="fit"?"fit":"tile";
+    if(uv.mode==="tile")uv.scaleX=uv.scaleY=1;
+    setSurfaceUv(item,selected.type,surfaceTarget,uv);previewPatterns.clear();commit(before);
+    showToast(uv.mode==="fit"?"Image fitted once across the complete face":"Texture repetition enabled");
+  });
+  ["textureShiftX","textureShiftY","textureRotation","textureScaleX","textureScaleY"].forEach((id) => {
+    $(`#${id}`).addEventListener("change", (event) => {
+      const item=selectedItem(); if(!item||!["room","prop"].includes(selected?.type)) return;
+      const before=snapshot(),uv=surfaceUvFor(item,selected.type,surfaceTarget,true);
+      const key={textureShiftX:"shiftX",textureShiftY:"shiftY",textureRotation:"rotation",textureScaleX:"scaleX",textureScaleY:"scaleY"}[id];
+      uv[key]=key.startsWith("scale")?Math.max(.05,Number(event.target.value)||1):Number(event.target.value)||0;
+      if(key.startsWith("scale"))uv.mode="tile";
+      setSurfaceUv(item,selected.type,surfaceTarget,uv);
+      previewPatterns.clear(); commit(before);
+    });
+  });
+  $("#resetTextureAlignment").addEventListener("click",()=>{
+    const item=selectedItem(); if(!item||!["room","prop"].includes(selected?.type)) return; const before=snapshot();
+    const uv=normalizedUv();
+    setSurfaceUv(item,selected.type,surfaceTarget,uv);
+    previewPatterns.clear(); commit(before); showToast("Texture alignment reset");
+  });
+  $("#fitTextureSurface").addEventListener("click",()=>{const item=selectedItem();if(!item||!["room","prop"].includes(selected?.type))return;const before=snapshot(),uv=surfaceUvFor(item,selected.type,surfaceTarget,true);uv.mode="fit";setSurfaceUv(item,selected.type,surfaceTarget,uv);previewPatterns.clear();commit(before);showToast("Image fitted once to the complete face");});
+  $("#textureLock").checked=textureLock;$("#textureLock").addEventListener("change",(event)=>{textureLock=event.target.checked;localStorage.setItem("blockout-texture-lock",textureLock?"on":"off");showToast(textureLock?"Texture world lock enabled":"Textures now move with geometry");});
+  $("#sampleMaterialButton").addEventListener("click",()=>setTool("eyedropper"));
+  $("#paintMaterialButton").addEventListener("click",()=>{if(!sampledMaterial){showToast("Use the eyedropper first");setTool("eyedropper");}else setTool("paint");});
+
+  $("#floorMaterialSelect").addEventListener("change", (event) => {
+    const item = selectedItem();
+    if (!item || selected.type !== "room") return;
+    const before = snapshot();
+    setSurfaceTexture(item,"room",event.target.value,"floor");
+    commit(before);
+    updateMaterialPreview(item.floorTexture);
+  });
+
+  $("#roomFloorElevation").addEventListener("change", (event) => {
+    const room = selectedItem();
+    if (!room || selected.type !== "room") return;
+    const before = snapshot();
+    const oldLevel = roomFloor(room);
+    const nextLevel = Math.max(-8, Math.min(16, Number(event.target.value) || 0));
+    const delta = nextLevel - oldLevel;
+    room.floorLevel = nextLevel;
+    room.elevation = Math.round(nextLevel / .75);
+    state.props.forEach((prop) => {
+      const centerX = prop.x + prop.w / 2, centerY = prop.y + prop.d / 2;
+      if (!pointInRoom(centerX, centerY, room)) return;
+      if (["floor", "floorPolygon"].includes(prop.kind)) prop.elevation = (Number(prop.elevation) || 0) + delta;
+      else prop.floorLevel = (prop.floorLevel == null ? oldLevel : Number(prop.floorLevel)) + delta;
+    });
+    commit(before);
+    showToast(`Room floor moved to Z ${Math.round(nextLevel * GRID)}`);
+  });
+
+  $("#floorThickness").addEventListener("change", (event) => {
+    const item = selectedItem();
+    if (!item || selected.type !== "prop" || !["floor", "floorPolygon"].includes(item.kind)) return;
+    const before = snapshot();
+    item.thickness = Math.max(.125, Math.min(2, Number(event.target.value) || .25));
+    commit(before);
+  });
+
+  $("#ceilingMaterialSelect").addEventListener("change", (event) => {
+    const item = selectedItem();
+    if (!item || selected.type !== "room") return;
+    const before = snapshot();
+    setSurfaceTexture(item,"room",event.target.value,"ceiling");
+    commit(before);
+    updateMaterialPreview(item.ceilingTexture);
+  });
+
+  $("#ceilingModeSelect").addEventListener("change", (event) => {
+    const item = selectedItem();
+    if (!item || selected.type !== "room") return;
+    const before = snapshot();
+    item.ceilingMode = event.target.value;
+    commit(before);
+    showToast(item.ceilingMode === "sky" ? "Open sky enabled — export remains safely sealed" : "Solid ceiling enabled");
+  });
+
+  $("#roomRoofEnabled").addEventListener("change", (event) => {
+    const item = selectedItem();
+    if (!item || selected.type !== "room") return;
+    const before = snapshot();
+    item.ceilingMode = event.target.checked ? "ceiling" : "sky";
+    $("#ceilingModeSelect").value = item.ceilingMode;
+    commit(before);
+    showToast(event.target.checked ? "Solid roof enabled" : "Roof removed · room opens to the selected sky");
+  });
+
+  $("#rampSteepnessSelect").addEventListener("change", (event) => {
+    const item = selectedItem();
+    if (!item || selected.type !== "prop" || item.kind !== "ramp" || event.target.value === "custom") return;
+    const before = snapshot();
+    item.height = Math.max(.25, Math.round(structureRun(item) * Number(event.target.value) * 4) / 4);
+    commit(before);
+    showToast(`Ramp set to ${event.target.selectedOptions[0].textContent}`);
+  });
+
+  $("#stairSteps").addEventListener("change", (event) => {
+    const item = selectedItem();
+    if (!item || selected.type !== "prop" || item.kind !== "stairs") return;
+    const before = snapshot();
+    item.steps = Math.max(1, Math.min(32, Math.round(Number(event.target.value) || recommendedStairSteps(item))));
+    commit(before);
+  });
+
+  $("#directionSelect").addEventListener("change", (event) => {
+    const item = selectedItem();
+    if (!item || selected.type !== "prop" || !["stairs", "ramp", "ladder"].includes(item.kind)) return;
+    const before = snapshot();
+    item.direction = event.target.value;
+    commit(before);
+  });
+
+  $("#spawnAngleSelect").addEventListener("change", (event) => {
+    const item = selectedItem();
+    if (!item || selected.type !== "entity" || !["ct", "t"].includes(item.kind)) return;
+    const before = snapshot();
+    item.angle = Number(event.target.value) || 0;
+    commit(before);
+    showToast("Spawn facing updated");
+  });
+
+  $("#lightHeight").addEventListener("change", (event) => {
+    const item = selectedItem();
+    if (!item || selected.type !== "entity" || !["light","spotlight"].includes(item.kind)) return;
+    const before = snapshot();
+    item.z = Math.max(Number(event.target.min), Math.min(Number(event.target.max), Number(event.target.value) || 2.5));
+    commit(before);
+  });
+
+  $("#lightBrightness").addEventListener("change", (event) => {
+    const item = selectedItem();
+    if (!item || selected.type !== "entity" || !["light","spotlight"].includes(item.kind)) return;
+    const before = snapshot();
+    item.brightness = Math.max(50, Math.min(1000, Math.round(Number(event.target.value) || 300)));
+    commit(before);
+  });
+
+  $("#lightColor").addEventListener("focus", () => { lightColorBefore = snapshot(); });
+  $("#lightColor").addEventListener("input", (event) => {
+    const item = selectedItem();
+    if (!item || selected.type !== "entity" || !["light","spotlight"].includes(item.kind)) return;
+    item.color = event.target.value;
+    drawEditor(); drawPreview();
+  });
+  $("#lightColor").addEventListener("change", () => {
+    if (lightColorBefore) commit(lightColorBefore);
+    lightColorBefore = null;
+  });
+  $("#lightRadius").addEventListener("change",(event)=>{const item=selectedItem();if(!item||selected?.type!=="entity"||!["light","spotlight"].includes(item.kind))return;const before=snapshot();item.radius=Math.max(64,Math.min(2048,Number(event.target.value)||512));commit(before);});
+  $("#lightStyle").addEventListener("change",(event)=>{const item=selectedItem();if(!item||selected?.type!=="entity"||!["light","spotlight"].includes(item.kind))return;const before=snapshot();item.style=event.target.value;commit(before);});
+  $("#lightTarget").addEventListener("change",(event)=>{const item=selectedItem();if(!item||selected?.type!=="entity"||!["light","spotlight"].includes(item.kind))return;const before=snapshot();item.target=event.target.value.trim();commit(before);});
+  [["spotlightAngle","angle"],["spotlightCone","cone"],["spotlightPitch","pitch"]].forEach(([id,key])=>$("#"+id).addEventListener("change",(event)=>{const item=selectedItem();if(!item||selected?.type!=="entity"||item.kind!=="spotlight")return;const before=snapshot();item[key]=Number(event.target.value)||0;commit(before);}));
+  [["logicName","targetName"],["logicTarget","target"],["logicSpeed","speed"],["logicWait","wait"]].forEach(([id,key])=>$("#"+id).addEventListener("change",(event)=>{const item=selectedItem();if(!item||selected?.type!=="prop"||!["elevator","rotatingDoor","train"].includes(item.kind))return;const before=snapshot();item[key]=["speed","wait"].includes(key)?Number(event.target.value):event.target.value.trim();commit(before);}));
+
+  $("#doorModeSelect").addEventListener("change", (event) => {
+    const item = selectedItem();
+    if (!item || selected.type !== "door") return;
+    const before = snapshot();
+    item.mode = event.target.value;
+    openWalkDoors.delete(item.id);
+    commit(before);
+    showToast(item.mode === "sliding" ? "Sliding door enabled — press E in Walkthrough" : "Changed to an open passage");
+  });
+
+  $("#doorWidth").addEventListener("change",(event)=>{const item=selectedItem();if(!item||selected?.type!=="door")return;const before=snapshot();resizeOpening(item,Math.max(.5,Math.min(8,Number(event.target.value)||1)));commit(before);});
+  $("#doorHeight").addEventListener("change",(event)=>{const item=selectedItem();if(!item||selected?.type!=="door")return;const before=snapshot(),rooms=adjacentRoomsForOpening(item),max=rooms.length?Math.min(...rooms.map((room)=>room.height))-.25:8;item.height=Math.max(1,Math.min(max,Number(event.target.value)||2));commit(before);});
+
+  $("#doorSpeed").addEventListener("change", (event) => {
+    const item = selectedItem();
+    if (!item || selected.type !== "door") return;
+    const before = snapshot();
+    item.speed = Math.max(25, Math.min(500, Math.round(Number(event.target.value) || 100)));
+    commit(before);
+  });
+
+  $("#doorMaterialSelect").addEventListener("change", (event) => {
+    const item = selectedItem();
+    if (!item || selected.type !== "door") return;
+    const before = snapshot();
+    item.texture = event.target.value;
+    commit(before);
+    updateMaterialPreview(item.texture);
+  });
+
+  $("#windowModeSelect").addEventListener("change", (event) => {
+    const item = selectedItem();
+    if (!item || selected.type !== "window") return;
+    const before = snapshot();
+    item.mode = event.target.value;
+    brokenWalkWindows.delete(item.id);
+    commit(before);
+    showToast(item.mode === "breakable" ? "Breakable glass enabled" : item.mode === "glass" ? "Unbreakable glass enabled" : "Open window frame enabled");
+  });
+
+  $("#windowWidth").addEventListener("change",(event)=>{const item=selectedItem();if(!item||selected?.type!=="window")return;const before=snapshot();resizeOpening(item,Math.max(.5,Math.min(8,Number(event.target.value)||1)));commit(before);});
+
+  [["entityTarget","target"],["entitySound","sound"],["entityDecal","decal"]].forEach(([id,key])=>$("#"+id).addEventListener("change",(event)=>{const item=selectedItem();if(!item||selected?.type!=="entity")return;const before=snapshot();if(id==="entityTarget"&&item.kind==="pathCorner")item.targetName=event.target.value.trim();else item[key]=event.target.value.trim();commit(before);}));
+  $("#entityNext").addEventListener("change",(event)=>{const item=selectedItem();if(!item||selected?.type!=="entity"||item.kind!=="pathCorner")return;const before=snapshot();item.target=event.target.value.trim();commit(before);});
+  $("#entityVolume").addEventListener("change",(event)=>{const item=selectedItem();if(!item||selected?.type!=="entity"||item.kind!=="ambient")return;const before=snapshot();item.volume=Math.max(0,Math.min(10,Number(event.target.value)||0));commit(before);});
+  $("#zoneDamage").addEventListener("change",(event)=>{const item=selectedItem();if(!item||selected?.type!=="zone"||item.kind!=="triggerHurt")return;const before=snapshot();item.damage=Math.max(1,Math.min(1000,Number(event.target.value)||25));commit(before);});
+  $("#zoneTarget").addEventListener("change",(event)=>{const item=selectedItem();if(!item||selected?.type!=="zone"||item.kind!=="teleport")return;const before=snapshot();item.target=event.target.value.trim()||"tele_dest_1";commit(before);});
+
+  ["windowSill", "windowHeight"].forEach((id) => {
+    $(`#${id}`).addEventListener("change", (event) => {
+      const item = selectedItem();
+      if (!item || selected.type !== "window") return;
+      const before = snapshot();
+      if (id === "windowSill") item.sill = Number(event.target.value) || .75;
+      else item.height = Number(event.target.value) || 1.5;
+      clampWindowDimensions(item);
+      commit(before);
+    });
+  });
+
+  $("#windowHealth").addEventListener("change", (event) => {
+    const item = selectedItem();
+    if (!item || selected.type !== "window") return;
+    const before = snapshot();
+    item.health = Math.max(1, Math.min(500, Math.round(Number(event.target.value) || 20)));
+    commit(before);
+  });
+
+  window.addEventListener("keydown", (event) => {
+    const typing = ["INPUT", "TEXTAREA"].includes(document.activeElement?.tagName);
+    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "z") {
+      event.preventDefault(); event.shiftKey ? redo() : undo(); return;
+    }
+    if (!typing && (event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "d") {
+      event.preventDefault(); duplicateSelected(); return;
+    }
+    if (!typing && (event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "c") {
+      event.preventDefault(); copySelected(); return;
+    }
+    if (!typing && (event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "v") {
+      event.preventDefault(); pasteCopied(); return;
+    }
+    if (!typing && (event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "g") {
+      event.preventDefault(); event.shiftKey ? ungroupSelected() : groupSelected(); return;
+    }
+    if (typing) return;
+    if (["polygon", "polyPlatform", "polyFloor", "polyWall"].includes(activeTool)) {
+      if (event.key === "Enter") { event.preventDefault(); finishPolygonDraft(); return; }
+      if (event.key === "Backspace") { event.preventDefault(); polygonDraft.pop(); drawEditor(); return; }
+      if (event.key === "Escape") { event.preventDefault(); cancelPolygonDraft(); return; }
+    }
+    if (editingVertices && event.key === "Escape") {
+      event.preventDefault(); editingVertices = false; selectedVertexIndex = -1; refresh(); return;
+    }
+    if (event.code === "Space" && previewMode !== "walk") {
+      event.preventDefault();
+      if (!event.repeat && toolBeforeSpace === null) {
+        toolBeforeSpace = activeTool;
+        setTool("pan");
+      }
+      return;
+    }
+    if (previewMode === "walk" && event.key.toLowerCase() === "e") {
+      event.preventDefault(); toggleNearestWalkDoor(); return;
+    }
+    if (previewMode === "walk" && ["w", "a", "s", "d", "arrowleft", "arrowright", "control", "c"].includes(event.key.toLowerCase())) {
+      pressedKeys.add(event.key.toLowerCase()); event.preventDefault(); return;
+    }
+    if (event.key.toLowerCase() === "r") setTool("room");
+    if (event.key.toLowerCase() === "n") setTool("polygon");
+    if (event.key.toLowerCase() === "o") setTool("octagon");
+    if (event.key.toLowerCase() === "c") setTool("corridor");
+    if (event.key.toLowerCase() === "d") setTool("door");
+    if (event.key.toLowerCase() === "x") setTool("window");
+    if (event.key.toLowerCase() === "v") setTool("select");
+    if (event.key.toLowerCase() === "u") setTool("ruler");
+    if (event.key.toLowerCase() === "w") setTool("wall");
+    if (event.key.toLowerCase() === "h") setTool("platform");
+    if (event.key.toLowerCase() === "j") setTool("polyPlatform");
+    if (event.key.toLowerCase() === "b") setTool("floor");
+    if (event.key.toLowerCase() === "m") setTool("polyFloor");
+    if (event.key.toLowerCase() === "g") setTool("ladder");
+    if (event.key.toLowerCase() === "k") setTool("crate");
+    if (event.key.toLowerCase() === "s") setTool("stairs");
+    if (event.key.toLowerCase() === "p") setTool("ramp");
+    if (event.key.toLowerCase() === "l") setTool("light");
+    if (event.key.toLowerCase() === "q") rotateSelected(false);
+    if (event.key.toLowerCase() === "e") rotateSelected(true);
+    if (event.key.toLowerCase() === "f") reverseSelected();
+    if (event.key === "Delete" || event.key === "Backspace") deleteSelected();
+    if (event.key === "Escape") { drawing = null; moving = null; panning = null; marquee=null; measurement=null; selected = null; selection=[]; refresh(); }
+  });
+
+  window.addEventListener("keyup", (event) => {
+    pressedKeys.delete(event.key.toLowerCase());
+    if (event.code === "Space" && toolBeforeSpace !== null) {
+      const previousTool = toolBeforeSpace;
+      toolBeforeSpace = null;
+      panning = null;
+      setTool(previousTool);
+    }
+  });
+  window.addEventListener("blur", () => {
+    pressedKeys.clear();
+    if (toolBeforeSpace !== null) {
+      const previousTool = toolBeforeSpace;
+      toolBeforeSpace = null;
+      panning = null;
+      setTool(previousTool);
+    }
+  });
+
+  function animate(time) {
+    const delta = Math.min(.05, (time - lastFrame) / 1000);
+    lastFrame = time;
+    if (previewMode === "walk") {
+      const turn = (pressedKeys.has("arrowright") ? 1 : 0) - (pressedKeys.has("arrowleft") ? 1 : 0);
+      player.angle += turn * delta * 2.1;
+      const forward = (pressedKeys.has("w") ? 1 : 0) - (pressedKeys.has("s") ? 1 : 0);
+      const strafe = (pressedKeys.has("d") ? 1 : 0) - (pressedKeys.has("a") ? 1 : 0);
+      const speed = delta * 2.5;
+      const move = {
+        x: (Math.cos(player.angle) * forward + Math.cos(player.angle + Math.PI / 2) * strafe) * speed,
+        y: (Math.sin(player.angle) * forward + Math.sin(player.angle + Math.PI / 2) * strafe) * speed
+      };
+      if (move.x || move.y) {
+        const nextX = { x: player.x + move.x, y: player.y };
+        if (!moveIsBlocked(player, nextX)) player.x = nextX.x;
+        const nextY = { x: player.x, y: player.y + move.y };
+        if (!moveIsBlocked(player, nextY)) player.y = nextY.y;
+        player.z = walkSurfaceHeightAt(player.x, player.y);
+      }
+      if(routeRecording&&time-lastRouteSampleAt>=150){const previous=recordedRoute.at(-1);if(!previous||Math.hypot(player.x-previous.x,player.y-previous.y)>.04||Math.abs(player.z-previous.z)>.04)recordedRoute.push({x:player.x,y:player.y,z:player.z,time:time-routeStartedAt});lastRouteSampleAt=time;}
+      drawPreview();
+    }
+    requestAnimationFrame(animate);
+  }
+
+  window.addEventListener("resize", () => { drawEditor(); drawPreview(); });
+  $("#welcomeDialog").addEventListener("close", () => {
+    if ($("#dontShowAgain").checked) localStorage.setItem("blockout-welcome-seen", "yes");
+  });
+
+  requestAnimationFrame(() => {
+    fitView(); refresh();
+    refreshCompanionStatus();
+    refreshTextureCatalog();
+    if (starterLoaded) showToast("Starter map created — explore it in Walk mode");
+    if (!localStorage.getItem("blockout-welcome-seen") && !state.rooms.length) $("#welcomeDialog").showModal();
+  });
+  window.Blockout = Object.freeze({
+    getProject: () => structuredClone(state),
+    getViewState: () => ({ cellSize, viewOffset: { ...viewOffset }, activeTool }),
+    getPreviewView: () => ({ angle: previewAngle, zoom: previewZoom, pan: { ...previewPan }, panMode: previewPanMode, mode: previewMode }),
+    getSelectionState: () => ({ primary:selected ? {...selected}:null, refs:selection.map((ref)=>({...ref})), entries:selectedEntries().map(({ref,item})=>({ref:{...ref},locked:!!item.locked,hidden:!!item.hidden,groupId:item.groupId||null})) }),
+    getEditorSettings: () => ({ snapUnits, objectSnapEnabled, measurement:measurement ? structuredClone(measurement):null, sampledMaterial, surfaceTarget }),
+    getPreviewPickRegions: () => previewPickRegions.map((region)=>({ref:{...region.ref},points:region.points.map((point)=>({...point}))})),
+    getTransformState: () => ({ plan:transformHandlesForSelection().map((handle)=>({...handle})), preview:previewTransformHandle?structuredClone(previewTransformHandle):null }),
+    getElevationState: () => ({ axis:elevationAxis, hitRegions:elevationHitRegions.map((region)=>structuredClone(region)) }),
+    getPreflight: () => structuredClone(calculatePreflight()),
+    getOpeningSegment: (id) => { const opening=[...state.doors,...state.windows].find((item)=>item.id===id);return opening?openingSegment(opening):null; },
+    getWalkPlayer: () => ({ ...player }),
+    getWalkSurfaceHeight: (x, y) => walkSurfaceHeightAt(x, y),
+    getOpenWalkDoors: () => [...openWalkDoors],
+    getBrokenWalkWindows: () => [...brokenWalkWindows],
+    generateMapText
+  });
+  requestAnimationFrame(animate);
+})();

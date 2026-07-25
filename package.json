@@ -1,0 +1,17 @@
+{
+  "name": "blockout-cs16-map-builder-web",
+  "version": "1.0.0",
+  "private": true,
+  "packageManager": "pnpm@11.9.0",
+  "scripts": {
+    "prepare:web": "node scripts/prepare-public.mjs",
+    "dev": "node scripts/prepare-public.mjs && next dev",
+    "build": "node scripts/prepare-public.mjs && next build",
+    "start": "next start"
+  },
+  "dependencies": {
+    "next": "15.5.9",
+    "react": "19.1.0",
+    "react-dom": "19.1.0"
+  }
+}

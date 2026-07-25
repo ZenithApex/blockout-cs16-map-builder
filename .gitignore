@@ -1,0 +1,19 @@
+.next/
+node_modules/
+public/
+builds/
+tools/
+__pycache__/
+*.pyc
+*.wad
+*.bsp
+*.map
+*.log
+blockout.config.json
+blockout_companion.py
+Start Blockout.cmd
+textures/sources/
+textures/downloads/
+textures/previews/USR_*.png
+textures/asset-manifest.json
+textures/ASSET_SOURCES.md

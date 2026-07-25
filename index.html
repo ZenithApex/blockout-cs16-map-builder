@@ -1,0 +1,821 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#111510" />
+    <title>Blockout — CS 1.6 Map Builder</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="topbar">
+        <a class="brand" href="#" aria-label="Blockout home">
+          <span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i></span>
+          <span>
+            <strong>BLOCKOUT</strong>
+            <small>CS 1.6 MAP BUILDER</small>
+          </span>
+        </a>
+
+        <div class="project-name">
+          <span class="status-dot"></span>
+          <input id="projectName" aria-label="Project name" value="My first map" maxlength="40" />
+          <span class="save-state" id="saveState">Saved locally</span>
+        </div>
+
+        <div class="top-actions">
+          <button class="icon-button" id="undoButton" title="Undo (Ctrl+Z)" aria-label="Undo">↶</button>
+          <button class="icon-button" id="redoButton" title="Redo (Ctrl+Shift+Z)" aria-label="Redo">↷</button>
+          <button class="button secondary" id="newButton">New map</button>
+          <button class="button secondary" id="layoutsButton">Layouts</button>
+          <button class="button secondary" id="environmentButton">Environment</button>
+          <button class="button secondary" id="elevationButton">Elevation</button>
+          <button class="button secondary" id="preflightButton">Preflight</button>
+          <button class="button secondary" id="productionButton">Production</button>
+          <button class="button secondary" id="analyzeButton">Analyze</button>
+          <button class="button secondary" id="exportButton">Export .map</button>
+          <button class="button primary build-button" id="buildButton"><span class="build-status-dot"></span>Build &amp; Test</button>
+        </div>
+      </header>
+
+      <aside class="tool-sidebar" aria-label="Build tools">
+        <div class="tool-finder">
+          <input id="toolSearch" type="search" placeholder="Find a tool..." aria-label="Find a build tool" />
+          <small>60 materials · 24 prefabs · 6 layouts</small>
+        </div>
+        <details class="tool-group" open>
+          <summary class="tool-label">LAYOUT</summary>
+          <button class="tool active" data-tool="room" title="Draw room (R)">
+            <span class="tool-icon room-icon"></span><span>Room</span><kbd>R</kbd>
+          </button>
+          <button class="tool" data-tool="polygon" title="Draw a custom polygon room (N)">
+            <span class="tool-icon polygon-icon"></span><span>Polygon room</span><kbd>N</kbd>
+          </button>
+          <button class="tool" data-tool="triangle" title="Draw a triangular room">
+            <span class="tool-icon triangle-icon"></span><span>Triangle room</span>
+          </button>
+          <button class="tool" data-tool="octagon" title="Draw an octagonal room (O)">
+            <span class="tool-icon octagon-icon"></span><span>Octagon room</span><kbd>O</kbd>
+          </button>
+          <button class="tool" data-tool="corridor" title="Draw corridor (C)">
+            <span class="tool-icon corridor-icon"></span><span>Corridor</span><kbd>C</kbd>
+          </button>
+          <button class="tool" data-tool="door" title="Place door opening (D)">
+            <span class="tool-icon door-icon"></span><span>Door opening</span><kbd>D</kbd>
+          </button>
+          <button class="tool" data-tool="window" title="Place window (X)">
+            <span class="tool-icon window-icon"></span><span>Window</span><kbd>X</kbd>
+          </button>
+          <button class="tool" data-tool="select" title="Select and move (V)">
+            <span class="tool-icon cursor-icon">↖</span><span>Select</span><kbd>V</kbd>
+          </button>
+          <button class="tool" data-tool="ruler" title="Measure distances and angles">
+            <span class="tool-icon ruler-icon">⌁</span><span>Ruler</span><kbd>U</kbd>
+          </button>
+          <button class="tool" data-tool="pan" title="Move the top-down plan (Space)">
+            <span class="tool-icon hand-icon">✋</span><span>Hand / Pan</span><kbd>Space</kbd>
+          </button>
+        </details>
+
+        <details class="tool-group" open>
+          <summary class="tool-label">GEOMETRY</summary>
+          <button class="tool" data-tool="wall" title="Draw solid wall (W)">
+            <span class="tool-icon wall-icon"></span><span>Solid wall</span><kbd>W</kbd>
+          </button>
+          <button class="tool" data-tool="polyWall" title="Draw a convex polygon wall">
+            <span class="tool-icon polygon-wall-icon"></span><span>Polygon wall</span>
+          </button>
+          <button class="tool" data-tool="column" title="Place an octagonal column">
+            <span class="tool-icon column-icon"></span><span>Column</span>
+          </button>
+          <button class="tool" data-tool="diagonal" title="Draw diagonal wall / cover">
+            <span class="tool-icon diagonal-icon"></span><span>Diagonal cover</span>
+          </button>
+          <button class="tool" data-tool="cylinder" title="Draw a compile-safe cylindrical solid">
+            <span class="tool-icon cylinder-icon">⬡</span><span>Cylinder</span>
+          </button>
+          <button class="tool" data-tool="wedge" title="Draw a solid wedge">
+            <span class="tool-icon wedge-icon">◢</span><span>Wedge</span>
+          </button>
+          <button class="tool" data-tool="arch" title="Draw a three-brush archway">
+            <span class="tool-icon arch-icon">∩</span><span>Archway</span>
+          </button>
+          <button class="tool" data-tool="slopeRoof" title="Draw a sloped roof brush">
+            <span class="tool-icon roof-icon">⌂</span><span>Sloped roof</span>
+          </button>
+          <button class="tool" data-tool="platform" title="Draw elevated platform (H)">
+            <span class="tool-icon platform-icon"></span><span>Platform</span><kbd>H</kbd>
+          </button>
+          <button class="tool" data-tool="polyPlatform" title="Draw polygon platform (J)">
+            <span class="tool-icon polygon-platform-icon"></span><span>Polygon platform</span><kbd>J</kbd>
+          </button>
+          <button class="tool" data-tool="floor" title="Draw a floor slab (B)">
+            <span class="tool-icon floor-icon"></span><span>Floor slab</span><kbd>B</kbd>
+          </button>
+          <button class="tool" data-tool="floorHole" title="Cut a stairwell or floor opening">
+            <span class="tool-icon floor-icon"></span><span>Floor opening</span>
+          </button>
+          <button class="tool" data-tool="polyFloor" title="Draw a polygon floor (M)">
+            <span class="tool-icon polygon-floor-icon"></span><span>Polygon floor</span><kbd>M</kbd>
+          </button>
+          <button class="tool" data-tool="ladder" title="Place ladder (G)">
+            <span class="tool-icon ladder-icon"></span><span>Ladder</span><kbd>G</kbd>
+          </button>
+          <button class="tool" data-tool="crate" title="Place crate (K)">
+            <span class="tool-icon crate-icon"></span><span>Crate</span><kbd>K</kbd>
+          </button>
+          <button class="tool" data-tool="stairs" title="Draw stairs (S)">
+            <span class="tool-icon stairs-icon"></span><span>Stairs</span><kbd>S</kbd>
+          </button>
+          <button class="tool" data-tool="ramp" title="Draw ramp (P)">
+            <span class="tool-icon ramp-icon"></span><span>Ramp</span><kbd>P</kbd>
+          </button>
+        </details>
+
+        <details class="tool-group" open>
+          <summary class="tool-label">PREFABS</summary>
+          <button class="tool library-tool" id="openPrefabLibrary" title="Search reusable structures and routes">
+            <span class="tool-icon prefab-library-icon">+</span><span>Open prefab library</span><kbd>14</kbd>
+          </button>
+        </details>
+
+        <details class="tool-group">
+          <summary class="tool-label">ENVIRONMENT</summary>
+          <button class="tool" data-tool="light" title="Place light (L)">
+            <span class="entity-icon light">☀</span><span>Light</span><kbd>L</kbd>
+          </button>
+          <button class="tool" data-tool="spotlight" title="Place a directional spotlight">
+            <span class="entity-icon light">SP</span><span>Spotlight</span>
+          </button>
+        </details>
+
+        <details class="tool-group" open>
+          <summary class="tool-label">GAMEPLAY</summary>
+          <button class="tool" data-tool="ct" title="Place Counter-Terrorist spawn">
+            <span class="entity-icon ct">CT</span><span>CT spawn</span>
+          </button>
+          <button class="tool" data-tool="t" title="Place Terrorist spawn">
+            <span class="entity-icon t">T</span><span>T spawn</span>
+          </button>
+          <button class="tool" data-tool="buyCt" title="Draw CT buy zone">
+            <span class="entity-icon ct">$</span><span>CT buy zone</span>
+          </button>
+          <button class="tool" data-tool="buyT" title="Draw Terrorist buy zone">
+            <span class="entity-icon t">$</span><span>T buy zone</span>
+          </button>
+          <button class="tool" data-tool="bombA" title="Place bombsite A">
+            <span class="entity-icon bomb">A</span><span>Bombsite A</span>
+          </button>
+          <button class="tool" data-tool="bombB" title="Place bombsite B">
+            <span class="entity-icon bomb">B</span><span>Bombsite B</span>
+          </button>
+          <button class="tool" data-tool="hostage" title="Place hostage"><span class="entity-icon hostage">H</span><span>Hostage</span></button>
+          <button class="tool" data-tool="rescue" title="Draw hostage rescue zone"><span class="entity-icon rescue">R</span><span>Rescue zone</span></button>
+          <button class="tool" data-tool="button" title="Place a usable button"><span class="entity-icon button-entity">E</span><span>Button</span></button>
+          <button class="tool" data-tool="triggerHurt" title="Draw a damage trigger"><span class="entity-icon danger">!</span><span>Damage trigger</span></button>
+          <button class="tool" data-tool="teleport" title="Draw a teleporter trigger"><span class="entity-icon teleport">T</span><span>Teleporter</span></button>
+          <button class="tool" data-tool="teleDest" title="Place a teleporter destination"><span class="entity-icon teleport">D</span><span>Teleport destination</span></button>
+          <button class="tool" data-tool="decal" title="Place a decal marker"><span class="entity-icon decal">#</span><span>Decal</span></button>
+          <button class="tool" data-tool="ambient" title="Place an ambient sound"><span class="entity-icon ambient">♪</span><span>Ambient sound</span></button>
+          <button class="tool" data-tool="water" title="Draw a water volume"><span class="entity-icon water">≈</span><span>Water volume</span></button>
+          <button class="tool" data-tool="breakable" title="Draw breakable cover"><span class="entity-icon danger">×</span><span>Breakable brush</span></button>
+          <button class="tool" data-tool="elevator" title="Draw a moving elevator platform"><span class="entity-icon teleport">UP</span><span>Elevator</span></button>
+          <button class="tool" data-tool="rotatingDoor" title="Draw a rotating door brush"><span class="entity-icon button-entity">DR</span><span>Rotating door</span></button>
+          <button class="tool" data-tool="train" title="Draw a path-driven moving platform"><span class="entity-icon water">MV</span><span>Moving platform</span></button>
+          <button class="tool" data-tool="pathCorner" title="Place a path corner for a moving platform"><span class="entity-icon decal">P</span><span>Path corner</span></button>
+          <button class="tool" data-tool="targetDummy" title="Place a playtest target"><span class="entity-icon danger">TG</span><span>Target dummy</span></button>
+        </details>
+
+        <div class="tool-tip">
+          <span>TIP</span>
+          <p id="toolTip">Click and drag on the grid to draw a room.</p>
+        </div>
+      </aside>
+
+      <main class="workspace">
+        <section class="editor-panel">
+          <div class="panel-heading">
+            <div>
+              <span class="eyebrow">TOP-DOWN PLAN</span>
+              <h1 id="editorTitle">Draw your first room</h1>
+            </div>
+            <div class="view-controls">
+              <select class="chip level-select" id="levelSelect" aria-label="Plan elevation"><option value="all">All levels</option></select>
+              <label class="chip layer-toggle"><input id="ghostLevels" type="checkbox" checked /> Ghost others</label>
+              <select class="chip snap-select" id="snapUnits" aria-label="Snap size in GoldSrc units">
+                <option value="16">Snap 16</option><option value="32">Snap 32</option><option value="64" selected>Snap 64</option><option value="128">Snap 128</option>
+              </select>
+              <label class="chip layer-toggle" title="Snap to nearby corners, edges, and centers"><input id="objectSnap" type="checkbox" checked /> Objects</label>
+              <button class="chip" id="gridButton"><span class="grid-swatch"></span> Grid</button>
+              <button class="chip" id="fitButton">Fit view</button>
+            </div>
+          </div>
+
+          <div class="canvas-wrap" id="canvasWrap">
+            <canvas id="editorCanvas" aria-label="Top-down map editor"></canvas>
+            <div class="empty-hint" id="emptyHint">
+              <span class="gesture-icon">↘</span>
+              <strong>Click and drag to draw</strong>
+              <small>We’ll add the floor, walls, and ceiling.</small>
+            </div>
+            <div class="coordinates" id="coordinates">X 0 &nbsp; Y 0</div>
+          </div>
+
+          <div class="lesson-bar">
+            <span class="lesson-number" id="lessonNumber">1</span>
+            <div>
+              <strong id="lessonTitle">Create the layout</strong>
+              <small id="lessonText">Start with one room. Add more rooms to make corridors and connected spaces.</small>
+            </div>
+            <div class="lesson-progress" aria-label="Tutorial progress">
+              <i class="active"></i><i></i><i></i>
+            </div>
+          </div>
+        </section>
+
+        <aside class="preview-panel">
+          <div class="preview-heading">
+            <div>
+              <span class="eyebrow">LIVE PREVIEW</span>
+              <h2>3D blockout</h2>
+            </div>
+            <div class="preview-actions">
+              <button class="mode-button" id="previewLevelButton" title="Show only the selected plan level">All Z</button>
+              <button class="mode-button" id="previewModeButton">Walk</button>
+              <button class="icon-button" id="rotateButton" title="Rotate preview" aria-label="Rotate preview">⟳</button>
+            </div>
+          </div>
+          <div class="preview-wrap" id="previewWrap">
+            <canvas id="previewCanvas" tabindex="0" aria-label="Map preview"></canvas>
+            <div class="preview-navigation" id="previewNavigation" aria-label="3D preview navigation">
+              <button type="button" id="previewZoomOut" title="Zoom out" aria-label="Zoom out">−</button>
+              <span id="previewZoomLabel" aria-live="polite">100%</span>
+              <button type="button" id="previewZoomIn" title="Zoom in" aria-label="Zoom in">+</button>
+              <button type="button" id="previewPanButton" title="Pan with left drag (Shift, middle, and right drag also pan)" aria-pressed="false">✋ Pan</button>
+              <button type="button" id="previewFitButton" title="Fit the map in the preview">Fit</button>
+            </div>
+            <span class="preview-mode-badge" id="previewModeBadge">ORBIT MODEL</span>
+            <span class="preview-caption" id="previewCaption">Wheel zoom · drag rotate · Shift drag pan</span>
+          </div>
+
+          <div class="right-panel-scroll">
+          <section class="inspector" id="inspector">
+            <div class="section-heading">
+              <span class="eyebrow">SELECTION</span>
+              <button class="text-button danger" id="deleteButton" disabled>Delete</button>
+            </div>
+            <div class="nothing-selected" id="nothingSelected">Select a room, structure, or gameplay marker to edit it.</div>
+            <div class="selection-fields hidden" id="selectionFields">
+              <label>Type <input id="selectionType" readonly /></label>
+              <div class="multi-selection-summary hidden" id="multiSelectionSummary"></div>
+              <div class="field-row">
+                <label id="widthField"><span id="widthLabel">Width</span><input id="roomWidth" type="number" min="1" max="30" /></label>
+                <label id="depthField"><span id="depthLabel">Depth</span><input id="roomDepth" type="number" min="1" max="30" /></label>
+                <label id="heightField"><span id="heightLabel">Height</span><input id="roomHeight" type="number" min="1" max="12" /></label>
+              </div>
+              <div class="shape-fields hidden" id="shapeFields">
+                <label class="hidden" id="directionRow"><span id="directionLabel">Uphill direction</span>
+                  <select id="directionSelect">
+                    <option value="n">↑ North</option>
+                    <option value="e">→ East</option>
+                    <option value="s">↓ South</option>
+                    <option value="w">← West</option>
+                  </select>
+                </label>
+                <label class="hidden" id="rampSteepnessRow">Ramp steepness
+                  <select id="rampSteepnessSelect">
+                    <option value="0.25">Gentle · 1:4</option>
+                    <option value="0.5">Standard · 1:2</option>
+                    <option value="1">Steep · 1:1</option>
+                    <option value="custom">Custom rise</option>
+                  </select>
+                </label>
+                <label class="hidden" id="stairStepsRow">Number of steps
+                  <input id="stairSteps" type="number" min="1" max="32" step="1" />
+                </label>
+                <small class="shape-summary" id="shapeSummary"></small>
+              </div>
+              <div class="floor-fields hidden" id="floorFields">
+                <label>Slab thickness
+                  <input id="floorThickness" type="number" min="0.125" max="2" step="0.125" />
+                </label>
+                <small class="shape-summary" id="floorSummary">The elevation is the walkable top of this slab.</small>
+              </div>
+              <div class="vertex-fields hidden" id="vertexFields">
+                <div class="vertex-actions">
+                  <button id="editVerticesButton" type="button">Edit corners</button>
+                  <button id="removeVertexButton" type="button" disabled>Remove corner</button>
+                </div>
+                <div class="vertex-actions geometry-operations hidden" id="geometryOperations">
+                  <button id="clipVertexButton" type="button">Clip corner</button>
+                  <button id="extrudeEdgeButton" type="button">Extrude edge</button>
+                  <button id="insetPolygonButton" type="button">Inset</button>
+                  <button id="outsetPolygonButton" type="button">Outset</button>
+                </div>
+                <small id="vertexSummary">Drag a numbered corner on the plan. Convex shapes compile safely in GoldSrc.</small>
+              </div>
+              <div class="selection-actions hidden" id="selectionActions">
+                <button id="rotateLeftSelection" type="button" title="Rotate left (Q)">↶ Rotate</button>
+                <button id="rotateRightSelection" type="button" title="Rotate right (E)">Rotate ↷</button>
+                <button id="reverseSelection" type="button" title="Reverse uphill direction (F)">⇄ Reverse</button>
+                <button id="duplicateSelection" type="button" title="Duplicate (Ctrl+D)">Duplicate</button>
+                <button id="copySelection" type="button" title="Copy (Ctrl+C)">Copy</button>
+                <button id="pasteSelection" type="button" title="Paste (Ctrl+V)">Paste</button>
+                <button id="levelDownSelection" type="button" title="Move down 64 units">Z âˆ’64</button>
+                <button id="levelUpSelection" type="button" title="Move up 64 units">Z +64</button>
+                <button id="groupSelection" type="button" title="Group selected objects">Group</button>
+                <button id="ungroupSelection" type="button" title="Remove selected objects from their groups">Ungroup</button>
+                <button id="lockSelection" type="button" title="Lock or unlock selection">Lock</button>
+                <button id="hideSelection" type="button" title="Hide selection in the editor">Hide</button>
+                <button id="unhideAll" type="button" title="Show every hidden object">Show all</button>
+              </div>
+              <div class="light-fields hidden" id="lightFields">
+                <div class="field-row">
+                  <label>Height<input id="lightHeight" type="number" min="0.25" max="12" step="0.25" /></label>
+                  <label>Brightness<input id="lightBrightness" type="number" min="50" max="1000" step="25" /></label>
+                  <label>Color<input id="lightColor" type="color" value="#fff0d0" /></label>
+                </div>
+                <div class="field-row">
+                  <label>Radius<input id="lightRadius" type="number" min="64" max="2048" step="64" /></label>
+                  <label>Style<select id="lightStyle"><option value="0">Steady</option><option value="1">Flicker</option><option value="2">Pulse</option><option value="switch">Switchable</option></select></label>
+                  <label>Target name<input id="lightTarget" maxlength="48" placeholder="light_switch_1" /></label>
+                </div>
+                <div class="field-row hidden" id="spotlightFields">
+                  <label>Facing<select id="spotlightAngle"><option value="270">North</option><option value="0">East</option><option value="90">South</option><option value="180">West</option></select></label>
+                  <label>Cone<input id="spotlightCone" type="number" min="10" max="90" step="5" /></label>
+                  <label>Pitch<input id="spotlightPitch" type="number" min="-90" max="0" step="5" /></label>
+                </div>
+                <small class="shape-summary" id="lightSummary">GoldSrc point light</small>
+              </div>
+              <div class="logic-fields hidden" id="logicFields">
+                <div class="field-row"><label>Target name<input id="logicName" maxlength="48" /></label><label>Target / first path<input id="logicTarget" maxlength="48" /></label></div>
+                <div class="field-row"><label>Speed<input id="logicSpeed" type="number" min="1" max="1000" step="10" /></label><label>Wait<input id="logicWait" type="number" min="-1" max="120" step="1" /></label></div>
+                <small class="shape-summary" id="logicSummary"></small>
+              </div>
+              <div class="spawn-fields hidden" id="spawnFields">
+                <label>Facing direction
+                  <select id="spawnAngleSelect">
+                    <option value="270">↑ North</option>
+                    <option value="0">→ East</option>
+                    <option value="90">↓ South</option>
+                    <option value="180">← West</option>
+                  </select>
+                </label>
+                <small class="shape-summary" id="spawnSummary">Players face this way when they spawn.</small>
+              </div>
+              <div class="door-fields hidden" id="doorFields">
+                <div class="field-row opening-size-row">
+                  <label>Opening width<input id="doorWidth" type="number" min="0.5" max="8" step="0.25" /></label>
+                  <label>Opening height<input id="doorHeight" type="number" min="1" max="8" step="0.25" /></label>
+                </div>
+                <label>Door behavior
+                  <select id="doorModeSelect">
+                    <option value="opening">Open passage</option>
+                    <option value="sliding">Sliding door</option>
+                  </select>
+                </label>
+                <label class="hidden" id="doorSpeedRow">Opening speed
+                  <input id="doorSpeed" type="number" min="25" max="500" step="25" />
+                </label>
+                <label class="hidden" id="doorMaterialRow">Door material
+                  <select id="doorMaterialSelect">
+                    <option value="CSTRIKE_ME4METL">Metal panels</option>
+                    <option value="C1A0_LABW3">Industrial wall</option>
+                    <option value="CSTRIKE_WR4RGH">Rough concrete</option>
+                    <option value="CSTRIKE_CH3TILE">Stone tile</option>
+                    <option value="BCRATE02">Wood crate</option>
+                    <option value="C1A1_CRATE1">Light crate</option>
+                    <option value="SUN_FELT">Sunburst golden felt</option>
+                    <option value="SUN_KNIT">Sunburst red cable knit</option>
+                    <option value="SUN_RIBBON">Sunburst rainbow ribbons</option>
+                    <option value="SUN_FACE">Sun Hub emblem</option>
+                    <option value="SUN_WALL">Sun-embossed cream wall</option>
+                    <option value="SUN_METAL">Teal and gold metal</option>
+                    <option value="SUN_TILE">Warm Sunburst tile</option>
+                    <option value="SUN_FLOOR">Dark woven floor</option>
+                    <option value="SUN_CRATE">Red and gold Sun crate</option>
+                    <option value="SUN_SUPPLY">Teal ribbon supply crate</option>
+                  </select>
+                </label>
+                <small class="shape-summary" id="doorSummary">A permanently open passage.</small>
+              </div>
+              <div class="window-fields hidden" id="windowFields">
+                <label>Opening width<input id="windowWidth" type="number" min="0.5" max="8" step="0.25" /></label>
+                <label>Window behavior
+                  <select id="windowModeSelect">
+                    <option value="breakable">Breakable glass</option>
+                    <option value="glass">Unbreakable glass</option>
+                    <option value="open">Open frame</option>
+                  </select>
+                </label>
+                <div class="field-row window-size-row">
+                  <label>Sill height<input id="windowSill" type="number" min="0.25" max="11" step="0.25" /></label>
+                  <label>Opening height<input id="windowHeight" type="number" min="0.5" max="11" step="0.25" /></label>
+                </div>
+                <label id="windowHealthRow">Glass health
+                  <input id="windowHealth" type="number" min="1" max="500" step="5" />
+                </label>
+                <small class="shape-summary" id="windowSummary">Breakable GoldSrc glass.</small>
+              </div>
+              <div class="game-entity-fields hidden" id="gameEntityFields">
+                <label id="entityTargetRow">Target name<input id="entityTarget" maxlength="48" placeholder="target_name" /></label>
+                <label class="hidden" id="entityNextRow">Next path corner<input id="entityNext" maxlength="48" placeholder="path_2" /></label>
+                <label class="hidden" id="entitySoundRow">Sound path<input id="entitySound" maxlength="96" placeholder="ambience/wind1.wav" /></label>
+                <label class="hidden" id="entityVolumeRow">Volume<input id="entityVolume" type="number" min="0" max="10" step="1" /></label>
+                <label class="hidden" id="entityDecalRow">Decal texture<input id="entityDecal" maxlength="32" placeholder="{lambda01" /></label>
+                <small class="shape-summary" id="gameEntitySummary"></small>
+              </div>
+              <div class="zone-entity-fields hidden" id="zoneEntityFields">
+                <label class="hidden" id="zoneDamageRow">Damage per second<input id="zoneDamage" type="number" min="1" max="1000" step="5" /></label>
+                <label class="hidden" id="zoneTargetRow">Teleport destination<input id="zoneTarget" maxlength="48" placeholder="tele_dest_1" /></label>
+                <small class="shape-summary" id="zoneEntitySummary"></small>
+              </div>
+              <label class="material-row hidden" id="materialRow"><span id="materialLabel">Material</span>
+                <span class="material-select-with-preview">
+                  <img class="material-miniature" id="wallMaterialMiniature" data-texture-target="material" alt="Wall material miniature" title="Click to browse wall materials" />
+                  <select id="materialSelect">
+                  <option value="C1A0_LABW3">Industrial wall</option>
+                  <option value="CSTRIKE_WR4RGH">Rough concrete</option>
+                  <option value="CSTRIKE_ME4METL">Metal panels</option>
+                  <option value="CSTRIKE_CH3TILE">Stone tile</option>
+                  <option value="CSTRIKE_FP2DARK">Dark floor</option>
+                  <option value="BCRATE02">Wood crate</option>
+                  <option value="C1A1_CRATE1">Light crate</option>
+                  <option value="SUN_FELT">Sunburst golden felt</option>
+                  <option value="SUN_KNIT">Sunburst red cable knit</option>
+                  <option value="SUN_RIBBON">Sunburst rainbow ribbons</option>
+                  <option value="SUN_FACE">Sun Hub emblem</option>
+                  <option value="SUN_WALL">Sun-embossed cream wall</option>
+                  <option value="SUN_METAL">Teal and gold metal</option>
+                  <option value="SUN_TILE">Warm Sunburst tile</option>
+                  <option value="SUN_FLOOR">Dark woven floor</option>
+                  <option value="SUN_CRATE">Red and gold Sun crate</option>
+                  <option value="SUN_SUPPLY">Teal ribbon supply crate</option>
+                  </select>
+                </span>
+              </label>
+              <div class="texture-alignment-fields hidden" id="textureAlignmentFields">
+                <label>Surface
+                  <select id="surfaceTargetSelect">
+                    <option value="object">Whole object / all walls</option>
+                    <option value="floor">Room floor</option><option value="ceiling">Room ceiling</option>
+                    <option value="north">North wall</option><option value="east">East wall</option>
+                    <option value="south">South wall</option><option value="west">West wall</option>
+                  </select>
+                </label>
+                <label>Image mapping
+                  <select id="textureMappingMode">
+                    <option value="tile">Repeat / tile</option>
+                    <option value="fit">Fit image once to the complete face</option>
+                  </select>
+                </label>
+                <div class="field-row texture-transform-row">
+                  <label>Offset X<input id="textureShiftX" type="number" min="-4096" max="4096" step="1" /></label>
+                  <label>Offset Y<input id="textureShiftY" type="number" min="-4096" max="4096" step="1" /></label>
+                  <label>Rotation<input id="textureRotation" type="number" min="-360" max="360" step="1" /></label>
+                </div>
+                <div class="field-row texture-transform-row">
+                  <label>Scale X<input id="textureScaleX" type="number" min="0.05" max="16" step="0.05" /></label>
+                  <label>Scale Y<input id="textureScaleY" type="number" min="0.05" max="16" step="0.05" /></label>
+                </div>
+                <div class="texture-transform-actions">
+                  <button id="resetTextureAlignment" type="button">Reset alignment</button>
+                  <button id="fitTextureSurface" type="button">Fit to face</button>
+                  <button id="sampleMaterialButton" type="button">Eyedropper</button>
+                  <button id="paintMaterialButton" type="button">Paint sampled</button>
+                </div>
+                <label class="chip layer-toggle"><input id="textureLock" type="checkbox" checked /> Lock texture in world while moving geometry</label>
+              </div>
+              <div class="room-surface-fields hidden" id="roomSurfaceFields">
+                <label>Base floor elevation
+                  <input id="roomFloorElevation" type="number" min="-8" max="16" step="0.25" />
+                </label>
+                <label>Floor material
+                  <span class="material-select-with-preview">
+                    <img class="material-miniature" id="floorMaterialMiniature" data-texture-target="floor" alt="Floor material miniature" title="Click to browse floor materials" />
+                    <select id="floorMaterialSelect">
+                    <option value="CSTRIKE_FP2DARK">Dark floor</option>
+                    <option value="CSTRIKE_CH3TILE">Stone tile</option>
+                    <option value="CSTRIKE_WR4RGH">Rough concrete</option>
+                    <option value="CSTRIKE_ME4METL">Metal panels</option>
+                    <option value="C1A0_LABW3">Industrial wall</option>
+                    <option value="BCRATE02">Wood crate</option>
+                    <option value="C1A1_CRATE1">Light crate</option>
+                    <option value="SUN_FELT">Sunburst golden felt</option>
+                    <option value="SUN_KNIT">Sunburst red cable knit</option>
+                    <option value="SUN_RIBBON">Sunburst rainbow ribbons</option>
+                    <option value="SUN_FACE">Sun Hub emblem</option>
+                    <option value="SUN_WALL">Sun-embossed cream wall</option>
+                    <option value="SUN_METAL">Teal and gold metal</option>
+                    <option value="SUN_TILE">Warm Sunburst tile</option>
+                    <option value="SUN_FLOOR">Dark woven floor</option>
+                    <option value="SUN_CRATE">Red and gold Sun crate</option>
+                    <option value="SUN_SUPPLY">Teal ribbon supply crate</option>
+                    </select>
+                  </span>
+                </label>
+                <div class="room-roof-toggle"><span>Roof / open sky</span>
+                  <label class="environment-toggle compact"><input id="roomRoofEnabled" type="checkbox" /><span><strong>Solid roof / ceiling</strong><small>Uncheck to open this room to the selected sky.</small></span></label>
+                  <select id="ceilingModeSelect" class="hidden" aria-hidden="true" tabindex="-1">
+                    <option value="ceiling">Solid ceiling</option>
+                    <option value="sky">Open sky (safe seal)</option>
+                  </select>
+                </div>
+                <label id="ceilingMaterialRow">Ceiling material
+                  <span class="material-select-with-preview">
+                    <img class="material-miniature" id="ceilingMaterialMiniature" data-texture-target="ceiling" alt="Ceiling material miniature" title="Click to browse ceiling materials" />
+                    <select id="ceilingMaterialSelect">
+                    <option value="C1A0_LABW3">Industrial wall</option>
+                    <option value="CSTRIKE_WR4RGH">Rough concrete</option>
+                    <option value="CSTRIKE_ME4METL">Metal panels</option>
+                    <option value="CSTRIKE_CH3TILE">Stone tile</option>
+                    <option value="CSTRIKE_FP2DARK">Dark floor</option>
+                    <option value="BCRATE02">Wood crate</option>
+                    <option value="C1A1_CRATE1">Light crate</option>
+                    <option value="SUN_FELT">Sunburst golden felt</option>
+                    <option value="SUN_KNIT">Sunburst red cable knit</option>
+                    <option value="SUN_RIBBON">Sunburst rainbow ribbons</option>
+                    <option value="SUN_FACE">Sun Hub emblem</option>
+                    <option value="SUN_WALL">Sun-embossed cream wall</option>
+                    <option value="SUN_METAL">Teal and gold metal</option>
+                    <option value="SUN_TILE">Warm Sunburst tile</option>
+                    <option value="SUN_FLOOR">Dark woven floor</option>
+                    <option value="SUN_CRATE">Red and gold Sun crate</option>
+                    <option value="SUN_SUPPLY">Teal ribbon supply crate</option>
+                    </select>
+                  </span>
+                </label>
+                <small class="surface-note" id="surfaceNote">Solid roofs appear as translucent textured panels in Orbit.</small>
+              </div>
+              <div class="material-preview hidden" id="materialPreview">
+                <img id="materialPreviewImage" alt="Selected GoldSrc material preview" />
+                <span>
+                  <strong id="materialPreviewName">Industrial wall</strong>
+                  <small id="materialPreviewCode">C1A0_LABW3</small>
+                </span>
+              </div>
+              <button class="texture-browser-button hidden" id="openTextureBrowser" type="button">Browse texture library</button>
+            </div>
+          </section>
+
+          <section class="checklist">
+            <div class="section-heading">
+              <div>
+                <span class="eyebrow">MAP CHECK</span>
+                <h2 id="checkTitle">Let’s get started</h2>
+              </div>
+              <span class="score" id="score">0/5</span>
+            </div>
+            <ul id="checkList">
+              <li data-check="room"><i></i><span><strong>Create playable ground</strong><small>Map-wide ground or a room provides the build surface.</small></span></li>
+              <li data-check="ct"><i></i><span><strong>Add a CT spawn</strong><small>Place at least one for this prototype.</small></span></li>
+              <li data-check="t"><i></i><span><strong>Add a T spawn</strong><small>Keep it away from the CT spawn.</small></span></li>
+              <li data-check="bomb"><i></i><span><strong>Add a bombsite</strong><small>Choose A, B, or both.</small></span></li>
+              <li data-check="connection"><i></i><span><strong>Connect your spaces</strong><small>Add a door when using multiple spaces.</small></span></li>
+            </ul>
+          </section>
+          </div>
+        </aside>
+      </main>
+    </div>
+
+    <div class="toast" id="toast" role="status"></div>
+
+    <dialog id="buildDialog" class="build-dialog">
+      <div class="build-card">
+        <div class="build-dialog-heading">
+          <div>
+            <span class="welcome-badge">WINDOWS COMPANION</span>
+            <h2>Build and test in CS 1.6</h2>
+          </div>
+          <button class="icon-button" id="closeBuildDialog" aria-label="Close">×</button>
+        </div>
+
+        <div class="connection-banner" id="connectionBanner">
+          <i></i>
+          <span><strong id="connectionTitle">Checking companion…</strong><small id="connectionText">Looking for the local build service.</small></span>
+        </div>
+
+        <div class="build-paths">
+          <label>
+            <span>Counter-Strike folder</span>
+            <input id="gamePathInput" placeholder="F:\Steam\steamapps\common\Half-Life" />
+            <small>Folder containing hl.exe and the cstrike folder.</small>
+          </label>
+          <label>
+            <span>GoldSrc compiler folder</span>
+            <input id="compilerPathInput" placeholder="Folder containing hlcsg, hlbsp, hlvis and hlrad" />
+            <small>Supports standard and _x64 VHLT/ZHLT filenames.</small>
+          </label>
+        </div>
+
+        <div class="build-summary">
+          <div><span>GAME</span><strong id="gameCheck">Not checked</strong></div>
+          <div><span>COMPILERS</span><strong id="compilerCheck">Not checked</strong></div>
+          <div><span>TEXTURE WADS</span><strong id="wadCheck">Not checked</strong></div>
+          <div><span>INSTALL</span><strong id="installCheck">Not checked</strong></div>
+          <div><span>MAP CHECK</span><strong id="mapCheck">Not ready</strong></div>
+        </div>
+
+        <pre class="build-log" id="buildLog">Build output will appear here.</pre>
+
+        <div class="build-footer">
+          <button class="button secondary" id="savePathsButton">Save paths</button>
+          <span class="build-help"><label class="build-launch-option"><input id="launchAfterBuild" type="checkbox" checked /> Launch CS 1.6 after compiling</label><span id="buildHelp">Start the companion to enable compilation.</span></span>
+          <button class="button primary" id="runBuildButton" disabled>Build &amp; launch CS 1.6</button>
+        </div>
+      </div>
+    </dialog>
+
+    <dialog id="layoutDialog" class="library-dialog layout-dialog">
+      <div class="library-card">
+        <div class="build-dialog-heading"><div><span class="welcome-badge">LAYOUT LIBRARY</span><h2>Start from a proven structure</h2></div><button class="icon-button" id="closeLayoutDialog" aria-label="Close">×</button></div>
+        <p class="analysis-intro">These are editable starting points, not finished maps. Choose one, then reshape every room, route, elevation, and cover piece.</p>
+        <div class="library-filters prefab-filters">
+          <input id="layoutSearch" placeholder="Search competitive, outdoor, training..." />
+          <select id="layoutCategory"><option value="all">All categories</option><option value="competitive">Competitive</option><option value="arena">Arena</option><option value="outdoor">Outdoor</option><option value="experimental">Experimental</option><option value="training">Training</option></select>
+        </div>
+        <div class="prefab-grid layout-grid" id="layoutGrid"></div>
+      </div>
+    </dialog>
+
+    <dialog id="environmentDialog" class="environment-dialog">
+      <div class="library-card">
+        <div class="build-dialog-heading"><div><span class="welcome-badge">MAP ENVIRONMENT</span><h2>Ground and open sky</h2></div><button class="icon-button" id="closeEnvironmentDialog" aria-label="Close">×</button></div>
+        <p class="analysis-intro">Create the map on one continuous terrain plane instead of floating room blocks. The outer SKY shell stays compiler-safe and the selected stock sky appears in CS 1.6.</p>
+        <div class="environment-grid">
+          <label class="environment-toggle"><input id="groundEnabled" type="checkbox" /><span><strong>Map-wide ground</strong><small>Add flat playable terrain beneath and around every room.</small></span></label>
+          <label>Minimum ground size (grid squares)<input id="groundSize" type="number" min="16" max="128" step="4" /></label>
+          <label>Ground margin around rooms<input id="groundPadding" type="number" min="2" max="32" step="1" /></label>
+          <label class="environment-material">Ground material
+            <span class="material-select-with-preview">
+              <img class="material-miniature large" id="environmentGroundMiniature" data-texture-target="ground" alt="Ground material miniature" title="Click to browse all ground materials" />
+              <select id="environmentGroundMaterialSelect"></select>
+            </span>
+          </label>
+          <button class="texture-browser-button environment-browse" id="browseGroundTextures" type="button">Browse all ground textures</button>
+          <label class="environment-toggle"><input id="openSkyDefault" type="checkbox" /><span><strong>Open sky for new rooms</strong><small>New rooms use a SKY ceiling instead of a solid roof.</small></span></label>
+          <label>CS 1.6 sky
+            <select id="skyNameSelect">
+              <option value="desert">Desert daylight</option>
+              <option value="morning">Clear morning</option>
+              <option value="dusk">Warm dusk</option>
+              <option value="night">Night</option>
+              <option value="forest">Forest valley</option>
+              <option value="city">City</option>
+              <option value="de_storm">Storm clouds</option>
+              <option value="snow">Snow</option>
+              <option value="tornsky">Dramatic clouds</option>
+              <option value="space">Space</option>
+            </select>
+          </label>
+          <div class="sky-theme-preview" id="skyThemePreview"><span id="skyThemeLabel">Desert daylight</span></div>
+        </div>
+        <div class="environment-actions">
+          <button class="button secondary" id="makeAllOpenSky" type="button">Make all rooms open sky</button>
+          <button class="button primary" id="finishEnvironment" type="button">Done</button>
+        </div>
+      </div>
+    </dialog>
+
+    <dialog id="textureDialog" class="library-dialog">
+      <div class="library-card">
+        <section class="texture-importer" id="textureImporter">
+          <input id="textureFileInput" type="file" accept="image/png,image/jpeg,image/webp,image/gif" hidden />
+          <button class="texture-drop-zone" id="textureDropZone" type="button">
+            <span class="texture-drop-icon">+</span>
+            <span><strong>Drop an image to create a texture</strong><small>PNG, JPG, WebP or GIF · automatically cropped and analyzed locally</small></span>
+            <em>Choose image</em>
+          </button>
+          <div class="texture-import-editor hidden" id="textureImportEditor">
+            <canvas id="textureImportCanvas" width="256" height="256" aria-label="Normalized texture preview"></canvas>
+            <div class="texture-import-fields">
+              <div class="texture-import-analysis"><strong id="textureImportAnalysis">Analyzing image…</strong><small>Review the suggestions before installing.</small></div>
+              <label>Display name<input id="textureImportLabel" maxlength="48" placeholder="Weathered concrete" /></label>
+              <label>GoldSrc code<input id="textureImportName" maxlength="15" placeholder="USR_CONCRETE" /></label>
+              <label>Detected category<select id="textureImportCategory"><option value="architecture">Architecture</option><option value="concrete">Concrete</option><option value="brick">Brick</option><option value="stone">Stone &amp; gems</option><option value="ground">Ground</option><option value="nature">Nature</option><option value="organic">Organic patterns</option><option value="fabric">Fabric &amp; leather</option><option value="plaster">Plaster</option><option value="floor">Floors</option><option value="metal">Metal</option><option value="wood">Wood</option></select></label>
+              <div class="texture-import-actions"><button class="button secondary" id="cancelTextureImport" type="button">Cancel</button><button class="button primary" id="installTextureImport" type="button">Install texture</button></div>
+            </div>
+          </div>
+          <div class="texture-import-status hidden" id="textureImportStatus" role="status"></div>
+        </section>
+        <div class="build-dialog-heading"><div><span class="welcome-badge">MATERIAL LIBRARY</span><h2>Choose a texture</h2></div><button class="icon-button" id="closeTextureDialog" aria-label="Close">×</button></div>
+        <p class="analysis-intro" id="textureSummary">60 materials with visual miniatures · stock, Sunburst, and 43 CC0 surfaces</p>
+        <div class="library-filters">
+          <input id="textureSearch" placeholder="Search names or texture codes" />
+          <select id="textureCategory"><option value="all">All categories</option><option value="architecture">Architecture</option><option value="concrete">Concrete</option><option value="brick">Brick</option><option value="stone">Stone &amp; gems</option><option value="ground">Ground</option><option value="nature">Nature</option><option value="organic">Organic patterns</option><option value="fabric">Fabric &amp; leather</option><option value="plaster">Plaster</option><option value="floor">Floors</option><option value="metal">Metal</option><option value="wood">Wood</option><option value="sunburst">Sunburst</option><option value="favorites">Favorites</option></select>
+          <select id="textureTarget"><option value="material">Selected material</option><option value="floor">Room floor</option><option value="ceiling">Room ceiling</option><option value="ground">Map-wide ground</option></select>
+        </div>
+        <div class="texture-grid" id="textureGrid"></div>
+      </div>
+    </dialog>
+
+    <dialog id="prefabDialog" class="library-dialog prefab-dialog">
+      <div class="library-card">
+        <div class="build-dialog-heading"><div><span class="welcome-badge">PREFAB LIBRARY</span><h2>Choose a reusable structure</h2></div><button class="icon-button" id="closePrefabDialog" aria-label="Close">×</button></div>
+        <p class="analysis-intro">Prefabs are editable GoldSrc brushes, not opaque models. Place one, then select any piece to resize, rotate, retexture, or delete it.</p>
+        <div class="library-filters prefab-filters">
+          <input id="prefabSearch" placeholder="Search cover, route, ladder..." />
+          <select id="prefabCategory"><option value="all">All categories</option><option value="cover">Cover</option><option value="vertical">Vertical</option><option value="routes">Routes</option><option value="openings">Openings</option><option value="architecture">Architecture</option><option value="gameplay">Gameplay</option></select>
+        </div>
+        <div class="prefab-grid" id="prefabGrid"></div>
+      </div>
+    </dialog>
+
+    <dialog id="analysisDialog" class="analysis-dialog">
+      <div class="library-card">
+        <div class="build-dialog-heading"><div><span class="welcome-badge">COMPETITIVE CHECK</span><h2>Sightlines and route timing</h2></div><button class="icon-button" id="closeAnalysisDialog" aria-label="Close">Ã—</button></div>
+        <p class="analysis-intro">Estimates use the walkable blockout, 250-unit/second running speed, and current solid cover.</p>
+        <div class="analysis-summary" id="analysisSummary"></div>
+        <div class="analysis-routes" id="analysisRoutes"></div>
+        <div class="analysis-footer"><label><input type="checkbox" id="showAnalysisOverlay" checked /> Show routes and sightlines on plan</label><button class="button secondary" id="refreshAnalysis">Recalculate</button></div>
+      </div>
+    </dialog>
+
+    <dialog id="elevationDialog" class="elevation-dialog">
+      <div class="library-card">
+        <div class="build-dialog-heading"><div><span class="welcome-badge">VERTICAL EDITOR</span><h2>Side elevation</h2></div><button class="icon-button" id="closeElevationDialog" aria-label="Close">×</button></div>
+        <p class="analysis-intro">Inspect stacked floors and ceiling clearance. Click a profile to select it, then edit its physical base and top.</p>
+        <div class="elevation-toolbar">
+          <label>View axis<select id="elevationAxis"><option value="x">West → East</option><option value="y">North → South</option></select></label>
+          <label>Slice position<input id="elevationSlice" type="range" min="0" max="100" value="50" /></label>
+          <span id="elevationSliceLabel">All intersecting spaces</span>
+        </div>
+        <div class="elevation-canvas-wrap"><canvas id="elevationCanvas" aria-label="Side elevation editor"></canvas></div>
+        <div class="elevation-selection">
+          <label>Selected base Z (units)<input id="elevationBase" type="number" step="16" /></label>
+          <label>Selected top Z (units)<input id="elevationTop" type="number" step="16" /></label>
+          <small id="elevationClearance">Select a room, floor, or structure profile.</small>
+        </div>
+      </div>
+    </dialog>
+
+    <dialog id="preflightDialog" class="preflight-dialog">
+      <div class="library-card">
+        <div class="build-dialog-heading"><div><span class="welcome-badge">COMPILE PREFLIGHT</span><h2>Map safety check</h2></div><button class="icon-button" id="closePreflightDialog" aria-label="Close">×</button></div>
+        <p class="analysis-intro">Blockout checks brush validity, openings, clearance, gameplay setup, limits, and likely compile failures before launching the toolchain.</p>
+        <div class="preflight-summary" id="preflightSummary"></div>
+        <div class="preflight-list" id="preflightList"></div>
+        <div class="analysis-footer"><span>Click an issue to select its object.</span><button class="button primary" id="refreshPreflight">Check again</button></div>
+      </div>
+    </dialog>
+
+    <dialog id="productionDialog" class="production-dialog">
+      <div class="library-card production-card">
+        <div class="build-dialog-heading"><div><span class="welcome-badge">PRODUCTION WORKSPACE</span><h2>Build, organize, and playtest</h2></div><button class="icon-button" id="closeProductionDialog" aria-label="Close">×</button></div>
+        <div class="production-tabs" role="tablist">
+          <button class="active" data-production-tab="outliner">Outliner</button>
+          <button data-production-tab="stories">Levels</button>
+          <button data-production-tab="lighting">Lighting</button>
+          <button data-production-tab="playtest">Playtest</button>
+          <button data-production-tab="project">Versions</button>
+        </div>
+        <section class="production-pane active" data-production-pane="outliner">
+          <div class="production-toolbar"><input id="outlinerSearch" type="search" placeholder="Search rooms, brushes, entities..." /><select id="outlinerType"><option value="all">All objects</option><option value="room">Rooms</option><option value="prop">Geometry</option><option value="door">Doors</option><option value="window">Windows</option><option value="zone">Triggers</option><option value="entity">Entities</option></select></div>
+          <div class="outliner-list" id="outlinerList"></div>
+        </section>
+        <section class="production-pane" data-production-pane="stories">
+          <p class="analysis-intro">Create named building levels, isolate them in the plan, or duplicate the selected level as an editable upper or lower floor.</p>
+          <div class="production-toolbar"><input id="storyName" placeholder="Upper floor" maxlength="32" /><input id="storyElevation" type="number" step="16" value="0" aria-label="Story elevation in units" /><button class="button primary" id="addStory">Add level</button></div>
+          <div class="story-list" id="storyList"></div>
+        </section>
+        <section class="production-pane" data-production-pane="lighting">
+          <p class="analysis-intro">Review light coverage before running RAD. Radius circles are shown on the plan while this tab is open.</p>
+          <div class="production-metrics" id="lightingSummary"></div>
+          <div class="production-toolbar"><button class="button secondary" id="selectDarkRoom">Select darkest room</button><button class="button primary" id="addLightToDarkRoom">Add light to darkest room</button></div>
+          <div class="lighting-list" id="lightingList"></div>
+        </section>
+        <section class="production-pane" data-production-pane="playtest">
+          <p class="analysis-intro">Start Walkthrough at a team spawn, record a route, and inspect travel time, distance, elevation change, and exposure.</p>
+          <div class="production-toolbar"><button class="button primary" id="walkFromCt">Start at CT</button><button class="button primary" id="walkFromT">Start at T</button><button class="button secondary" id="walkFromSelected">Start at selected spawn</button></div>
+          <div class="production-toolbar"><button class="button secondary" id="toggleRouteRecording">Record route</button><button class="button secondary" id="clearRecordedRoute">Clear route</button><button class="button secondary" id="placeTargetFromProduction">Place target</button></div>
+          <div class="route-report" id="routeReport">No route recorded yet.</div>
+        </section>
+        <section class="production-pane" data-production-pane="project">
+          <p class="analysis-intro">Named versions are stored locally alongside autosave. A production package contains editable project JSON, MAP source, resources, and a build note.</p>
+          <div class="production-toolbar"><input id="snapshotName" maxlength="40" placeholder="Before lighting pass" /><button class="button primary" id="createSnapshot">Save version</button></div>
+          <div class="snapshot-list" id="snapshotList"></div>
+          <div class="production-toolbar package-actions"><button class="button secondary" id="exportProjectJson">Export project</button><label class="button secondary file-button">Import project<input id="importProjectJson" type="file" accept=".json,.blockout.json" /></label><button class="button primary" id="exportPackage">Download package</button></div>
+        </section>
+      </div>
+    </dialog>
+
+    <dialog id="welcomeDialog">
+      <form method="dialog" class="welcome-card">
+        <span class="welcome-badge">BEGINNER MODE</span>
+        <h2>Build your first CS 1.6 map</h2>
+        <p>Start with simple rooms. Blockout turns them into valid GoldSrc brush geometry and guides you through the gameplay essentials.</p>
+        <div class="welcome-steps">
+          <div><b>1</b><span><strong>Draw rooms</strong><small>Drag rectangles on the grid</small></span></div>
+          <div><b>2</b><span><strong>Place teams</strong><small>Add CT and T spawn points</small></span></div>
+          <div><b>3</b><span><strong>Export</strong><small>Open the .map in a GoldSrc editor</small></span></div>
+        </div>
+        <button class="button primary large" value="start">Start building</button>
+        <label class="dont-show"><input type="checkbox" id="dontShowAgain" /> Don’t show this next time</label>
+      </form>
+    </dialog>
+
+    <script src="app.js"></script>
+  </body>
+</html>
