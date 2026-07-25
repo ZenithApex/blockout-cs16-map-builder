@@ -6,7 +6,7 @@
   "scripts": {
     "prepare:web": "node scripts/prepare-public.mjs",
     "dev": "node scripts/prepare-public.mjs && next dev",
-    "build": "node scripts/prepare-public.mjs && next build",
+    "build": "node scripts/prepare-public.mjs && next build && node scripts/prepare-dist.mjs",
     "start": "next start"
   },
   "dependencies": {
