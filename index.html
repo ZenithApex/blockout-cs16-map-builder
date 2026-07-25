@@ -597,6 +597,16 @@
           <span><strong id="connectionTitle">Checking companion…</strong><small id="connectionText">Looking for the local build service.</small></span>
         </div>
 
+        <div class="companion-pairing hidden" id="companionPairing">
+          <div>
+            <strong>Pair this browser with your Windows companion</strong>
+            <small>Start <b>Start Blockout.cmd</b>, then enter the rotating code printed in its console. The code is kept only in this browser.</small>
+          </div>
+          <input id="companionPairingCode" maxlength="9" autocomplete="off" spellcheck="false" placeholder="ABCD-1234" />
+          <button class="button primary" id="connectCompanionButton" type="button">Pair companion</button>
+          <button class="button secondary hidden" id="forgetCompanionButton" type="button">Forget</button>
+        </div>
+
         <div class="build-paths">
           <label>
             <span>Counter-Strike folder</span>

@@ -367,6 +367,13 @@ dialog::backdrop { background: rgba(5,7,4,.8); backdrop-filter: blur(4px); }
 .connection-banner strong, .connection-banner small { display: block; }
 .connection-banner strong { font-size: 10px; }
 .connection-banner small { margin-top: 3px; color: var(--muted); font-size: 8px; }
+.companion-pairing { display: grid; grid-template-columns: minmax(0,1fr) 116px auto auto; gap: 8px; align-items: center; margin-top: 10px; padding: 10px 11px; border: 1px solid #536246; border-radius: 7px; background: rgba(215,244,90,.045); }
+.companion-pairing.hidden { display: none; }
+.companion-pairing strong, .companion-pairing small { display: block; }
+.companion-pairing strong { font-size: 9px; }
+.companion-pairing small { margin-top: 3px; color: var(--muted); font-size: 7px; line-height: 1.4; }
+.companion-pairing input { width: 100%; padding: 8px 9px; border: 1px solid var(--line); border-radius: 5px; outline: 0; color: var(--accent); background: #0c100c; font: 10px ui-monospace, monospace; letter-spacing: .08em; text-transform: uppercase; }
+.companion-pairing input:focus { border-color: var(--accent); }
 .build-paths { display: grid; grid-template-columns: 1fr 1fr; gap: 11px; margin-top: 15px; }
 .build-paths label { color: var(--muted); font-size: 8px; font-weight: 700; }
 .build-paths input { width: 100%; margin-top: 6px; padding: 9px 10px; border: 1px solid var(--line); border-radius: 6px; outline: 0; background: #0f130e; color: var(--text); font: 9px ui-monospace, monospace; }
@@ -385,7 +392,7 @@ dialog::backdrop { background: rgba(5,7,4,.8); backdrop-filter: blur(4px); }
 .build-footer .button:disabled { opacity: .35; cursor: default; transform: none; }
 .build-launch-option { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; color: var(--muted); font-size: 8px; font-weight: 700; }
 .build-launch-option input { accent-color: var(--accent); }
-@media (max-width: 720px) { .build-summary { grid-template-columns: repeat(2,minmax(0,1fr)); } }
+@media (max-width: 720px) { .build-summary { grid-template-columns: repeat(2,minmax(0,1fr)); } .companion-pairing { grid-template-columns: 1fr 1fr; } .companion-pairing > div { grid-column: 1 / -1; } }
 .welcome-card { padding: 28px; }
 .welcome-badge { color: var(--accent); font-size: 8px; font-weight: 900; letter-spacing: .18em; }
 .welcome-card h2 { margin-top: 9px; font-size: 23px; }

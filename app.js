@@ -5,12 +5,16 @@
   const STORAGE_KEY = "blockout-cs16-project-v1";
   const IS_LOCAL_HOST = ["127.0.0.1", "localhost", "[::1]"].includes(location.hostname);
   const HOSTED_MODE = location.protocol !== "file:" && !IS_LOCAL_HOST;
-  const COMPANION_API = location.protocol === "file:" ? "http://127.0.0.1:41716" : "";
+  const COMPANION_API = location.protocol === "file:" || HOSTED_MODE ? "http://127.0.0.1:41716" : "";
+  const PAIRING_STORAGE_KEY = "blockout-companion-pairing-v1";
   const texturePreviewUrl = (texture, cacheBust = "") => {
     const base = texture.startsWith("USR_") && COMPANION_API
       ? `${COMPANION_API}/textures/previews`
       : location.protocol === "file:" ? "textures/previews" : "/textures/previews";
-    return `${base}/${texture}.png${cacheBust ? `?v=${cacheBust}` : ""}`;
+    const parameters = new URLSearchParams();
+    if (cacheBust) parameters.set("v", cacheBust);
+    if (HOSTED_MODE && texture.startsWith("USR_") && companionPairingCode) parameters.set("pair", companionPairingCode);
+    return `${base}/${texture}.png${parameters.size ? `?${parameters}` : ""}`;
   };
   const TOOL_INFO = {
     room: { title: "Draw a room", tip: "Click and drag on the grid to draw a room." },
@@ -189,6 +193,7 @@
     if(category)CC0_TEXTURE_CATEGORIES[texture]=category;
     if(materialImages[texture]&&!cacheBust)return;
     const image = new Image();
+    if (HOSTED_MODE && texture.startsWith("USR_")) image.crossOrigin = "anonymous";
     image.onload = () => {
       try{const canvas=document.createElement("canvas"),context=canvas.getContext("2d",{willReadFrequently:true});canvas.width=canvas.height=1;context.drawImage(image,0,0,1,1);const [red,green,blue]=context.getImageData(0,0,1,1).data;MATERIAL_COLORS[texture]=`rgb(${red},${green},${blue})`;}catch(_){}
       previewPatterns.clear(); drawPreview();
@@ -285,6 +290,7 @@
   let toastTimer;
   let saveTimer;
   let companionStatus = null;
+  let companionPairingCode = HOSTED_MODE ? String(localStorage.getItem(PAIRING_STORAGE_KEY) || "").replace(/[^A-F0-9]/gi, "").toUpperCase() : "";
   let planLevel = null;
   let ghostLevels = true;
   let previewLevelOnly = false;
@@ -301,7 +307,7 @@
   let pendingTextureImport = null;
   try { textureFavorites = new Set(JSON.parse(localStorage.getItem("blockout-texture-favorites") || "[]")); } catch (_) {}
   try { projectSnapshots = JSON.parse(localStorage.getItem("blockout-project-snapshots-v1") || "[]"); } catch (_) { projectSnapshots = []; }
-  const MIN_COMPANION_VERSION = "0.9.0";
+  const MIN_COMPANION_VERSION = "1.0.0";
 
   function environmentFor(project = state) {
     project.environment = { ...DEFAULT_ENVIRONMENT, ...(project.environment || {}) };
@@ -4747,16 +4753,25 @@
   }
 
   async function companionRequest(path, options = {}) {
-    if (HOSTED_MODE) throw new Error("The local companion is available only in the Windows edition.");
-    const response = await fetch(`${COMPANION_API}${path}`, {
-      ...options,
-      headers: { "Content-Type": "application/json", ...(options.headers || {}) }
-    });
+    const { allowUnpaired = false, ...fetchOptions } = options;
+    if (HOSTED_MODE && !allowUnpaired && !companionPairingCode) {
+      const error = new Error("Pair the Windows companion before using local build features.");
+      error.pairingRequired = true;
+      throw error;
+    }
+    const headers = { "Content-Type": "application/json", ...(fetchOptions.headers || {}) };
+    if (HOSTED_MODE && companionPairingCode) headers["X-Blockout-Pairing"] = companionPairingCode;
+    const requestOptions = { ...fetchOptions, headers };
+    const request = HOSTED_MODE
+      ? new Request(`${COMPANION_API}${path}`, { ...requestOptions, targetAddressSpace: "loopback" })
+      : new Request(`${COMPANION_API}${path}`, requestOptions);
+    const response = await fetch(request);
     const data = await response.json().catch(() => ({ error: `HTTP ${response.status}` }));
     if (!response.ok) {
       const error = new Error(data.error || `HTTP ${response.status}`);
       error.log = data.log || "";
       error.status = response.status;
+      error.pairingRequired = !!data.pairingRequired;
       throw error;
     }
     return data;
@@ -4772,6 +4787,66 @@
     return true;
   }
 
+  function formatPairingCode(value) {
+    const compact = String(value || "").replace(/[^A-F0-9]/gi, "").toUpperCase().slice(0, 8);
+    return compact.length > 4 ? `${compact.slice(0, 4)}-${compact.slice(4)}` : compact;
+  }
+
+  function updateTextureImportAvailability() {
+    if (!HOSTED_MODE) return;
+    const dropZone = $("#textureDropZone");
+    const available = !!companionStatus?.connected && versionAtLeast(companionStatus.version, MIN_COMPANION_VERSION);
+    dropZone.disabled = !available;
+    dropZone.innerHTML = available
+      ? '<span class="texture-drop-icon">+</span><span><strong>Drop an image to create a texture</strong><small>PNG, JPG, WebP or GIF · converted by your paired Windows companion</small></span><em>Choose image</em>'
+      : '<span class="texture-drop-icon">↧</span><span><strong>Pair the Windows companion to install textures</strong><small>Open Build & Test, start Start Blockout.cmd, and enter its rotating code.</small></span><em>Pair first</em>';
+  }
+
+  async function pairHostedCompanion() {
+    const input = $("#companionPairingCode");
+    const code = String(input.value || "").replace(/[^A-F0-9]/gi, "").toUpperCase();
+    if (code.length !== 8) {
+      showToast("Enter the complete 8-character pairing code");
+      input.focus();
+      return;
+    }
+    const button = $("#connectCompanionButton");
+    button.disabled = true;
+    button.textContent = "Pairing…";
+    $("#buildLog").textContent = "Requesting permission to connect this online editor to Blockout on your computer…";
+    try {
+      companionPairingCode = code;
+      companionStatus = await companionRequest("/api/pair", {
+        method: "POST",
+        allowUnpaired: true,
+        body: JSON.stringify({ code })
+      });
+      localStorage.setItem(PAIRING_STORAGE_KEY, code);
+      await refreshTextureCatalog();
+      $("#buildLog").textContent = "Secure pairing complete. Build, install, launch, and custom texture tools are ready from the online editor.";
+      showToast("Windows companion paired securely");
+    } catch (error) {
+      companionStatus = null;
+      companionPairingCode = "";
+      localStorage.removeItem(PAIRING_STORAGE_KEY);
+      $("#buildLog").textContent = `Pairing stopped:\n${error.message}\n\nKeep Start Blockout.cmd open and allow the browser's loopback-network permission when asked.`;
+      showToast("Could not pair the companion");
+    } finally {
+      button.disabled = false;
+      updateBuildDialog();
+    }
+  }
+
+  function forgetHostedCompanion() {
+    companionStatus = null;
+    companionPairingCode = "";
+    localStorage.removeItem(PAIRING_STORAGE_KEY);
+    $("#companionPairingCode").value = "";
+    $("#buildLog").textContent = "This browser is no longer paired. Restarting Start Blockout.cmd also rotates the pairing code.";
+    updateBuildDialog();
+    showToast("Windows companion forgotten");
+  }
+
   function updateBuildDialog() {
     const connected = !!companionStatus?.connected;
     const currentCompanion = connected && versionAtLeast(companionStatus.version, MIN_COMPANION_VERSION);
@@ -4785,14 +4860,24 @@
     banner.classList.toggle("connected", currentCompanion);
     banner.classList.toggle("error", !currentCompanion);
     $(".build-status-dot").classList.toggle("connected", currentCompanion);
-    $("#connectionTitle").textContent = HOSTED_MODE ? "Online browser edition" : !connected ? "Companion is not running" : currentCompanion ? "Companion connected" : "Companion restart required";
+    $("#connectionTitle").textContent = HOSTED_MODE
+      ? currentCompanion ? "Online editor paired securely" : companionPairingCode ? "Companion pairing expired" : "Pair the Windows companion"
+      : !connected ? "Companion is not running" : currentCompanion ? "Companion connected" : "Companion restart required";
     $("#connectionText").textContent = HOSTED_MODE
-      ? "Build & Test runs in the local Windows edition. Export or download your project here, then open it locally to compile and launch CS 1.6."
+      ? currentCompanion
+        ? `Blockout ${companionStatus.version || ""} is connected through an origin-locked loopback session.`
+        : "Start Start Blockout.cmd, enter the rotating code below, and approve loopback access if your browser asks."
       : !connected
       ? "Double-click Start Blockout.cmd in the project folder, then reopen this panel."
       : currentCompanion
         ? `Blockout build service ${companionStatus.version || ""} is ready on this computer.`
         : `Close the old companion console (${companionStatus.version || "unknown"}) and reopen Start Blockout.cmd to load ${MIN_COMPANION_VERSION}.`;
+    $("#companionPairing").classList.toggle("hidden", !HOSTED_MODE);
+    if (HOSTED_MODE && document.activeElement !== $("#companionPairingCode")) {
+      $("#companionPairingCode").value = formatPairingCode(companionPairingCode);
+    }
+    $("#connectCompanionButton").textContent = currentCompanion ? "Reconnect" : "Pair companion";
+    $("#forgetCompanionButton").classList.toggle("hidden", !companionPairingCode);
     if (connected && document.activeElement !== $("#gamePathInput")) $("#gamePathInput").value = companionStatus.gamePath || "";
     if (connected && document.activeElement !== $("#compilerPathInput")) $("#compilerPathInput").value = companionStatus.compilerPath || "";
 
@@ -4802,15 +4887,15 @@
       element.classList.toggle("good", good);
       element.classList.toggle("bad", !good);
     };
-    setCheck("#gameCheck", gameFound, "CS 1.6 found", connected ? "Select folder" : "Companion offline");
-    setCheck("#compilerCheck", compilersFound, "4 tools found", connected ? (companionStatus?.missingTools?.length ? `Missing ${companionStatus.missingTools.join(", ")}` : "Select folder") : "Companion offline");
-    setCheck("#wadCheck", stockWadsFound, "Stock WADs found", connected ? (companionStatus?.missingWads?.length ? `Missing ${companionStatus.missingWads.join(", ")}` : "Select Half-Life") : "Companion offline");
-    setCheck("#installCheck", mapsWritable, "Maps folder ready", connected ? "Folder not writable" : "Companion offline");
+    const offlineText = HOSTED_MODE ? "Pair companion" : "Companion offline";
+    setCheck("#gameCheck", gameFound, "CS 1.6 found", connected ? "Select folder" : offlineText);
+    setCheck("#compilerCheck", compilersFound, "4 tools found", connected ? (companionStatus?.missingTools?.length ? `Missing ${companionStatus.missingTools.join(", ")}` : "Select folder") : offlineText);
+    setCheck("#wadCheck", stockWadsFound, "Stock WADs found", connected ? (companionStatus?.missingWads?.length ? `Missing ${companionStatus.missingWads.join(", ")}` : "Select Half-Life") : offlineText);
+    setCheck("#installCheck", mapsWritable, "Maps folder ready", connected ? "Folder not writable" : offlineText);
     setCheck("#mapCheck", ready, "Ready", preflight.errors?`${preflight.errors} preflight error${preflight.errors===1?"":"s"}`:"Checklist incomplete");
     $("#savePathsButton").disabled = !connected;
     $("#runBuildButton").disabled = !(currentCompanion && gameFound && compilersFound && stockWadsFound && mapsWritable && ready);
-    $("#buildHelp").textContent = HOSTED_MODE ? "This online copy never connects to programs or files on your computer."
-      : !connected ? "Start the companion to enable compilation."
+    $("#buildHelp").textContent = !connected ? (HOSTED_MODE ? "Pair the companion to enable real compilation and one-click playtesting." : "Start the companion to enable compilation.")
       : !currentCompanion ? "Restart Start Blockout.cmd to enable safe locked-map builds."
       : !gameFound ? "Choose the folder containing hl.exe."
       : !compilersFound ? "Choose a VHLT/ZHLT compiler folder."
@@ -4819,13 +4904,23 @@
       : !ready ? (preflight.errors?"Open Preflight and fix blocking errors.":"Complete all five map checks first.")
       : $("#launchAfterBuild").checked ? "The BSP will be installed and launched locally." : "The BSP will be compiled and installed without launching the game.";
     $("#runBuildButton").textContent = $("#launchAfterBuild").checked ? "Build & launch CS 1.6" : "Build without launch";
+    updateTextureImportAvailability();
   }
 
   async function refreshCompanionStatus() {
+    if (HOSTED_MODE && !companionPairingCode) {
+      companionStatus = null;
+      updateBuildDialog();
+      return;
+    }
     try {
       companionStatus = await companionRequest("/api/status");
-    } catch (_) {
+    } catch (error) {
       companionStatus = null;
+      if (HOSTED_MODE && error.pairingRequired) {
+        companionPairingCode = "";
+        localStorage.removeItem(PAIRING_STORAGE_KEY);
+      }
     }
     updateBuildDialog();
   }
@@ -5268,6 +5363,15 @@
   $("#exportButton").addEventListener("click", exportMap);
   $("#buildButton").addEventListener("click", () => { $("#buildDialog").showModal(); refreshCompanionStatus(); });
   $("#closeBuildDialog").addEventListener("click", () => $("#buildDialog").close());
+  $("#connectCompanionButton").addEventListener("click", pairHostedCompanion);
+  $("#forgetCompanionButton").addEventListener("click", forgetHostedCompanion);
+  $("#companionPairingCode").addEventListener("input", (event) => {
+    const compact = String(event.target.value || "").replace(/[^A-F0-9]/gi, "").toUpperCase().slice(0, 8);
+    event.target.value = formatPairingCode(compact);
+  });
+  $("#companionPairingCode").addEventListener("keydown", (event) => {
+    if (event.key === "Enter") pairHostedCompanion();
+  });
   $("#savePathsButton").addEventListener("click", saveCompanionPaths);
   $("#runBuildButton").addEventListener("click", runBuildAndTest);
   $("#launchAfterBuild").addEventListener("change", updateBuildDialog);
@@ -5351,11 +5455,7 @@
     $("#textureDropZone").classList.remove("drag-over");
   }));
   $("#textureDropZone").addEventListener("drop", (event) => prepareTextureImport(event.dataTransfer?.files?.[0]));
-  if (HOSTED_MODE) {
-    const textureDropZone = $("#textureDropZone");
-    textureDropZone.disabled = true;
-    textureDropZone.innerHTML = '<span class="texture-drop-icon">↧</span><span><strong>Custom texture installation is local-only</strong><small>Use the Windows edition to convert images into GoldSrc textures and add them to your WAD.</small></span><em>Local app</em>';
-  }
+  updateTextureImportAvailability();
   $("#cancelTextureImport").addEventListener("click", resetTextureImport);
   $("#installTextureImport").addEventListener("click", installImportedTexture);
   $("#textureImportName").addEventListener("input", (event) => {

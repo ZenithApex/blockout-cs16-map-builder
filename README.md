@@ -35,7 +35,7 @@ Then visit `http://localhost:8080`.
 
 The production web edition contains only the browser editor, layouts, prefabs, and built-in preview images. It deliberately excludes compilers, local configuration, WAD tooling, build artifacts, and user-imported images. Editing, Orbit/Walkthrough preview, browser autosave, project JSON, packages, and `.map` export work directly online.
 
-The hosted editor is deliberately browser-only and never connects to programs or files on the local computer. **Build & Test**, Steam launching, and custom texture import/deletion remain available in the Windows edition at `http://127.0.0.1:41716`. Move projects safely between the two editions with Blockout project JSON or `.map` export.
+The hosted editor can securely pair with the Windows companion for **Build & Test**, BSP installation, Steam launching, and custom texture import/deletion. Start `Start Blockout.cmd`, open **Build & Test** online, and enter the rotating code printed in the companion console. The bridge remains bound to `127.0.0.1`, accepts only the exact production site origin, requires the current pairing code, and may trigger the browser's loopback-network permission prompt. Restarting the companion rotates the code and ends the previous session.
 
 ## Current features
 
@@ -204,7 +204,7 @@ Blockout can also use another trusted GoldSrc VHLT/ZHLT tool package. Either:
 
 Standard filenames and `_x64`/`_x86` variants are supported. Build & Test now reports five independent readiness checks: CS 1.6, all four compilers, `cstrike.wad` plus `halflife.wad`, the writable `cstrike/maps` destination, and editor preflight. Choose whether to launch CS 1.6 after compilation or compile and install without launching it.
 
-Companion 0.9 clears stale compiler outputs before each build so an older BSP cannot be mistaken for a successful result. It also provides guarded local texture import/deletion and atomic WAD rebuilds while remaining loopback-only. Missing stock/custom WADs, locked build artifacts, invalid custom mipmaps, incomplete compiler folders, and unwritable destinations stop early with specific recovery instructions. The complete compiler log is retained in the Build panel after a failed stage. If CS 1.6 is holding the requested BSP open, Blockout automatically installs the new build as the next available `_preview_N` map instead.
+Companion 1.0 clears stale compiler outputs before each build so an older BSP cannot be mistaken for a successful result. It provides origin-locked hosted pairing, guarded local texture import/deletion, and atomic WAD rebuilds while remaining loopback-only. Missing stock/custom WADs, locked build artifacts, invalid custom mipmaps, incomplete compiler folders, and unwritable destinations stop early with specific recovery instructions. The complete compiler log is retained in the Build panel after a failed stage. If CS 1.6 is holding the requested BSP open, Blockout automatically installs the new build as the next available `_preview_N` map instead.
 
 ## Verified real compiles
 
