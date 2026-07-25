@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">
+  <defs>
+    <linearGradient id="wood"><stop stop-color="#9c754a"/><stop offset=".5" stop-color="#795332"/><stop offset="1" stop-color="#a17a4c"/></linearGradient>
+    <pattern id="grain" width="128" height="64" patternUnits="userSpaceOnUse">
+      <rect width="128" height="64" fill="url(#wood)"/>
+      <path d="M0 14c28-9 51 10 80 0s36-5 48-1M0 39c24 8 48-8 72 0s38 6 56-2" fill="none" stroke="#4e321f" stroke-width="3" opacity=".55"/>
+    </pattern>
+  </defs>
+  <rect width="256" height="256" fill="url(#grain)"/>
+  <path d="M0 0l256 256M256 0L0 256" stroke="#4a2f1f" stroke-width="28"/>
+  <path d="M0 0l256 256M256 0L0 256" stroke="#b08555" stroke-width="12"/>
+  <rect x="5" y="5" width="246" height="246" fill="none" stroke="#422a1b" stroke-width="10"/>
+</svg>

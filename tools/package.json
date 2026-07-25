@@ -1,0 +1,9 @@
+{
+  "name": "blockout-texture-tools",
+  "version": "1.0.0",
+  "private": true,
+  "type": "commonjs",
+  "dependencies": {
+    "pngjs": "7.0.0"
+  }
+}

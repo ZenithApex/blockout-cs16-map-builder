@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">
+  <defs>
+    <pattern id="panel" width="96" height="64" patternUnits="userSpaceOnUse">
+      <rect width="96" height="64" fill="#59675e"/>
+      <rect x="3" y="3" width="90" height="58" rx="2" fill="#6d7b70" stroke="#313c36" stroke-width="3"/>
+      <path d="M8 18h80M8 46h80" stroke="#8d9a8d" stroke-width="2" opacity=".55"/>
+      <circle cx="12" cy="11" r="2" fill="#c8b978"/><circle cx="84" cy="53" r="2" fill="#c8b978"/>
+    </pattern>
+  </defs>
+  <rect width="256" height="256" fill="url(#panel)"/>
+</svg>

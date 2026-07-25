@@ -1,0 +1,31 @@
+name: Validate public beta
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install texture-tool dependency
+        run: npm install --prefix tools --omit=dev --no-audit --no-fund
+      - name: Check JavaScript
+        run: node --check app.js
+      - name: Check companion
+        run: python -m py_compile blockout_companion.py
+      - name: Verify clean public assets
+        run: node scripts/verify-public-release.mjs
+      - name: Package Windows beta
+        shell: powershell
+        run: ./scripts/package-windows.ps1

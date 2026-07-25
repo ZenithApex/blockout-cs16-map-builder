@@ -1,0 +1,393 @@
+{
+  "pack": "Blockout CC0 Materials 1",
+  "license": "CC0-1.0",
+  "textures": [
+    {
+      "name": "BO_CONCRETE",
+      "label": "Clean concrete",
+      "category": "concrete",
+      "file": "Concrete.png",
+      "page": "https://opengameart.org/content/seamless-brickconcrete-textures",
+      "url": "https://opengameart.org/sites/default/files/Concrete.png",
+      "author": "BMacZero"
+    },
+    {
+      "name": "BO_PAVEMENT",
+      "label": "Real pavement",
+      "category": "ground",
+      "file": "RealPavement.png",
+      "page": "https://opengameart.org/content/seamless-brickconcrete-textures",
+      "url": "https://opengameart.org/sites/default/files/RealPavement.png",
+      "author": "BMacZero"
+    },
+    {
+      "name": "BO_RGHBRICK",
+      "label": "Rough brick",
+      "category": "brick",
+      "file": "RoughBrick256.png",
+      "page": "https://opengameart.org/content/seamless-brickconcrete-textures",
+      "url": "https://opengameart.org/sites/default/files/RoughBrick256.png",
+      "author": "BMacZero"
+    },
+    {
+      "name": "BO_SMTHBRICK",
+      "label": "Smooth red brick",
+      "category": "brick",
+      "file": "SmoothBrick.png",
+      "page": "https://opengameart.org/content/seamless-brickconcrete-textures",
+      "url": "https://opengameart.org/sites/default/files/SmoothBrick.png",
+      "author": "BMacZero"
+    },
+    {
+      "name": "BO_STUCBRICK",
+      "label": "Stuccoed brick",
+      "category": "brick",
+      "file": "StuccoedBrick.png",
+      "page": "https://opengameart.org/content/seamless-brickconcrete-textures",
+      "url": "https://opengameart.org/sites/default/files/StuccoedBrick.png",
+      "author": "BMacZero"
+    },
+    {
+      "name": "BO_BRICKTILE",
+      "label": "Brick tile",
+      "category": "brick",
+      "file": "tile_brick_0.png",
+      "page": "https://opengameart.org/content/seamless-brickconcrete-textures-2",
+      "url": "https://opengameart.org/sites/default/files/tile_brick_0.png",
+      "author": "BMacZero"
+    },
+    {
+      "name": "BO_COBBLE",
+      "label": "Cobblestones",
+      "category": "ground",
+      "file": "tile_cobblestones_0.jpg",
+      "page": "https://opengameart.org/content/seamless-brickconcrete-textures-2",
+      "url": "https://opengameart.org/sites/default/files/tile_cobblestones_0.jpg",
+      "author": "BMacZero"
+    },
+    {
+      "name": "BO_CONCBRICK",
+      "label": "Concrete bricks",
+      "category": "concrete",
+      "file": "tile_concretebricks_0.jpg",
+      "page": "https://opengameart.org/content/seamless-brickconcrete-textures-2",
+      "url": "https://opengameart.org/sites/default/files/tile_concretebricks_0.jpg",
+      "author": "BMacZero"
+    },
+    {
+      "name": "BO_GRAVEL",
+      "label": "Gravel",
+      "category": "ground",
+      "file": "tile_gravel_0.png",
+      "page": "https://opengameart.org/content/seamless-brickconcrete-textures-2",
+      "url": "https://opengameart.org/sites/default/files/tile_gravel_0.png",
+      "author": "BMacZero"
+    },
+    {
+      "name": "BO_SAND",
+      "label": "Sand",
+      "category": "ground",
+      "file": "tile_sand_0.jpg",
+      "page": "https://opengameart.org/content/seamless-brickconcrete-textures-2",
+      "url": "https://opengameart.org/sites/default/files/tile_sand_0.jpg",
+      "author": "BMacZero"
+    },
+    {
+      "name": "BO_STUCCO",
+      "label": "Light stucco",
+      "category": "plaster",
+      "file": "tile_stucco_0.png",
+      "page": "https://opengameart.org/content/seamless-brickconcrete-textures-2",
+      "url": "https://opengameart.org/sites/default/files/tile_stucco_0.png",
+      "author": "BMacZero"
+    },
+    {
+      "name": "BO_BRICK01",
+      "label": "Warm brick",
+      "category": "brick",
+      "file": "Bricks_001.png",
+      "page": "https://opengameart.org/content/seamless-brick-textures-0",
+      "url": "https://opengameart.org/sites/default/files/Bricks_001.png",
+      "author": "GGBotNet"
+    },
+    {
+      "name": "BO_BRICK02",
+      "label": "Painted brick",
+      "category": "brick",
+      "file": "Bricks_002.png",
+      "page": "https://opengameart.org/content/seamless-brick-textures-0",
+      "url": "https://opengameart.org/sites/default/files/Bricks_002.png",
+      "author": "GGBotNet"
+    },
+    {
+      "name": "BO_BRICK03",
+      "label": "Weathered brick",
+      "category": "brick",
+      "file": "Bricks_003.png",
+      "page": "https://opengameart.org/content/seamless-brick-textures-0",
+      "url": "https://opengameart.org/sites/default/files/Bricks_003.png",
+      "author": "GGBotNet"
+    },
+    {
+      "name": "BO_BRICK04",
+      "label": "Dark brick",
+      "category": "brick",
+      "file": "Bricks_004.png",
+      "page": "https://opengameart.org/content/seamless-brick-textures-0",
+      "url": "https://opengameart.org/sites/default/files/Bricks_004.png",
+      "author": "GGBotNet"
+    },
+    {
+      "name": "BO_WOODREAL",
+      "label": "Natural wood",
+      "category": "wood",
+      "file": "8e9e2521-e1d4-44ba-8c75-626e2d258325.png",
+      "page": "https://opengameart.org/content/realistic-seamless-wood-texture",
+      "url": "https://opengameart.org/sites/default/files/8e9e2521-e1d4-44ba-8c75-626e2d258325.png",
+      "author": "SpringySpringo"
+    },
+    {
+      "name": "BO_RUST",
+      "label": "Rusty steel",
+      "category": "metal",
+      "file": "rusts.jpg",
+      "page": "https://opengameart.org/content/rust-semi-seamless",
+      "url": "https://opengameart.org/sites/default/files/rusts.jpg",
+      "author": "Pyrano Studios"
+    },
+    {
+      "name": "BO_WOOD01",
+      "label": "Light wood",
+      "category": "wood",
+      "file": "Wood01.png",
+      "page": "https://opengameart.org/content/seamless-wood-textures-0",
+      "url": "https://opengameart.org/sites/default/files/Wood01.png",
+      "author": "GGBotNet"
+    },
+    {
+      "name": "BO_WOOD02",
+      "label": "Dark wood",
+      "category": "wood",
+      "file": "Wood02.png",
+      "page": "https://opengameart.org/content/seamless-wood-textures-0",
+      "url": "https://opengameart.org/sites/default/files/Wood02.png",
+      "author": "GGBotNet"
+    },
+    {
+      "name": "BO_REDBRICK",
+      "label": "Deep red brick",
+      "category": "brick",
+      "file": "redbrick_0.png",
+      "page": "https://opengameart.org/content/simple-textures",
+      "url": "https://opengameart.org/sites/default/files/redbrick_0.png",
+      "author": "oceancucumber"
+    },
+    {
+      "name": "BO_ALLIGATOR",
+      "label": "Alligator pattern",
+      "category": "organic",
+      "file": "alligatorskin_0.png",
+      "page": "https://opengameart.org/content/simple-textures",
+      "url": "https://opengameart.org/sites/default/files/alligatorskin_0.png",
+      "author": "oceancucumber"
+    },
+    {
+      "name": "BO_CEDAR",
+      "label": "Cedar wood",
+      "category": "wood",
+      "file": "cedar_0.png",
+      "page": "https://opengameart.org/content/simple-textures",
+      "url": "https://opengameart.org/sites/default/files/cedar_0.png",
+      "author": "oceancucumber"
+    },
+    {
+      "name": "BO_CONCART",
+      "label": "Art concrete",
+      "category": "concrete",
+      "file": "concrete_0.png",
+      "page": "https://opengameart.org/content/simple-textures",
+      "url": "https://opengameart.org/sites/default/files/concrete_0.png",
+      "author": "oceancucumber"
+    },
+    {
+      "name": "BO_LEAF",
+      "label": "Leaf pattern",
+      "category": "nature",
+      "file": "leaf_14.png",
+      "page": "https://opengameart.org/content/simple-textures",
+      "url": "https://opengameart.org/sites/default/files/leaf_14.png",
+      "author": "oceancucumber"
+    },
+    {
+      "name": "BO_LEATHER",
+      "label": "Dark leather",
+      "category": "fabric",
+      "file": "leather_1.png",
+      "page": "https://opengameart.org/content/simple-textures",
+      "url": "https://opengameart.org/sites/default/files/leather_1.png",
+      "author": "oceancucumber"
+    },
+    {
+      "name": "BO_OBSIDIAN",
+      "label": "Obsidian stone",
+      "category": "stone",
+      "file": "obsidian_4.png",
+      "page": "https://opengameart.org/content/simple-textures",
+      "url": "https://opengameart.org/sites/default/files/obsidian_4.png",
+      "author": "oceancucumber"
+    },
+    {
+      "name": "BO_ONYX",
+      "label": "Onyx stone",
+      "category": "stone",
+      "file": "onyx_2.png",
+      "page": "https://opengameart.org/content/simple-textures",
+      "url": "https://opengameart.org/sites/default/files/onyx_2.png",
+      "author": "oceancucumber"
+    },
+    {
+      "name": "BO_PINE",
+      "label": "Pine wood",
+      "category": "wood",
+      "file": "pine_0.png",
+      "page": "https://opengameart.org/content/simple-textures",
+      "url": "https://opengameart.org/sites/default/files/pine_0.png",
+      "author": "oceancucumber"
+    },
+    {
+      "name": "BO_RUSTIRON",
+      "label": "Rusty iron",
+      "category": "metal",
+      "file": "rustyiron_0.png",
+      "page": "https://opengameart.org/content/simple-textures",
+      "url": "https://opengameart.org/sites/default/files/rustyiron_0.png",
+      "author": "oceancucumber"
+    },
+    {
+      "name": "BO_SNAKESKIN",
+      "label": "Snake pattern",
+      "category": "organic",
+      "file": "snakeskin_0.png",
+      "page": "https://opengameart.org/content/simple-textures",
+      "url": "https://opengameart.org/sites/default/files/snakeskin_0.png",
+      "author": "oceancucumber"
+    },
+    {
+      "name": "BO_STUCCO2",
+      "label": "Fine stucco",
+      "category": "plaster",
+      "file": "stucco_2.png",
+      "page": "https://opengameart.org/content/simple-textures",
+      "url": "https://opengameart.org/sites/default/files/stucco_2.png",
+      "author": "oceancucumber"
+    },
+    {
+      "name": "BO_FOAM",
+      "label": "White foam",
+      "category": "plaster",
+      "file": "styrofoam_0.png",
+      "page": "https://opengameart.org/content/simple-textures",
+      "url": "https://opengameart.org/sites/default/files/styrofoam_0.png",
+      "author": "oceancucumber"
+    },
+    {
+      "name": "BO_TOPAZ",
+      "label": "Topaz surface",
+      "category": "stone",
+      "file": "topaz_2.png",
+      "page": "https://opengameart.org/content/simple-textures",
+      "url": "https://opengameart.org/sites/default/files/topaz_2.png",
+      "author": "oceancucumber"
+    },
+    {
+      "name": "BO_TURQUOISE",
+      "label": "Turquoise stone",
+      "category": "stone",
+      "file": "turquoise_0.png",
+      "page": "https://opengameart.org/content/simple-textures",
+      "url": "https://opengameart.org/sites/default/files/turquoise_0.png",
+      "author": "oceancucumber"
+    },
+    {
+      "name": "BO_MARBLE",
+      "label": "White marble",
+      "category": "stone",
+      "file": "whitemarble_0.png",
+      "page": "https://opengameart.org/content/simple-textures",
+      "url": "https://opengameart.org/sites/default/files/whitemarble_0.png",
+      "author": "oceancucumber"
+    },
+    {
+      "name": "BO_YELLOWGEM",
+      "label": "Yellow turquoise",
+      "category": "stone",
+      "file": "yellowturquoise_2.png",
+      "page": "https://opengameart.org/content/simple-textures",
+      "url": "https://opengameart.org/sites/default/files/yellowturquoise_2.png",
+      "author": "oceancucumber"
+    },
+    {
+      "name": "BO_CONC1K1",
+      "label": "Smooth photo concrete",
+      "category": "concrete",
+      "file": "concrete1_seamless_diffuse_1k.png",
+      "page": "https://opengameart.org/content/concrete-textures-seamless-1k",
+      "url": "https://opengameart.org/sites/default/files/concrete1_seamless_diffuse_1k.png",
+      "author": "YCbCr"
+    },
+    {
+      "name": "BO_PEBBLE1K",
+      "label": "Pebbled concrete",
+      "category": "ground",
+      "file": "pathwaypebbleconcrete1_seamless_diffuse_1k.png",
+      "page": "https://opengameart.org/content/concrete-textures-seamless-1k",
+      "url": "https://opengameart.org/sites/default/files/pathwaypebbleconcrete1_seamless_diffuse_1k.png",
+      "author": "YCbCr"
+    },
+    {
+      "name": "BO_CONC1K2",
+      "label": "Rough photo concrete",
+      "category": "concrete",
+      "file": "concrete2_seamless_diffuse_1k.png",
+      "page": "https://opengameart.org/content/concrete-textures-seamless-1k",
+      "url": "https://opengameart.org/sites/default/files/concrete2_seamless_diffuse_1k.png",
+      "author": "YCbCr"
+    },
+    {
+      "name": "BO_ROCK",
+      "label": "Cave rock",
+      "category": "stone",
+      "file": "Rock1Seamless_1.png",
+      "page": "https://opengameart.org/content/rock-seamless-textures",
+      "url": "https://opengameart.org/sites/default/files/Rock1Seamless_1.png",
+      "author": "kavin tee"
+    },
+    {
+      "name": "BO_FLOORTILE",
+      "label": "Modern floor tile",
+      "category": "floor",
+      "file": "floortiles_0.png",
+      "page": "https://opengameart.org/content/floor-tile-texture",
+      "url": "https://opengameart.org/sites/default/files/floortiles_0.png",
+      "author": "Ravaen"
+    },
+    {
+      "name": "BO_GRASS1",
+      "label": "Dry grass ground",
+      "category": "nature",
+      "file": "grass or ground texture.jpg",
+      "page": "https://opengameart.org/content/grassground-texture",
+      "url": "https://opengameart.org/sites/default/files/grass%20or%20ground%20texture.jpg",
+      "author": "VladimirP"
+    },
+    {
+      "name": "BO_GRASS2",
+      "label": "Green grass ground",
+      "category": "nature",
+      "file": "grass ground texture 2_4.png",
+      "page": "https://opengameart.org/content/grassground-texture",
+      "url": "https://opengameart.org/sites/default/files/grass%20%20ground%20texture%202_4.png",
+      "author": "VladimirP"
+    }
+  ]
+}

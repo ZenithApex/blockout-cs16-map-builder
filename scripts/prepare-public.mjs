@@ -12,7 +12,7 @@ for (const file of ["index.html", "app.js", "styles.css"]) {
   await cp(path.join(root, file), path.join(output, file));
 }
 for (const file of await readdir(previewSource)) {
-  if (!file.toUpperCase().startsWith("USR_") && file.toLowerCase().endsWith(".png")) {
+  if (!file.toUpperCase().startsWith("USR_") && [".png", ".svg"].includes(path.extname(file).toLowerCase())) {
     await cp(path.join(previewSource, file), path.join(previewOutput, file));
   }
 }

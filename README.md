@@ -2,6 +2,20 @@
 
 A self-contained beginner-first prototype for blocking out Counter-Strike 1.6 maps.
 
+## Public beta quick start
+
+Download the newest Windows ZIP from GitHub Releases, extract it, then:
+
+1. Double-click `Setup Blockout.cmd` once. It downloads and verifies the
+   official SDHLT v1.2.0 compiler package.
+2. Double-click `Start Blockout.cmd`.
+3. Build in the editor at `http://127.0.0.1:41716/`.
+
+Python 3.8+ is required. Node.js 20+ is optional and only needed when importing
+new texture images. Counter-Strike 1.6/Half-Life must be legally installed
+through Steam; no Valve game content or credentials are included. See
+[`TESTING.md`](TESTING.md) for the beta checklist.
+
 ## Recommended: run with the Windows companion
 
 Double-click `Start Blockout.cmd`. Keep its small console window open while using the editor.
@@ -83,7 +97,8 @@ The hosted editor can securely pair with the Windows companion for **Build & Tes
 - Build directly on an optional map-wide flat ground plane with adjustable size, margin, and material
 - Choose an installed CS 1.6 sky theme and matching outdoor sunlight from the Environment panel
 - Place colored point lights and adjust their height and brightness; unlit rooms keep automatic fallback lights
-- See an actual WAD texture thumbnail before applying a material
+- See a real CC0/original miniature before applying custom materials; stock
+  game material names use original procedural placeholders
 - Place CT spawns, T spawns, and bombsites
 - Place hostages, rescue zones, buttons, damage triggers, teleporters, decals, ambient sounds, water volumes, and breakable brushes
 - Set the facing direction of CT/T spawns and draw team-specific buy zones
@@ -165,7 +180,12 @@ Choose **Layouts** in the top bar to start from one of 6 editable blockouts. Sea
 
 Select a room or structure and choose **Browse texture library**. Search by friendly name or WAD code, browse sticky category groups for architecture, concrete, brick, stone, ground, nature, organic, fabric, plaster, floor, metal, wood, and Sunburst materials, and mark favorites with the star. Each card displays the real texture miniature plus its stock, original, or CC0 source badge. For rooms, the target menu applies the chosen texture to walls, floor, or ceiling.
 
-The library includes 43 downloaded seamless CC0 materials in addition to 7 stock previews and the 10-texture original Sunburst pack, for 60 choices total. Their source URLs, authors, categories, and license are recorded in `textures/asset-manifest.json` and summarized in `textures/ASSET_SOURCES.md`. Run `tools/import_cc0_textures.py` followed by `tools/build_sunburst_wad.js` to reproduce the normalized sources, thumbnails, mipmaps, and WAD.
+The library includes 43 downloaded seamless CC0 materials, 7 procedural
+placeholders for game-supplied material names, and the 10-texture original
+Sunburst pack, for 60 choices total. CC0 source URLs, authors, categories, and
+license are recorded in `textures/asset-manifest.base.json` and summarized in
+`textures/ASSET_SOURCES.md`. Local imports are written to the ignored mutable
+`asset-manifest.json`, so personal images cannot accidentally enter a commit.
 
 ### Import your own image texture
 
@@ -195,7 +215,11 @@ The companion now embeds and validates only the custom WAD textures referenced b
 
 ## Compiler setup
 
-This package currently includes the 64-bit tools from the primary SDHLT v1.2.0 GitHub release. The exact source URL, archive hash, individual executable hashes, and signature status are recorded in `tools/SDHLT_SOURCE.txt`; the upstream license and readme are preserved beside the binaries.
+The public repository and tester ZIP do not redistribute compiler executables.
+`Setup Blockout.cmd` downloads SDHLT v1.2.0 from its official GitHub release and
+verifies the archive plus every required 64-bit executable before installation.
+The exact source URL, hashes, signature status, upstream license, and readme are
+preserved under `tools/`.
 
 Blockout can also use another trusted GoldSrc VHLT/ZHLT tool package. Either:
 
@@ -307,4 +331,18 @@ The template now uses ten original 256×256 materials derived from the supplied 
 - `SUN_CRATE` — a red-and-gold reinforced Sun supply crate
 - `SUN_SUPPLY` — a teal-and-purple alternate crate with orange and yellow straps
 
-The editable source images and browser previews are under `textures/`. `sunburst.wad` contains the indexed GoldSrc versions. **Build & Test** temporarily adds this WAD during compilation, embeds all ten textures, and removes its worldspawn reference from the finished BSP. Players do not need a separate custom WAD installation. Engine-special materials such as `SKY`, glass, triggers, and clip textures remain stock so their GoldSrc behavior is preserved.
+Browser previews are under `textures/previews`. The repository's clean
+`assets/sunburst-base.wad` contains 53 indexed original/CC0 materials; the
+companion creates ignored mutable runtime copies before accepting user imports.
+**Build & Test** temporarily adds this WAD during compilation, embeds selected
+custom pixels, and removes its worldspawn reference from the finished BSP.
+Players do not need a separate custom WAD installation. Engine-special
+materials such as `SKY`, glass, triggers, and clip textures remain stock so
+their GoldSrc behavior is preserved.
+
+## License and redistribution
+
+Blockout's original source is available under the [MIT License](LICENSE).
+Third-party compiler terms, CC0 material provenance, trademark notes, and the
+deliberate exclusion of Valve-authored assets are documented in
+[`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).

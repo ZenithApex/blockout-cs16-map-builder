@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">
+  <defs>
+    <linearGradient id="steel" x2="1" y2="1"><stop stop-color="#839397"/><stop offset=".45" stop-color="#46575c"/><stop offset=".7" stop-color="#718186"/><stop offset="1" stop-color="#344348"/></linearGradient>
+    <pattern id="plates" width="128" height="64" patternUnits="userSpaceOnUse">
+      <rect width="128" height="64" fill="url(#steel)" stroke="#273338" stroke-width="4"/>
+      <circle cx="10" cy="10" r="3" fill="#b8a96b"/><circle cx="118" cy="54" r="3" fill="#b8a96b"/>
+      <path d="M18 12h92" stroke="#b1bec0" opacity=".3"/>
+    </pattern>
+  </defs>
+  <rect width="256" height="256" fill="url(#plates)"/>
+</svg>

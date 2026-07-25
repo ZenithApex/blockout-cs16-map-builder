@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">
+  <defs>
+    <pattern id="floor" width="48" height="48" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+      <rect width="48" height="48" fill="#2d3632"/>
+      <rect width="24" height="24" fill="#3c4742"/>
+      <rect x="24" y="24" width="24" height="24" fill="#3c4742"/>
+      <path d="M0 0h48v48H0zM24 0v48M0 24h48" fill="none" stroke="#151b18" stroke-width="2"/>
+    </pattern>
+  </defs>
+  <rect width="256" height="256" fill="url(#floor)"/>
+</svg>

@@ -7,6 +7,10 @@
   const HOSTED_MODE = location.protocol !== "file:" && !IS_LOCAL_HOST;
   const COMPANION_API = location.protocol === "file:" || HOSTED_MODE ? "http://127.0.0.1:41716" : "";
   const PAIRING_STORAGE_KEY = "blockout-companion-pairing-v1";
+  const PROCEDURAL_STOCK_PREVIEWS = new Set([
+    "C1A0_LABW3", "CSTRIKE_WR4RGH", "CSTRIKE_ME4METL",
+    "CSTRIKE_CH3TILE", "CSTRIKE_FP2DARK", "BCRATE02", "C1A1_CRATE1"
+  ]);
   const texturePreviewUrl = (texture, cacheBust = "") => {
     const base = texture.startsWith("USR_") && COMPANION_API
       ? `${COMPANION_API}/textures/previews`
@@ -14,7 +18,8 @@
     const parameters = new URLSearchParams();
     if (cacheBust) parameters.set("v", cacheBust);
     if (HOSTED_MODE && texture.startsWith("USR_") && companionPairingCode) parameters.set("pair", companionPairingCode);
-    return `${base}/${texture}.png${parameters.size ? `?${parameters}` : ""}`;
+    const extension = PROCEDURAL_STOCK_PREVIEWS.has(texture) ? "svg" : "png";
+    return `${base}/${texture}.${extension}${parameters.size ? `?${parameters}` : ""}`;
   };
   const TOOL_INFO = {
     room: { title: "Draw a room", tip: "Click and drag on the grid to draw a room." },

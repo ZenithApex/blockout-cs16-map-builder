@@ -1,0 +1,55 @@
+name: Bug report
+description: Report a reproducible Blockout problem
+title: "[Bug]: "
+labels: ["bug", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: Thanks for testing Blockout. Do not attach Steam credentials or copyrighted WAD files.
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Top-down editor
+        - Orbit or Walkthrough
+        - Materials or texture import
+        - Export or preflight
+        - Build, install, or launch
+        - Hosted companion pairing
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Reproduction steps
+      placeholder: "1. Create...\n2. Select...\n3. Observe..."
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior and log
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Windows and browser versions
+      placeholder: Windows 11 24H2, Chrome 140
+    validations:
+      required: true
+  - type: checkboxes
+    id: safety
+    attributes:
+      label: Privacy check
+      options:
+        - label: I removed credentials, private paths, and unrelated personal information.
+          required: true

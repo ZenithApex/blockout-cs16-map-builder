@@ -1,0 +1,23 @@
+name: Feature request
+description: Suggest a beginner-friendly mapping improvement
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Mapping problem
+      description: What is difficult or impossible for a beginner today?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed workflow
+    validations:
+      required: true
+  - type: textarea
+    id: goldsrc
+    attributes:
+      label: GoldSrc or CS 1.6 considerations
+      description: Mention limits, entities, textures, or compiler behavior if relevant.

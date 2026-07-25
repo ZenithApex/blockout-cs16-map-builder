@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">
+  <defs>
+    <filter id="rough"><feTurbulence baseFrequency=".55" numOctaves="3" seed="17"/><feColorMatrix values=".24 0 0 0 .32 0 .24 0 0 .32 0 0 .24 0 .3 0 0 0 .65 0"/></filter>
+  </defs>
+  <rect width="256" height="256" fill="#777971"/>
+  <rect width="256" height="256" filter="url(#rough)" opacity=".55"/>
+  <path d="M0 86h256M0 174h256" stroke="#666960" stroke-width="3" opacity=".8"/>
+</svg>

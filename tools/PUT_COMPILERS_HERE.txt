@@ -1,0 +1,14 @@
+BLOCKOUT GOLDSRC COMPILER FOLDER
+
+Place a trusted VHLT/ZHLT compiler set in this folder.
+
+Required tools:
+  hlcsg.exe   (or hlcsg_x64.exe / hlcsg_x86.exe)
+  hlbsp.exe   (or hlbsp_x64.exe / hlbsp_x86.exe)
+  hlvis.exe   (or hlvis_x64.exe / hlvis_x86.exe)
+  hlrad.exe   (or hlrad_x64.exe / hlrad_x86.exe)
+
+Seedee SDHLT names are also supported:
+  sdHLCSG_x64.exe, sdHLBSP_x64.exe, sdHLVIS_x64.exe, sdHLRAD_x64.exe
+
+Restart the Blockout companion after adding the tools, then open Build & Test.

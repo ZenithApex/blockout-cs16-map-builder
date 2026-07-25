@@ -1,0 +1,862 @@
+"""Local build companion for Blockout CS 1.6 Map Builder.
+
+Serves the dependency-free editor on localhost and exposes a deliberately small
+local API for configuring GoldSrc tools, compiling a map, installing its BSP,
+and launching Counter-Strike 1.6 after an explicit button press.
+"""
+
+import argparse
+import base64
+import json
+import os
+import re
+import secrets
+import shutil
+import struct
+import subprocess
+import sys
+import threading
+import time
+import webbrowser
+from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
+from urllib.parse import parse_qs, urlparse
+
+
+VERSION = "1.0.0"
+HOST = "127.0.0.1"
+PORT = 41716
+ONLINE_ORIGINS = {
+    "https://blockout-cs16-map-builder-2026.zenithapex.chatgpt.site",
+}
+if os.environ.get("BLOCKOUT_TEST_ORIGIN"):
+    ONLINE_ORIGINS.add(os.environ["BLOCKOUT_TEST_ORIGIN"].rstrip("/"))
+LOCAL_ORIGINS = {
+    "http://127.0.0.1:41716",
+    "http://localhost:41716",
+}
+PAIRING_SECRET = secrets.token_hex(4).upper()
+ROOT = Path(__file__).resolve().parent
+CONFIG_FILE = ROOT / "blockout.config.json"
+BUILD_ROOT = ROOT / "builds"
+MANIFEST_FILE = ROOT / "textures" / "asset-manifest.json"
+BASE_MANIFEST_FILE = ROOT / "textures" / "asset-manifest.base.json"
+CUSTOM_WAD_FILE = ROOT / "sunburst.wad"
+BASE_CUSTOM_WAD_FILE = ROOT / "assets" / "sunburst-base.wad"
+TOOL_NAMES = ("hlcsg", "hlbsp", "hlvis", "hlrad")
+SUNBURST_TEXTURE_NAMES = {
+    "SUN_FELT", "SUN_KNIT", "SUN_RIBBON", "SUN_FACE", "SUN_WALL",
+    "SUN_METAL", "SUN_TILE", "SUN_FLOOR", "SUN_CRATE", "SUN_SUPPLY",
+}
+
+
+def ensure_runtime_assets():
+    """Create local mutable copies without committing user imports to source control."""
+    if not MANIFEST_FILE.is_file() and BASE_MANIFEST_FILE.is_file():
+        MANIFEST_FILE.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(str(BASE_MANIFEST_FILE), str(MANIFEST_FILE))
+    if not CUSTOM_WAD_FILE.is_file() and BASE_CUSTOM_WAD_FILE.is_file():
+        shutil.copyfile(str(BASE_CUSTOM_WAD_FILE), str(CUSTOM_WAD_FILE))
+
+
+ensure_runtime_assets()
+
+
+def asset_manifest_texture_names():
+    try:
+        source = MANIFEST_FILE if MANIFEST_FILE.is_file() else BASE_MANIFEST_FILE
+        manifest = json.loads(source.read_text(encoding="utf-8"))
+        return {
+            str(item.get("name", "")).upper()
+            for item in manifest.get("textures", [])
+            if isinstance(item, dict) and item.get("name")
+        }
+    except (OSError, ValueError):
+        return set()
+
+
+CUSTOM_TEXTURE_NAMES = SUNBURST_TEXTURE_NAMES | asset_manifest_texture_names()
+TEXTURE_CATEGORIES = {
+    "architecture", "concrete", "brick", "stone", "ground", "nature",
+    "organic", "fabric", "plaster", "floor", "metal", "wood",
+}
+TEXTURE_IMPORT_LOCK = threading.Lock()
+
+
+def read_config():
+    try:
+        value = json.loads(CONFIG_FILE.read_text(encoding="utf-8"))
+        return value if isinstance(value, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def write_config(config):
+    CONFIG_FILE.write_text(json.dumps(config, indent=2), encoding="utf-8")
+
+
+def texture_manifest():
+    try:
+        source = MANIFEST_FILE if MANIFEST_FILE.is_file() else BASE_MANIFEST_FILE
+        value = json.loads(source.read_text(encoding="utf-8"))
+        return value if isinstance(value, dict) and isinstance(value.get("textures"), list) else {"pack": "Blockout materials", "textures": []}
+    except (OSError, ValueError):
+        return {"pack": "Blockout materials", "textures": []}
+
+
+def node_runtime():
+    candidates = []
+    detected = shutil.which("node") or shutil.which("node.exe")
+    if detected:
+        candidates.append(Path(detected))
+    runtime_root = Path.home() / ".cache" / "codex-runtimes"
+    if runtime_root.is_dir():
+        candidates.extend(runtime_root.glob("*/dependencies/node/bin/node.exe"))
+    return next((path for path in candidates if path.is_file()), None)
+
+
+def rebuild_texture_wad():
+    node = node_runtime()
+    if not node:
+        raise BuildError("The texture importer needs Node.js, but no compatible local runtime was found.")
+    environment = os.environ.copy()
+    bundled_modules = node.parent.parent / "node_modules"
+    if bundled_modules.is_dir():
+        environment["NODE_PATH"] = str(bundled_modules)
+    result = subprocess.run(
+        [str(node), str(ROOT / "tools" / "build_sunburst_wad.js")],
+        cwd=str(ROOT), stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+        universal_newlines=True, errors="replace", timeout=180,
+        creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
+        env=environment,
+    )
+    if result.returncode != 0:
+        raise BuildError("The GoldSrc texture pack could not be rebuilt.\n{}".format((result.stdout or "No builder output")[-4000:]))
+    return result.stdout or "Texture pack rebuilt."
+
+
+def import_texture(payload):
+    raw_name = str(payload.get("name", "")).upper()
+    clean_name = re.sub(r"[^A-Z0-9_]+", "_", raw_name).strip("_")
+    if not clean_name.startswith("USR_"):
+        clean_name = "USR_" + clean_name
+    clean_name = clean_name[:15].rstrip("_")
+    if len(clean_name) < 5:
+        raise BuildError("Choose a texture code after the USR_ prefix.")
+    label = re.sub(r"[\r\n\t]+", " ", str(payload.get("label", ""))).strip()[:48] or clean_name
+    category = str(payload.get("category", "architecture")).lower()
+    if category not in TEXTURE_CATEGORIES:
+        raise BuildError("Choose a supported material category.")
+    image_value = str(payload.get("imageData", ""))
+    if not image_value.startswith("data:image/png;base64,"):
+        raise BuildError("The imported texture must be normalized to PNG first.")
+    try:
+        image_bytes = base64.b64decode(image_value.split(",", 1)[1], validate=True)
+    except (ValueError, TypeError):
+        raise BuildError("The imported PNG data is invalid.")
+    if len(image_bytes) > 4_000_000 or len(image_bytes) < 24 or image_bytes[:8] != b"\x89PNG\r\n\x1a\n":
+        raise BuildError("The normalized PNG is invalid or larger than 4 MB.")
+    width, height = struct.unpack_from(">II", image_bytes, 16)
+    if width != 256 or height != 256:
+        raise BuildError("GoldSrc imports must be normalized to exactly 256 by 256 pixels.")
+
+    manifest_path = MANIFEST_FILE
+    source_path = ROOT / "textures" / "sources" / (clean_name + ".png")
+    preview_path = ROOT / "textures" / "previews" / (clean_name + ".png")
+    wad_path = CUSTOM_WAD_FILE
+    with TEXTURE_IMPORT_LOCK:
+        manifest = texture_manifest()
+        existing = SUNBURST_TEXTURE_NAMES | {str(item.get("name", "")).upper() for item in manifest["textures"] if isinstance(item, dict)}
+        if clean_name in existing or source_path.exists():
+            raise BuildError("Texture code {} already exists. Choose another name.".format(clean_name))
+        previous_manifest = manifest_path.read_bytes()
+        previous_wad = wad_path.read_bytes() if wad_path.is_file() else None
+        item = {
+            "name": clean_name, "label": label, "category": category,
+            "file": clean_name + ".png", "author": "User import",
+            "license": "User supplied", "source": "user",
+            "createdAt": int(time.time()),
+        }
+        try:
+            source_path.write_bytes(image_bytes)
+            manifest["textures"].append(item)
+            temporary_manifest = manifest_path.with_suffix(".json.tmp")
+            temporary_manifest.write_text(json.dumps(manifest, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+            os.replace(str(temporary_manifest), str(manifest_path))
+            builder_log = rebuild_texture_wad()
+            validate_custom_wad(wad_path)
+        except Exception:
+            if source_path.exists():
+                source_path.unlink()
+            if preview_path.exists():
+                preview_path.unlink()
+            manifest_path.write_bytes(previous_manifest)
+            if previous_wad is None:
+                if wad_path.exists():
+                    wad_path.unlink()
+            else:
+                wad_path.write_bytes(previous_wad)
+            raise
+        CUSTOM_TEXTURE_NAMES.add(clean_name)
+        return {"ok": True, "texture": item, "preview": "textures/previews/{}.png".format(clean_name), "log": builder_log.strip()}
+
+
+def remove_texture(payload):
+    clean_name = re.sub(r"[^A-Z0-9_]+", "_", str(payload.get("name", "")).upper()).strip("_")
+    if not clean_name.startswith("USR_"):
+        raise BuildError("Only user-imported USR_ textures can be deleted.")
+
+    manifest_path = ROOT / "textures" / "asset-manifest.json"
+    wad_path = ROOT / "sunburst.wad"
+    with TEXTURE_IMPORT_LOCK:
+        manifest = texture_manifest()
+        item = next((entry for entry in manifest["textures"] if isinstance(entry, dict) and str(entry.get("name", "")).upper() == clean_name), None)
+        if not item or item.get("source") != "user":
+            raise BuildError("{} is not a deletable user-imported texture.".format(clean_name))
+
+        source_path = ROOT / "textures" / "sources" / str(item.get("file") or (clean_name + ".png"))
+        preview_path = ROOT / "textures" / "previews" / (clean_name + ".png")
+        previous_manifest = manifest_path.read_bytes()
+        previous_wad = wad_path.read_bytes() if wad_path.is_file() else None
+        source_bytes = source_path.read_bytes() if source_path.is_file() else None
+        preview_bytes = preview_path.read_bytes() if preview_path.is_file() else None
+        try:
+            manifest["textures"] = [entry for entry in manifest["textures"] if entry is not item]
+            temporary_manifest = manifest_path.with_suffix(".json.tmp")
+            temporary_manifest.write_text(json.dumps(manifest, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+            os.replace(str(temporary_manifest), str(manifest_path))
+            builder_log = rebuild_texture_wad()
+            validate_custom_wad(wad_path)
+            if source_path.exists():
+                source_path.unlink()
+            if preview_path.exists():
+                preview_path.unlink()
+        except Exception:
+            manifest_path.write_bytes(previous_manifest)
+            if previous_wad is None:
+                if wad_path.exists():
+                    wad_path.unlink()
+            else:
+                wad_path.write_bytes(previous_wad)
+            if source_bytes is not None:
+                source_path.write_bytes(source_bytes)
+            if preview_bytes is not None:
+                preview_path.write_bytes(preview_bytes)
+            raise
+        CUSTOM_TEXTURE_NAMES.discard(clean_name)
+        return {"ok": True, "name": clean_name, "log": builder_log.strip()}
+
+
+def steam_roots():
+    roots = []
+    try:
+        import winreg
+
+        for hive, key_name in (
+            (winreg.HKEY_CURRENT_USER, r"Software\Valve\Steam"),
+            (winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\WOW6432Node\Valve\Steam"),
+        ):
+            try:
+                with winreg.OpenKey(hive, key_name) as key:
+                    roots.append(Path(winreg.QueryValueEx(key, "SteamPath")[0]))
+            except OSError:
+                pass
+    except ImportError:
+        pass
+
+    roots.extend(
+        Path(path)
+        for path in (
+            r"C:\Program Files (x86)\Steam",
+            r"C:\Program Files\Steam",
+            r"D:\Steam",
+            r"E:\Steam",
+            r"F:\Steam",
+            r"G:\Steam",
+        )
+    )
+    unique = []
+    for root in roots:
+        if root not in unique:
+            unique.append(root)
+    return unique
+
+
+def game_is_valid(path):
+    return bool(path and (path / "hl.exe").is_file() and (path / "cstrike").is_dir())
+
+
+def detect_game_path(config):
+    configured = Path(config.get("gamePath", "")) if config.get("gamePath") else None
+    if configured and game_is_valid(configured):
+        return configured
+    for steam in steam_roots():
+        candidate = steam / "steamapps" / "common" / "Half-Life"
+        if game_is_valid(candidate):
+            return candidate
+    return configured
+
+
+def tool_file(folder, base_name):
+    if not folder or not folder.is_dir():
+        return None
+    try:
+        files = {item.name.lower(): item for item in folder.iterdir() if item.is_file()}
+    except OSError:
+        return None
+    sd_name = "sd" + base_name
+    for name in (
+        f"{base_name}.exe", f"{base_name}_x64.exe", f"{base_name}_x86.exe",
+        f"{sd_name}.exe", f"{sd_name}_x64.exe", f"{sd_name}_x86.exe",
+    ):
+        if name in files:
+            return files[name]
+    return None
+
+
+def compiler_tools(folder):
+    return {name: tool_file(folder, name) for name in TOOL_NAMES}
+
+
+def compiler_folder_is_valid(folder):
+    return bool(folder and all(compiler_tools(folder).values()))
+
+
+def detect_compiler_path(config, game_path):
+    candidates = []
+    if config.get("compilerPath"):
+        candidates.append(Path(config["compilerPath"]))
+    candidates.extend((ROOT / "tools", ROOT / "tools" / "vhlt", ROOT / "tools" / "zhlt"))
+    if game_path:
+        common = game_path.parent
+        candidates.extend(
+            (
+                game_path,
+                common / "Half-Life SDK" / "Hammer Editor" / "tools",
+                common / "Half-Life SDK" / "tools",
+            )
+        )
+    candidates.extend((Path(r"C:\Program Files\J.A.C.K\halflife"), Path(r"C:\Program Files (x86)\J.A.C.K\halflife")))
+    for folder in candidates:
+        if compiler_folder_is_valid(folder):
+            return folder
+    return Path(config["compilerPath"]) if config.get("compilerPath") else None
+
+
+def current_status():
+    config = read_config()
+    game_path = detect_game_path(config)
+    compiler_path = detect_compiler_path(config, game_path)
+    tools = compiler_tools(compiler_path)
+    stock_wads = {
+        "cstrike": game_path / "cstrike" / "cstrike.wad" if game_path else None,
+        "halflife": game_path / "valve" / "halflife.wad" if game_path else None,
+    }
+    maps_path = game_path / "cstrike" / "maps" if game_path else None
+    install_parent = maps_path if maps_path and maps_path.is_dir() else (game_path / "cstrike" if game_path else None)
+    return {
+        "connected": True,
+        "version": VERSION,
+        "gamePath": str(game_path) if game_path else "",
+        "gameFound": game_is_valid(game_path),
+        "compilerPath": str(compiler_path) if compiler_path else "",
+        "compilersFound": all(tools.values()),
+        "tools": {name: str(path) if path else "" for name, path in tools.items()},
+        "missingTools": [name for name, path in tools.items() if not path],
+        "wads": {name: str(path) if path and path.is_file() else "" for name, path in stock_wads.items()},
+        "stockWadsFound": all(path and path.is_file() for path in stock_wads.values()),
+        "missingWads": ["{}.wad".format(name) for name, path in stock_wads.items() if not path or not path.is_file()],
+        "customWadFound": (ROOT / "sunburst.wad").is_file(),
+        "textureImporterReady": node_runtime() is not None,
+        "mapsPath": str(maps_path) if maps_path else "",
+        "mapsWritable": bool(install_parent and install_parent.is_dir() and os.access(str(install_parent), os.W_OK)),
+    }
+
+
+def replace_wad_paths(map_text, game_path, compiler_path=None):
+    wad_paths = [game_path / "cstrike" / "cstrike.wad", game_path / "valve" / "halflife.wad"]
+    if compiler_path:
+        wad_paths.append(compiler_path / "sdhlt.wad")
+    custom_wad = ROOT / "sunburst.wad"
+    if custom_wad.is_file() and custom_texture_names_in_map(map_text):
+        wad_paths.append(custom_wad)
+    value = ";".join(str(path) for path in wad_paths if path.is_file())
+    if not value:
+        return map_text
+    line = '"wad" "{}"'.format(value)
+    return re.sub(r'^"wad"\s+"[^"]*"$', lambda _: line, map_text, count=1, flags=re.MULTILINE)
+
+
+def custom_texture_names_in_map(map_text):
+    """Return only custom miptex names actually referenced by this map source."""
+    upper = map_text.upper()
+    return {name for name in CUSTOM_TEXTURE_NAMES if re.search(r"\b{}\b".format(re.escape(name)), upper)}
+
+
+def strip_embedded_wad_references(bsp_file, wad_names=("sunburst.wad", "sdhlt.wad")):
+    """Remove compile-only WADs from a BSP's worldspawn after their textures were embedded."""
+    data = bytearray(bsp_file.read_bytes())
+    if len(data) < 124 or struct.unpack_from("<i", data, 0)[0] != 30:
+        raise BuildError("The compiler produced an unsupported or damaged BSP file.")
+    entity_offset, entity_length = struct.unpack_from("<ii", data, 4)
+    if entity_offset < 0 or entity_length < 1 or entity_offset + entity_length > len(data):
+        raise BuildError("The compiler produced a BSP with an invalid entity section.")
+
+    entity_bytes = bytes(data[entity_offset:entity_offset + entity_length])
+    entity_text = entity_bytes.split(b"\0", 1)[0].decode("latin-1")
+    remove_names = {name.lower() for name in wad_names}
+
+    def clean_wad_line(match):
+        kept = []
+        for value in match.group(1).split(";"):
+            if not value.strip():
+                continue
+            if Path(value.strip()).name.lower() not in remove_names:
+                kept.append(value)
+        return '"wad" "{}"'.format(";".join(kept))
+
+    cleaned = re.sub(r'^"wad"\s+"([^"]*)"$', clean_wad_line, entity_text, count=1, flags=re.MULTILINE)
+    encoded = cleaned.encode("latin-1") + b"\0"
+    if len(encoded) > entity_length:
+        raise BuildError("The BSP runtime WAD cleanup exceeded its entity storage.")
+    data[entity_offset:entity_offset + entity_length] = b"\0" * entity_length
+    data[entity_offset:entity_offset + len(encoded)] = encoded
+    struct.pack_into("<i", data, 8, len(encoded))
+    bsp_file.write_bytes(data)
+
+
+def validate_custom_wad(wad_file):
+    """Reject malformed miptex records that compilers accept but GoldSrc cannot render."""
+    data = wad_file.read_bytes()
+    if len(data) < 12 or data[:4] != b"WAD3":
+        raise BuildError("The custom texture pack is not a valid WAD3 file.")
+    texture_count, directory_offset = struct.unpack_from("<ii", data, 4)
+    if texture_count < 1 or directory_offset < 12 or directory_offset + texture_count * 32 > len(data):
+        raise BuildError("The custom texture pack has an invalid directory.")
+
+    for index in range(texture_count):
+        entry = directory_offset + index * 32
+        file_offset, disk_size, _, texture_type, compression, _, raw_name = struct.unpack_from("<iiiBBh16s", data, entry)
+        texture_name = raw_name.split(b"\0", 1)[0].decode("ascii", "replace") or "unnamed"
+        if texture_type != 0x43 or compression != 0 or file_offset % 4 or disk_size % 4:
+            raise BuildError("Custom texture {} has an invalid GoldSrc miptexture layout.".format(texture_name))
+        if file_offset < 12 or disk_size < 44 or file_offset + disk_size > directory_offset:
+            raise BuildError("Custom texture {} points outside the WAD data section.".format(texture_name))
+        width, height, mip0, mip1, mip2, mip3 = struct.unpack_from("<6I", data, file_offset + 16)
+        if width < 16 or height < 16 or width & (width - 1) or height & (height - 1):
+            raise BuildError("Custom texture {} must use power-of-two dimensions.".format(texture_name))
+        expected_offsets = (40, 40 + width * height, 40 + width * height * 5 // 4, 40 + width * height * 21 // 16)
+        if (mip0, mip1, mip2, mip3) != expected_offsets:
+            raise BuildError("Custom texture {} has invalid mipmap offsets.".format(texture_name))
+        palette_offset = file_offset + mip3 + width * height // 64
+        if palette_offset + 772 > file_offset + disk_size or struct.unpack_from("<H", data, palette_offset)[0] != 256:
+            raise BuildError("Custom texture {} has an invalid palette or missing alignment padding.".format(texture_name))
+
+
+def validate_embedded_bsp_textures(bsp_file, required_names=CUSTOM_TEXTURE_NAMES):
+    """Ensure custom mip pixels are inside the BSP instead of merely named in its texture lump."""
+    data = bsp_file.read_bytes()
+    if len(data) < 124 or struct.unpack_from("<i", data, 0)[0] != 30:
+        raise BuildError("The compiler produced an unsupported or damaged BSP file.")
+    texture_offset, texture_length = struct.unpack_from("<ii", data, 4 + 2 * 8)
+    if texture_offset < 0 or texture_length < 8 or texture_offset + texture_length > len(data):
+        raise BuildError("The compiled BSP has an invalid texture section.")
+    lump = data[texture_offset:texture_offset + texture_length]
+    texture_count = struct.unpack_from("<i", lump, 0)[0]
+    if texture_count < 1 or 4 + texture_count * 4 > len(lump):
+        raise BuildError("The compiled BSP has an invalid texture table.")
+
+    embedded = set()
+    for index in range(texture_count):
+        mip_offset = struct.unpack_from("<i", lump, 4 + index * 4)[0]
+        if mip_offset < 0 or mip_offset + 40 > len(lump):
+            continue
+        raw_name, width, height, mip0, mip1, mip2, mip3 = struct.unpack_from("<16s6I", lump, mip_offset)
+        name = raw_name.split(b"\0", 1)[0].decode("ascii", "replace").upper()
+        final_byte = mip_offset + mip3 + (width * height // 64) if width and height and mip3 else 0
+        if mip0 and mip1 and mip2 and mip3 and final_byte <= len(lump):
+            embedded.add(name)
+    missing = sorted(set(required_names) - embedded)
+    if missing:
+        raise BuildError(
+            "The build did not embed its custom texture pixels (missing: {}). "
+            "Restart the Blockout companion and build again.".format(", ".join(missing))
+        )
+
+
+def friendly_failure(log):
+    lower = log.lower()
+    if "leak" in lower:
+        return "The map has a leak: the playable space is connected to the outside void. Check room connections and door placement."
+    if "couldn't open" in lower and ".wad" in lower:
+        return "A texture WAD could not be opened. Check the Counter-Strike folder and WAD paths."
+    if "brush with coplanar faces" in lower or "outside world" in lower:
+        return "Invalid brush geometry was detected. Resize or remove the room mentioned near the end of the log."
+    if "exceeded" in lower or "max_" in lower:
+        return "A GoldSrc engine limit was exceeded. Simplify the map and check the end of the compile log."
+    return "A compiler stage failed. Review the final lines of the compile log."
+
+
+def install_compiled_bsp(bsp_file, maps_dir, map_name):
+    def is_locked(error):
+        return isinstance(error, PermissionError) or getattr(error, "winerror", None) in (5, 32, 33) or getattr(error, "errno", None) in (13, 16, 32)
+
+    installed_bsp = maps_dir / bsp_file.name
+    try:
+        shutil.copy2(str(bsp_file), str(installed_bsp))
+        return installed_bsp, map_name, False
+    except OSError as primary_error:
+        if not is_locked(primary_error):
+            raise
+        for index in range(2, 1000):
+            candidate = maps_dir / ("{}_preview_{}.bsp".format(map_name, index))
+            if candidate.exists():
+                continue
+            try:
+                shutil.copy2(str(bsp_file), str(candidate))
+                return candidate, candidate.stem, True
+            except OSError as fallback_error:
+                if not is_locked(fallback_error):
+                    raise
+                raise primary_error
+        raise primary_error
+
+
+def compile_map(payload):
+    status = current_status()
+    if not status["gameFound"]:
+        raise BuildError("Counter-Strike 1.6 was not found. Select the folder containing hl.exe.")
+    if not status["compilersFound"]:
+        missing = ", ".join(status["missingTools"])
+        raise BuildError("GoldSrc compiler tools are missing: {}.".format(missing))
+
+    raw_name = str(payload.get("mapName", ""))[:64].lower()
+    map_name = re.sub(r"[^a-z0-9_-]+", "_", raw_name).strip("_")
+    map_text = payload.get("mapText")
+    if not map_name:
+        raise BuildError("Choose a valid map name.")
+    if not isinstance(map_text, str) or len(map_text) > 10_000_000 or '"classname" "worldspawn"' not in map_text:
+        raise BuildError("The received map source is invalid or too large.")
+
+    game_path = Path(status["gamePath"])
+    custom_wad = ROOT / "sunburst.wad"
+    custom_textures_used = custom_texture_names_in_map(map_text)
+    if not status["stockWadsFound"]:
+        raise BuildError(
+            "Required stock texture WADs are missing: {}. Select the Half-Life folder that contains "
+            "cstrike/cstrike.wad and valve/halflife.wad.".format(", ".join(status["missingWads"]))
+        )
+    if custom_textures_used and not custom_wad.is_file():
+        raise BuildError(
+            "This map uses custom textures ({}), but sunburst.wad is missing beside Blockout. "
+            "Restore the texture pack or replace those materials before building."
+            .format(", ".join(sorted(custom_textures_used)))
+        )
+    if custom_textures_used:
+        validate_custom_wad(custom_wad)
+    build_dir = BUILD_ROOT / map_name
+    try:
+        build_dir.mkdir(parents=True, exist_ok=True)
+    except OSError as error:
+        raise BuildError("The build workspace could not be created: {}".format(error))
+    map_file = build_dir / (map_name + ".map")
+    base_file = build_dir / map_name
+    for extension in (".bsp", ".prt", ".vis", ".lit", ".log", ".err", ".wa_", ".p0", ".p1", ".p2", ".p3"):
+        stale_file = base_file.with_suffix(extension)
+        if not stale_file.exists():
+            continue
+        try:
+            stale_file.unlink()
+        except OSError as error:
+            raise BuildError(
+                "A previous build output is locked: {}. Close the game or tool holding it, then retry."
+                .format(stale_file)
+            ) from error
+    try:
+        with map_file.open("w", encoding="utf-8", newline="\n") as stream:
+            stream.write(replace_wad_paths(map_text, game_path, Path(status["compilerPath"])))
+    except OSError as error:
+        raise BuildError("The MAP source could not be written: {}".format(error))
+
+    lines = [
+        "BLOCKOUT BUILD",
+        "Map: {}".format(map_name),
+        "Game: {}".format(game_path),
+        "Compilers: {}".format(status["compilerPath"]),
+        "",
+    ]
+    tools = {name: Path(path) for name, path in status["tools"].items()}
+    for stage in TOOL_NAMES:
+        lines.append("=== {} ===".format(stage.upper()))
+        command = [str(tools[stage])]
+        custom_wad = ROOT / "sunburst.wad"
+        if stage == "hlcsg" and custom_wad.is_file() and custom_textures_used:
+            command.extend(["-wadinclude", str(custom_wad)])
+        command.append(str(base_file))
+        try:
+            result = subprocess.run(
+                command,
+                cwd=str(build_dir),
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                universal_newlines=True,
+                errors="replace",
+                timeout=900,
+                creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
+            )
+        except subprocess.TimeoutExpired:
+            raise BuildError("{} timed out after 15 minutes.".format(stage.upper()), "\n".join(lines))
+        except OSError as error:
+            raise BuildError("Could not start {}: {}".format(stage, error), "\n".join(lines))
+        output = result.stdout or "(no output)"
+        lines.append(output.rstrip())
+        lines.append("")
+        if result.returncode != 0:
+            full_log = "\n".join(lines)
+            raise BuildError("{}\n\n{}".format(friendly_failure(full_log), full_log[-7000:]), full_log)
+
+    bsp_file = build_dir / (map_name + ".bsp")
+    if not bsp_file.is_file():
+        full_log = "\n".join(lines)
+        raise BuildError("The compilers finished without producing a BSP file.\n\n{}".format(full_log[-5000:]), full_log)
+    if custom_wad.is_file() and custom_textures_used:
+        validate_embedded_bsp_textures(bsp_file, custom_textures_used)
+    strip_embedded_wad_references(bsp_file)
+
+    maps_dir = game_path / "cstrike" / "maps"
+    maps_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        installed_bsp, launch_map_name, used_fallback = install_compiled_bsp(bsp_file, maps_dir, map_name)
+    except PermissionError:
+        raise BuildError(
+            "Compilation succeeded, but the Counter-Strike maps folder is not writable. "
+            "Close CS 1.6 and restart Blockout, then try again. The compiled BSP is safe at {}."
+            .format(bsp_file),
+            "\n".join(lines),
+        )
+    except OSError as error:
+        raise BuildError(
+            "Compilation succeeded, but BSP installation failed: {}. The compiled BSP is safe at {}."
+            .format(error, bsp_file),
+            "\n".join(lines),
+        )
+    if used_fallback:
+        lines.extend((
+            "NOTE: The previous BSP is open in Counter-Strike and could not be replaced.",
+            "Installed this build with the safe preview name: {}".format(launch_map_name),
+        ))
+    lines.extend(("BUILD COMPLETE", "Installed: {}".format(installed_bsp)))
+
+    launched = False
+    if bool(payload.get("launch")):
+        subprocess.Popen(
+            [str(game_path / "hl.exe"), "-game", "cstrike", "-dev", "-console", "+map", launch_map_name],
+            cwd=str(game_path),
+            creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP if os.name == "nt" else 0,
+        )
+        launched = True
+        lines.append("Launching Counter-Strike 1.6…")
+
+    return {"ok": True, "launched": launched, "mapName": launch_map_name, "bspPath": str(installed_bsp), "usedFallbackName": used_fallback, "log": "\n".join(lines)}
+
+
+class BuildError(Exception):
+    def __init__(self, message, log=""):
+        super().__init__(message)
+        self.log = log
+
+
+class BlockoutHandler(SimpleHTTPRequestHandler):
+    server_version = "BlockoutCompanion/{}".format(VERSION)
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, directory=str(ROOT), **kwargs)
+
+    def log_message(self, format_string, *args):
+        sys.stdout.write("[%s] %s\n" % (self.log_date_time_string(), format_string % args))
+
+    def request_origin(self):
+        return self.headers.get("Origin", "").rstrip("/")
+
+    def is_known_origin(self):
+        origin = self.request_origin()
+        return not origin or origin in LOCAL_ORIGINS or origin in ONLINE_ORIGINS
+
+    def is_online_request(self):
+        return self.request_origin() in ONLINE_ORIGINS
+
+    def request_pairing_secret(self):
+        query = parse_qs(urlparse(self.path).query)
+        value = self.headers.get("X-Blockout-Pairing") or query.get("pair", [""])[0]
+        return str(value).replace("-", "").upper()
+
+    def is_paired(self):
+        if not self.is_online_request():
+            return self.is_known_origin()
+        return secrets.compare_digest(self.request_pairing_secret(), PAIRING_SECRET)
+
+    def send_pairing_required(self):
+        self.send_json(401, {
+            "error": "Pairing required. Enter the code shown by Start Blockout.cmd.",
+            "pairingRequired": True,
+            "version": VERSION,
+        })
+
+    def end_headers(self):
+        origin = self.request_origin()
+        if origin in LOCAL_ORIGINS or origin in ONLINE_ORIGINS:
+            self.send_header("Access-Control-Allow-Origin", origin)
+            self.send_header("Vary", "Origin")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type, X-Blockout-Pairing")
+        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+        if origin in ONLINE_ORIGINS and self.headers.get("Access-Control-Request-Private-Network", "").lower() == "true":
+            self.send_header("Access-Control-Allow-Private-Network", "true")
+        self.send_header("Cache-Control", "no-store")
+        super().end_headers()
+
+    def send_json(self, status_code, value):
+        data = json.dumps(value).encode("utf-8")
+        self.send_response(status_code)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
+
+    def do_OPTIONS(self):
+        if not self.is_known_origin():
+            self.send_response(403)
+            self.end_headers()
+            return
+        self.send_response(204)
+        self.end_headers()
+
+    def do_GET(self):
+        path = urlparse(self.path).path
+        if not self.is_known_origin():
+            self.send_error(403)
+            return
+        if path == "/api/status":
+            if not self.is_paired():
+                self.send_pairing_required()
+                return
+            self.send_json(200, current_status())
+            return
+        if path == "/api/textures":
+            if not self.is_paired():
+                self.send_pairing_required()
+                return
+            self.send_json(200, {"textures": texture_manifest().get("textures", []), "importReady": node_runtime() is not None})
+            return
+        if self.is_online_request() and path.startswith("/textures/previews/"):
+            if not self.is_paired():
+                self.send_pairing_required()
+                return
+            super().do_GET()
+            return
+        if self.is_online_request():
+            self.send_error(404)
+            return
+        if path == "/builds" or path.startswith("/builds/") or path == "/blockout.config.json":
+            self.send_error(404)
+            return
+        super().do_GET()
+
+    def read_payload(self):
+        try:
+            length = int(self.headers.get("Content-Length", "0"))
+        except ValueError:
+            raise BuildError("Invalid request length.")
+        if length <= 0 or length > 12_000_000:
+            raise BuildError("Request is empty or too large.")
+        try:
+            return json.loads(self.rfile.read(length).decode("utf-8"))
+        except (UnicodeDecodeError, ValueError):
+            raise BuildError("Request body is not valid JSON.")
+
+    def do_POST(self):
+        path = urlparse(self.path).path
+        try:
+            if not self.is_known_origin():
+                self.send_json(403, {"error": "This website is not allowed to use the Blockout companion."})
+                return
+            payload = self.read_payload()
+            if path == "/api/pair":
+                if not self.is_online_request():
+                    self.send_json(400, {"error": "Pairing is only used by the hosted Blockout editor."})
+                    return
+                supplied = str(payload.get("code", "")).replace("-", "").upper()
+                if not secrets.compare_digest(supplied, PAIRING_SECRET):
+                    self.send_json(403, {"error": "That pairing code is not correct. Read the current code from Start Blockout.cmd."})
+                    return
+                status = current_status()
+                status["paired"] = True
+                self.send_json(200, status)
+                return
+            if not self.is_paired():
+                self.send_pairing_required()
+                return
+            if path == "/api/config":
+                config = read_config()
+                config["gamePath"] = str(payload.get("gamePath", "")).strip()
+                config["compilerPath"] = str(payload.get("compilerPath", "")).strip()
+                write_config(config)
+                self.send_json(200, current_status())
+                return
+            if path == "/api/build":
+                self.send_json(200, compile_map(payload))
+                return
+            if path == "/api/textures/import":
+                self.send_json(200, import_texture(payload))
+                return
+            if path == "/api/textures/remove":
+                self.send_json(200, remove_texture(payload))
+                return
+            self.send_json(404, {"error": "Unknown API endpoint."})
+        except BuildError as error:
+            self.send_json(400, {"error": str(error), "log": error.log})
+        except Exception as error:
+            self.send_json(500, {"error": "Unexpected companion error: {}".format(error)})
+
+
+def open_editor():
+    time.sleep(0.5)
+    webbrowser.open("http://{}:{}/index.html".format(HOST, PORT))
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Blockout local build companion")
+    parser.add_argument("--check", action="store_true", help="Print detected configuration and exit")
+    parser.add_argument("--no-browser", action="store_true", help="Do not open the editor automatically")
+    args = parser.parse_args()
+    if args.check:
+        print(json.dumps(current_status(), indent=2))
+        return 0
+
+    try:
+        server = ThreadingHTTPServer((HOST, PORT), BlockoutHandler)
+    except OSError as error:
+        print("Could not start Blockout on port {}: {}".format(PORT, error))
+        print("If Blockout is already open, visit http://{}:{}/index.html".format(HOST, PORT))
+        return 1
+
+    print("Blockout companion {}".format(VERSION))
+    print("Editor: http://{}:{}/index.html".format(HOST, PORT))
+    print("Online pairing code: {}-{}".format(PAIRING_SECRET[:4], PAIRING_SECRET[4:]), flush=True)
+    print("Enter this code only at {}.".format(next(iter(ONLINE_ORIGINS))))
+    status = current_status()
+    print("CS 1.6: {}".format(status["gamePath"] or "not found"))
+    print("Compilers: {}".format(status["compilerPath"] or "not configured"))
+    print("Keep this window open while building. Press Ctrl+C to stop.\n")
+    if not args.no_browser:
+        threading.Thread(target=open_editor, daemon=True).start()
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        print("\nStopping Blockout companion.")
+    finally:
+        server.server_close()
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

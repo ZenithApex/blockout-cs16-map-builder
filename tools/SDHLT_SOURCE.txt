@@ -1,0 +1,22 @@
+SDHLT v1.2.0
+
+Primary project:
+https://github.com/seedee/SDHLT
+
+Release page:
+https://github.com/seedee/SDHLT/releases/tag/v1.2.0
+
+Downloaded asset:
+sdhlt_v120.zip
+
+Archive SHA-256:
+f271d24c00bbd59f1e388fe71847cc078a12dac56f8bd773bb48797b5f044d7a
+
+64-bit tool SHA-256 hashes:
+sdHLCSG_x64.exe  8AFB5D2CF16CC1B248EC46D0ED566A27123A1710630D1CA764B85A15232F3537
+sdHLBSP_x64.exe  3FB9B5FF493552F978E58784E660987EC1058CCB2464CE40CB8B9C5E9DFC2BAA
+sdHLVIS_x64.exe  CB94BD9CC5F8EEAE6368B2B72A6723F182F87F5ECBCDF80B6F330E483F5B9477
+sdHLRAD_x64.exe  769EA697B3E6C4003D4A50BE980EFA7716C7A7CC1B55E71FEE656AB349FFAFDB
+
+The release executables are not Authenticode-signed. These hashes record the
+exact files obtained from the project's GitHub release asset on 2026-07-17.
