@@ -27,7 +27,9 @@ the archive and executable SHA-256 hashes before installation.
 ## Suggested test pass
 
 - Create, resize, rotate, duplicate, and delete rectangular and polygon rooms.
+- With **Smart links** enabled, touch two same-level rectangular rooms and confirm one centered opening is created; disable it and confirm connections remain manual.
 - Add doors, windows, stairs, ramps, ladders, platforms, and crates.
+- Place a stair, ramp, or ladder without a destination and confirm it receives a grouped landing or valid upper-floor opening.
 - Try Orbit and Walkthrough, including collisions and interactive doors.
 - Change wall, floor, ceiling, ground, and sky materials.
 - Save a project, reload the page, and confirm autosave recovery.

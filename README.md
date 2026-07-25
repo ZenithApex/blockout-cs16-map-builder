@@ -76,6 +76,7 @@ The hosted editor can securely pair with the Windows companion for **Build & Tes
 - Draw compile-safe cylinders, solid wedges, grouped three-brush archways, and sloped roof brushes
 - Pan large plans with the **Hand / Pan** tool, middle-mouse drag, or temporary **Space + drag**
 - Draw narrow corridor spaces
+- Keep **Smart links** enabled to cut centered openings automatically when rectangular rooms or corridors touch
 - Cut door openings where rooms and corridors meet
 - Place doors and windows on straight or diagonal polygon walls, then adjust their physical opening width and height
 - Turn an opening into a textured sliding door, use it with `E` in Walkthrough, and export it as `func_door`
@@ -87,6 +88,7 @@ The hosted editor can securely pair with the Windows companion for **Build & Tes
 - Place solid crates and draw directional stairs or ramps
 - Drag solid interior walls, cover blocks, and columns with adjustable dimensions, height, and material
 - Draw elevated walkable platforms and connect them with directional ladders
+- Create grouped landings or upper-floor openings automatically when placing stairs, ramps, and ladders
 - Set wall height, ramp rise/steepness, and stair total rise/step count with GoldSrc-unit guidance
 - Rotate or reverse structures and duplicate/copy/paste selected map elements
 - Shift-click or Alt-drag to select several objects, then group, ungroup, lock, hide, transform, copy, or delete them together
@@ -142,6 +144,12 @@ Every room already owns a sealed floor. Select the room and change **Base floor 
 Use **Floor slab** (`B`) to drag a rectangular insert, or **Polygon floor** (`M`) to click a custom convex outline. Select the slab to set its absolute walkable **Floor elevation**, thickness, and material. A new slab starts 16 GoldSrc units above the host room and is immediately walkable. Use stairs, ramps, or ladders for larger changes in level.
 
 Both slab types appear in the top-down plan, Orbit preview, and Walkthrough collision. They export as ordinary solid GoldSrc brushes; the polygon variant uses the same compile-safe convex validation as polygon rooms.
+
+## Smart connections
+
+**Smart links** is enabled by default above the top-down plan. When two rectangular rooms or corridors touch on the same elevation, Blockout cuts one centered, compile-safe opening along their shared wall. The same check runs after drawing, moving, or resizing a room. Existing doors and windows are preserved, and the switch can be disabled whenever a connection should remain fully manual.
+
+Stairs, ramps, and ladders also receive a destination assist. Blockout creates a grouped landing when the connector would otherwise end in open space, or cuts a grouped floor opening when it reaches a rectangular upper story. Ladder exits recognize the normal 32-unit GoldSrc reach below an upper floor. Undo removes the complete placement in one step, while ungrouping keeps every generated brush independently editable.
 
 ## Layers and vertical editing
 
@@ -231,7 +239,7 @@ Blockout can also use another trusted GoldSrc VHLT/ZHLT tool package. Either:
 
 Standard filenames and `_x64`/`_x86` variants are supported. Build & Test now reports five independent readiness checks: CS 1.6, all four compilers, `cstrike.wad` plus `halflife.wad`, the writable `cstrike/maps` destination, and editor preflight. Choose whether to launch CS 1.6 after compilation or compile and install without launching it.
 
-Companion 1.1 clears stale compiler outputs before each build so an older BSP cannot be mistaken for a successful result. It provides a verified in-app SDHLT installer, Draft/Playtest/Final profiles, live stage and elapsed-time status, safe cancellation, clickable coordinate diagnostics, origin-locked hosted pairing, guarded local texture import/deletion, and atomic WAD rebuilds while remaining loopback-only. Missing stock/custom WADs, locked build artifacts, invalid custom mipmaps, incomplete compiler folders, and unwritable destinations stop early with specific recovery instructions. The complete compiler log is retained in the Build panel after a failed stage. If CS 1.6 is holding the requested BSP open, Blockout automatically installs the new build as the next available `_preview_N` map instead.
+Companion 1.2 clears stale compiler outputs before each build so an older BSP cannot be mistaken for a successful result. It provides a verified in-app SDHLT installer, Draft/Playtest/Final profiles, live stage and elapsed-time status, safe cancellation, clickable coordinate diagnostics, origin-locked hosted pairing, guarded local texture import/deletion, and atomic WAD rebuilds while remaining loopback-only. Missing stock/custom WADs, locked build artifacts, invalid custom mipmaps, incomplete compiler folders, and unwritable destinations stop early with specific recovery instructions. The complete compiler log is retained in the Build panel after a failed stage. If CS 1.6 is holding the requested BSP open, Blockout automatically installs the new build as the next available `_preview_N` map instead.
 
 ## Verified real compiles
 

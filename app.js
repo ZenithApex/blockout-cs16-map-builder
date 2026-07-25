@@ -256,6 +256,7 @@
   let measurement = null;
   let snapUnits = 64;
   let objectSnapEnabled = true;
+  let smartConnectionsEnabled = localStorage.getItem("blockout-smart-connections") !== "off";
   let sampledMaterial = null;
   let surfaceTarget = "object";
   let textureLock = localStorage.getItem("blockout-texture-lock") !== "off";
@@ -2818,6 +2819,57 @@
     showToast(width > 1 ? "Wide doorway prefab created" : "Door opening created");
   }
 
+  function sharedRectRoomBoundary(a,b) {
+    if (a.points?.length || b.points?.length || Math.abs(roomFloor(a)-roomFloor(b))>.13) return null;
+    const overlap=(a1,a2,b1,b2)=>[Math.max(a1,b1),Math.min(a2,b2)];
+    let span;
+    if (Math.abs(a.x+a.w-b.x)<.01 || Math.abs(b.x+b.w-a.x)<.01) {
+      const boundary=Math.abs(a.x+a.w-b.x)<.01?b.x:a.x;
+      span=overlap(a.y,a.y+a.d,b.y,b.y+b.d);
+      if(span[1]-span[0]>=.75)return{axis:"v",boundary,start:span[0],end:span[1],edge:[[boundary,span[0]],[boundary,span[1]]]};
+    }
+    if (Math.abs(a.y+a.d-b.y)<.01 || Math.abs(b.y+b.d-a.y)<.01) {
+      const boundary=Math.abs(a.y+a.d-b.y)<.01?b.y:a.y;
+      span=overlap(a.x,a.x+a.w,b.x,b.x+b.w);
+      if(span[1]-span[0]>=.75)return{axis:"h",boundary,start:span[0],end:span[1],edge:[[span[0],boundary],[span[1],boundary]]};
+    }
+    return null;
+  }
+
+  function smartOpeningForBoundary(room,boundary) {
+    const length=boundary.end-boundary.start,width=Math.max(.5,Math.min(1,length*.72)),center=(boundary.start+boundary.end)/2,half=width/2;
+    const segment=boundary.axis==="v"
+      ? [[boundary.boundary,center-half],[boundary.boundary,center+half]]
+      : [[center-half,boundary.boundary],[center+half,boundary.boundary]];
+    return syncOpeningLegacy({
+      id:crypto.randomUUID(),mode:"opening",height:2,texture:"CSTRIKE_ME4METL",speed:100,
+      edge:boundary.edge.map((point)=>[...point]),edgeRoomId:room.id,edgeIndex:-1,
+      floorLevel:roomFloor(room),segment,
+    });
+  }
+
+  function openingOccupiesBoundary(opening,boundary) {
+    const segment=openingSegment(opening),epsilon=.02;
+    if(boundary.axis==="v")return segment.every(([x])=>Math.abs(x-boundary.boundary)<epsilon)
+      &&Math.max(segment[0][1],segment[1][1])>boundary.start+epsilon&&Math.min(segment[0][1],segment[1][1])<boundary.end-epsilon;
+    return segment.every(([,y])=>Math.abs(y-boundary.boundary)<epsilon)
+      &&Math.max(segment[0][0],segment[1][0])>boundary.start+epsilon&&Math.min(segment[0][0],segment[1][0])<boundary.end-epsilon;
+  }
+
+  function smartConnectRoom(room) {
+    if (!smartConnectionsEnabled || room.points?.length) return [];
+    const created=[];
+    state.rooms.filter((candidate)=>candidate.id!==room.id).forEach((candidate)=>{
+      const boundary=sharedRectRoomBoundary(room,candidate);
+      if(!boundary)return;
+      if([...state.doors,...state.windows].some((item)=>openingOccupiesBoundary(item,boundary)))return;
+      const opening=smartOpeningForBoundary(room,boundary);
+      if(!doorIsConnected(opening))return;
+      state.doors.push(opening);created.push(opening);
+    });
+    return created;
+  }
+
   function adjacentRoomsForOpening(opening) {
     const [a,b]=openingSegment(opening),mid=[(a[0]+b[0])/2,(a[1]+b[1])/2],dx=b[0]-a[0],dy=b[1]-a[1],length=Math.max(.001,Math.hypot(dx,dy)),nx=-dy/length*.2,ny=dx/length*.2;
     const level=opening.floorLevel;
@@ -3666,6 +3718,58 @@
     return [[0,0],[radius,0],[-radius,0],[0,radius],[0,-radius],[radius,radius],[-radius,radius],[radius,-radius],[-radius,-radius]].some(([dx,dy])=>playableSurfaceAt(point.x+dx,point.y+dy,level));
   }
 
+  function connectorLandingRect(prop) {
+    const breadth=Math.max(1,prop.direction==="e"||prop.direction==="w"?prop.d:prop.w);
+    if(prop.direction==="w")return{x:prop.x-1,y:prop.y,w:1,d:breadth};
+    if(prop.direction==="s")return{x:prop.x,y:prop.y+prop.d,w:breadth,d:1};
+    if(prop.direction==="n")return{x:prop.x,y:prop.y-1,w:breadth,d:1};
+    return{x:prop.x+prop.w,y:prop.y,w:1,d:breadth};
+  }
+
+  function connectorOpeningRect(prop,room) {
+    const landing=connectorLandingRect(prop),width=Math.min(2,Math.max(1,landing.w)),depth=Math.min(2,Math.max(1,landing.d));
+    const maxX=room.x+room.w-width-.25,maxY=room.y+room.d-depth-.25;
+    if(maxX<room.x+.25||maxY<room.y+.25)return null;
+    return{
+      x:Math.max(room.x+.25,Math.min(maxX,landing.x)),
+      y:Math.max(room.y+.25,Math.min(maxY,landing.y)),
+      w:width,d:depth,
+    };
+  }
+
+  function connectorDestination(prop) {
+    const base=Number(prop.floorLevel)||0,rawLevel=base+(Number(prop.height)||1),point=connectorTopPoint(prop,.18);
+    const reach=prop.kind==="ladder"?.55:.13;
+    const room=state.rooms
+      .filter((candidate)=>pointInRoom(point.x,point.y,candidate)&&roomFloor(candidate)>=rawLevel-.13&&roomFloor(candidate)<=rawLevel+reach)
+      .sort((a,b)=>Math.abs(roomFloor(a)-rawLevel)-Math.abs(roomFloor(b)-rawLevel))[0]||null;
+    return{base,rawLevel,level:room?roomFloor(room):rawLevel,point,room};
+  }
+
+  function assistVerticalConnector(prop) {
+    if(!smartConnectionsEnabled||!["stairs","ramp","ladder"].includes(prop.kind))return[];
+    const created=[],destination=connectorDestination(prop),{base,level:top,point:topPoint,room:upperRoom}=destination;
+    if(upperRoom&&!pointInFloorOpening(topPoint.x,topPoint.y,top,upperRoom.id)){
+      const holeRect=!upperRoom.points?.length?connectorOpeningRect(prop,upperRoom):null;
+      if(holeRect&&!state.props.some((item)=>item.kind==="floorHole"&&Math.abs((Number(item.floorLevel)||0)-top)<.13&&rectanglesOverlap(item,holeRect))){
+        const groupId=prop.groupId||crypto.randomUUID();prop.groupId=groupId;
+        const hole={id:crypto.randomUUID(),kind:"floorHole",label:"SMART FLOOR OPENING",...holeRect,height:.25,floorLevel:top,hostRoomId:upperRoom.id,texture:"BLACK",groupId};
+        state.props.push(hole);created.push(hole);
+      }
+      return created;
+    }
+    if(!hasLandingNear(topPoint,top)){
+      const landingRect=connectorLandingRect(prop);
+      const clear=rectIsInsideSpace(landingRect)&&!state.props.some((item)=>item.id!==prop.id&&item.kind!=="floorHole"&&rectanglesOverlap(item,landingRect));
+      if(clear){
+        const groupId=prop.groupId||crypto.randomUUID();prop.groupId=groupId;
+        const landing={id:crypto.randomUUID(),kind:"platform",label:"SMART LANDING",...landingRect,height:top-base,floorLevel:base,texture:"BO_CONCRETE",direction:prop.direction,groupId};
+        state.props.push(landing);created.push(landing);
+      }
+    }
+    return created;
+  }
+
   function calculatePreflight() {
     const issues=[],add=(severity,title,detail,ref=null)=>issues.push({severity,title,detail,ref});
     if(!state.rooms.length&&!environmentFor().groundEnabled)add("error","No sealed world","Draw a room or enable map-wide ground before compiling.");
@@ -3682,7 +3786,12 @@
     }
     state.props.forEach((prop)=>{if(prop.points?.length){const error=polygonValidation(prop.points);if(error)add("error","Invalid structure polygon",error,{type:"prop",id:prop.id});}if(!(["platformPolygon","floorPolygon","wallPolygon","cylinder"].includes(prop.kind)?polygonIsInsideSpace(prop.points||[]):rectIsInsideSpace(prop)))add("error","Structure outside buildable space",`${prop.kind} is not fully supported by a room or map ground.`,{type:"prop",id:prop.id});const propLevel=itemLevel("prop",prop),host=state.rooms.find((room)=>Math.abs(roomFloor(room)-propLevel)<.13&&pointInRoom(prop.x+(prop.w||1)/2,prop.y+(prop.d||1)/2,room)),vb=verticalBounds({type:"prop"},prop);if(host&&vb?.top>roomFloor(host)+host.height+.01)add("error","Structure crosses the ceiling",`Top is ${Math.round((vb.top-roomFloor(host))*GRID)} units above this floor, beyond the room ceiling.`,{type:"prop",id:prop.id});if(prop.kind==="stairs"&&prop.height*GRID/Math.max(1,prop.steps||1)>18)add("warning","Stair risers are too tall","Keep individual risers at or below 18 GoldSrc units.",{type:"prop",id:prop.id});if(["ramp","wedge"].includes(prop.kind)&&prop.height/Math.max(.01,structureRun(prop))>1)add("warning","Ramp is steeper than 45°","Reduce its rise or lengthen the run.",{type:"prop",id:prop.id});});
     state.props.filter((prop)=>prop.kind==="floorHole").forEach((prop)=>{const host=state.rooms.find((room)=>room.id===prop.hostRoomId),level=Number(prop.floorLevel)||0,cx=prop.x+prop.w/2,cy=prop.y+prop.d/2,lowerRooms=state.rooms.filter((room)=>room.id!==prop.hostRoomId&&roomFloor(room)<level-.1&&pointInRoom(cx,cy,room)).sort((a,b)=>roomFloor(b)-roomFloor(a)),lower=lowerRooms[0];if(!host||host.points?.length)add("error","Unsupported floor opening","Floor openings require one rectangular host room.",{type:"prop",id:prop.id});if(!lower&&!(environmentFor().groundEnabled&&environmentFor().groundElevation<level-.1))add("error","Floor opening has no lower landing","Add a lower room or terrain below this opening to avoid a void leak.",{type:"prop",id:prop.id});if(lower&&lower.points?.length)add("error","Unsupported lower shaft ceiling","The room below a floor opening must be rectangular so its ceiling can be cut safely.",{type:"room",id:lower.id});if(lower&&Math.abs(roomFloor(lower)+(lower.height||4)-level)>.13)add("error","Floor opening crosses a sealed gap",`${lower.label||"Lower room"}'s ceiling does not meet this floor. Align the levels or add a connecting shaft room.`,{type:"prop",id:prop.id});if(Math.min(prop.w,prop.d)<.5)add("error","Floor opening is too small","Use an opening at least 32 units wide.",{type:"prop",id:prop.id});else if(Math.min(prop.w,prop.d)<1)add("warning","Tight floor opening","A 64-unit opening is safer for players and ladders.",{type:"prop",id:prop.id});});
-    state.props.filter((prop)=>["stairs","stairPrefab","ramp","ladder"].includes(prop.kind)).forEach((prop)=>{const topLevel=(Number(prop.floorLevel)||0)+(Number(prop.height)||1),topPoint=connectorTopPoint(prop);if(!hasLandingNear(topPoint,topLevel))add("error","Vertical connector has no top landing",`${prop.kind} ends at Z ${Math.round(topLevel*GRID)}, but no room floor or platform supports its exit.`,{type:"prop",id:prop.id});if(prop.kind==="ladder"&&(prop.height||0)*GRID<64)add("warning","Short ladder","This ladder climbs less than 64 units.",{type:"prop",id:prop.id});});
+    state.props.filter((prop)=>["stairs","stairPrefab","ramp","ladder"].includes(prop.kind)).forEach((prop)=>{
+      const destination=connectorDestination(prop),topLevel=destination.level,topPoint=destination.point,upperRoom=destination.room;
+      if(upperRoom&&!pointInFloorOpening(topPoint.x,topPoint.y,topLevel,upperRoom.id))add("error","Vertical connector is blocked by an upper floor",`Cut a floor opening at the ${prop.kind} exit or enable Smart links before placing it.`,{type:"prop",id:prop.id});
+      if(!hasLandingNear(topPoint,topLevel))add("error","Vertical connector has no top landing",`${prop.kind} ends at Z ${Math.round(topLevel*GRID)}, but no room floor or platform supports its exit.`,{type:"prop",id:prop.id});
+      if(prop.kind==="ladder"&&(prop.height||0)*GRID<64)add("warning","Short ladder","This ladder climbs less than 64 units.",{type:"prop",id:prop.id});
+    });
     state.props.filter((prop)=>prop.kind==="elevator").forEach((prop)=>{const top=(Number(prop.floorLevel)||0)+(Number(prop.travel)||2),center={x:prop.x+prop.w/2,y:prop.y+prop.d/2};if(!hasLandingNear(center,top,Math.max(prop.w,prop.d)/2+.35))add("error","Elevator has no destination landing",`Add a room floor or platform beside the elevator at Z ${Math.round(top*GRID)}.`,{type:"prop",id:prop.id});});
     [...state.doors.map((item)=>({type:"door",item})),...state.windows.map((item)=>({type:"window",item}))].forEach(({type,item})=>{if(!doorIsConnected(item))add("error","Disconnected opening","The opening no longer has playable space on both sides.",{type,id:item.id});const segment=openingSegment(item);if(Math.hypot(segment[1][0]-segment[0][0],segment[1][1]-segment[0][1])<.5)add("error","Opening is too narrow","Use at least 32 GoldSrc units of width.",{type,id:item.id});});
     state.entities.forEach((entity)=>{if(!isPointInSpace(entity.x+.5,entity.y+.5))add("error","Entity outside playable space",`${entity.kind} is outside every floor.`,{type:"entity",id:entity.id});if(entity.kind==="ambient"&&!/\.wav$/i.test(entity.sound||""))add("warning","Ambient sound is not a WAV","GoldSrc ambient_generic expects an installed .wav path.",{type:"entity",id:entity.id});});
@@ -3912,10 +4021,11 @@
       height: Math.max(1, (hostRoom?.height || 3.5) - .5), floorLevel: floorLevelAt(cell.x+.5,cell.y+.5), direction: "n", texture: "CSTRIKE_ME4METL"
     };
     state.props.push(prop);
+    const assistance=assistVerticalConnector(prop);
     selected = { type: "prop", id: prop.id };
     if (previewMode !== "orbit") setPreviewMode("orbit");
     commit(before);
-    showToast("Ladder placed — choose its facing and height in Selection");
+    showToast(assistance.length ? "Ladder placed with a smart landing or floor opening" : "Ladder placed — choose its facing and height in Selection");
   }
 
   function placeColumn(cell) {
@@ -4085,10 +4195,12 @@
     }
     if (kind === "stairs") prop.steps = recommendedStairSteps(prop);
     state.props.push(prop);
+    const assistance=assistVerticalConnector(prop);
     selected = { type: "prop", id: prop.id };
     if (previewMode !== "orbit") setPreviewMode("orbit");
     commit(before);
     showToast(`${kind === "stairs" ? "Stairs" : ["ramp","wedge"].includes(kind) ? (kind === "wedge" ? "Solid wedge" : "Ramp") : kind === "slopeRoof" ? "Sloped roof" : kind === "cylinder" ? "Cylinder" : kind === "water" ? "Water volume" : kind === "breakable" ? "Breakable brush" : kind === "platform" ? "Platform" : kind === "floor" ? "Floor slab" : kind === "diagonal" ? "Diagonal cover" : "Solid wall"} created — physical in Orbit and Walkthrough`);
+    if(assistance.length)showToast(`${kind === "stairs" ? "Stairs" : "Ramp"} created with a smart landing or floor opening`);
   }
 
   function rectanglesOverlap(a, b) {
@@ -5292,7 +5404,12 @@
         if(drag.ref.type==="prop")rotateSelected(clockwise);
         else if(item){const cx=item.x+(item.w||1)/2,cy=item.y+(item.d||1)/2,oldW=item.w||1;item.w=item.d||1;item.d=oldW;item.x=cx-item.w/2;item.y=cy-item.d/2;if(item.points)item.points=item.points.map(([x,y])=>clockwise?[cx-(y-cy),cy+(x-cx)]:[cx+(y-cy),cy-(x-cx)]);commit(drag.before);showToast("Shape rotated 90°");}
       }
-      else {commit(drag.before);showToast(drag.mode==="height"?"Height updated":"Shape resized");}
+      else {
+        const item=itemForRef(drag.ref);
+        const smartOpenings=drag.mode==="resize"&&drag.ref.type==="room"&&item?smartConnectRoom(item):[];
+        commit(drag.before);
+        showToast(smartOpenings.length?`Shape resized with ${smartOpenings.length} smart opening${smartOpenings.length===1?"":"s"}`:drag.mode==="height"?"Height updated":"Shape resized");
+      }
       return;
     }
     if (movingVertex || movingEdge) {
@@ -5349,10 +5466,13 @@
           ceilingTexture: "C1A0_LABW3", ceilingMode: environmentFor().openSkyDefault ? "sky" : "ceiling"
         };
         state.rooms.push(room);
+        const smartOpenings=smartConnectRoom(room);
         selected = { type: "room", id: room.id };
         drawing = null;
         commit(before);
-        showToast(room.kind === "corridor" ? "Corridor created — connect it with a door" : presetPoints ? `${room.label} created—use Edit corners to reshape it` : "Room created — add another or place team spawns");
+        showToast(smartOpenings.length
+          ? `${room.kind==="corridor"?"Corridor":"Room"} created with ${smartOpenings.length} smart opening${smartOpenings.length===1?"":"s"}`
+          : room.kind === "corridor" ? "Corridor created — touch another room to connect it automatically" : presetPoints ? `${room.label} created—use Edit corners to reshape it` : "Room created — add another or place team spawns");
       }
     }
     if (moving?.entries?.length) {
@@ -5384,7 +5504,9 @@
           const lightRoom = state.rooms.find((room) => pointInRoom(item.x + .5, item.y + .5, room));
           item.z = Math.min(item.z || 2.5, Math.max(.5, (lightRoom?.height || 4) - .25));
         });
+        const smartOpenings=movedEntries.filter(({ref})=>ref.type==="room").flatMap(({item})=>smartConnectRoom(item));
         commit(moving.before);
+        if(smartOpenings.length)showToast(`Move completed with ${smartOpenings.length} smart opening${smartOpenings.length===1?"":"s"}`);
       }
       moving = null;
     }
@@ -5529,6 +5651,12 @@
   $("#ghostLevels").addEventListener("change", (event) => { ghostLevels = event.target.checked; drawEditor(); });
   $("#snapUnits").addEventListener("change", (event) => { snapUnits = Number(event.target.value) || 64; showToast(`Snap set to ${snapUnits} GoldSrc units`); drawEditor(); });
   $("#objectSnap").addEventListener("change", (event) => { objectSnapEnabled = event.target.checked; showToast(objectSnapEnabled ? "Object edge and center snapping enabled" : "Object snapping disabled"); });
+  $("#smartConnections").checked=smartConnectionsEnabled;
+  $("#smartConnections").addEventListener("change", (event) => {
+    smartConnectionsEnabled=event.target.checked;
+    localStorage.setItem("blockout-smart-connections",smartConnectionsEnabled?"on":"off");
+    showToast(smartConnectionsEnabled?"Smart openings and vertical assists enabled":"Smart links disabled — connections stay manual");
+  });
   $("#previewLevelButton").addEventListener("click", () => {
     if (planLevel == null) { showToast("Choose a plan level first"); return; }
     previewLevelOnly = !previewLevelOnly; updateLevelControls(); drawPreview();
@@ -6109,7 +6237,7 @@
     getViewState: () => ({ cellSize, viewOffset: { ...viewOffset }, activeTool }),
     getPreviewView: () => ({ angle: previewAngle, zoom: previewZoom, pan: { ...previewPan }, panMode: previewPanMode, mode: previewMode }),
     getSelectionState: () => ({ primary:selected ? {...selected}:null, refs:selection.map((ref)=>({...ref})), entries:selectedEntries().map(({ref,item})=>({ref:{...ref},locked:!!item.locked,hidden:!!item.hidden,groupId:item.groupId||null})) }),
-    getEditorSettings: () => ({ snapUnits, objectSnapEnabled, measurement:measurement ? structuredClone(measurement):null, sampledMaterial, surfaceTarget }),
+    getEditorSettings: () => ({ snapUnits, objectSnapEnabled, smartConnectionsEnabled, measurement:measurement ? structuredClone(measurement):null, sampledMaterial, surfaceTarget }),
     getPreviewPickRegions: () => previewPickRegions.map((region)=>({ref:{...region.ref},points:region.points.map((point)=>({...point}))})),
     getTransformState: () => ({ plan:transformHandlesForSelection().map((handle)=>({...handle})), preview:previewTransformHandle?structuredClone(previewTransformHandle):null }),
     getElevationState: () => ({ axis:elevationAxis, hitRegions:elevationHitRegions.map((region)=>structuredClone(region)) }),
