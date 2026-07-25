@@ -2,16 +2,24 @@
   "name": "blockout-cs16-map-builder-web",
   "version": "1.0.0",
   "private": true,
+  "type": "module",
   "packageManager": "pnpm@11.9.0",
   "scripts": {
     "prepare:web": "node scripts/prepare-public.mjs",
-    "dev": "node scripts/prepare-public.mjs && next dev",
-    "build": "node scripts/prepare-public.mjs && next build && node scripts/prepare-dist.mjs",
-    "start": "next start"
+    "dev": "node scripts/prepare-public.mjs && vinext dev",
+    "build": "node scripts/prepare-public.mjs && vinext build && node scripts/prepare-sites.mjs",
+    "start": "vinext start"
   },
   "dependencies": {
-    "next": "15.5.9",
-    "react": "19.1.0",
-    "react-dom": "19.1.0"
+    "next": "16.2.11",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
+    "react-server-dom-webpack": "^19.2.8",
+    "vinext": "1.0.0-beta.3"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^6.0.4",
+    "@vitejs/plugin-rsc": "^0.5.30",
+    "vite": "^8.1.5"
   }
 }
