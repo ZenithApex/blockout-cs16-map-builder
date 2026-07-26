@@ -27,6 +27,26 @@
         <div class="top-actions">
           <button class="icon-button" id="undoButton" title="Undo (Ctrl+Z)" aria-label="Undo">↶</button>
           <button class="icon-button" id="redoButton" title="Redo (Ctrl+Shift+Z)" aria-label="Redo">↷</button>
+          <details class="top-more-menu top-project-menu" id="projectFileMenu">
+            <summary class="button secondary">Project <span>⌄</span></summary>
+            <div class="top-more-popover project-file-popover">
+              <span>CURRENT PROJECT</span>
+              <div class="project-save-summary">
+                <i class="status-dot" aria-hidden="true"></i>
+                <span><strong>Autosaved in this browser</strong><small id="projectMenuSaveState">Your latest edits are stored locally.</small></span>
+              </div>
+              <button class="menu-action" id="saveProjectNow"><b>Save now</b><small>Immediately update the browser autosave</small></button>
+              <button class="menu-action" id="saveNamedVersion"><b>Save a local version</b><small>Create a restore point before a big change</small></button>
+              <button class="menu-action" id="manageProjectVersions"><b>Manage local versions</b><small>Restore or delete saved versions</small></button>
+              <span>MOVE BETWEEN COMPUTERS</span>
+              <button class="menu-action" id="downloadProjectJson"><b>Download editable project</b><small>Save a .blockout.json project file</small></button>
+              <label class="menu-action menu-file-action" for="projectFileInput"><b>Open / import project</b><small>Replace the editor with a .blockout.json file</small></label>
+              <input class="visually-hidden" id="projectFileInput" type="file" accept=".json,.blockout.json,application/json" />
+              <span>EXPORT</span>
+              <button class="menu-action" id="exportMapFromProject"><b>Export GoldSrc .map</b><small>Editable source for J.A.C.K. or Hammer</small></button>
+              <button class="menu-action" id="downloadProjectPackage"><b>Download portable package</b><small>Project, MAP source, resources, and build notes</small></button>
+            </div>
+          </details>
           <details class="top-more-menu" id="topMoreMenu">
             <summary class="button secondary">More <span>⌄</span></summary>
             <div class="top-more-popover">

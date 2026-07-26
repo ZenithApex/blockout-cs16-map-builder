@@ -815,11 +815,20 @@
 
   function scheduleSave() {
     $("#saveState").textContent = "Saving…";
+    if ($("#projectMenuSaveState")) $("#projectMenuSaveState").textContent = "Saving your latest edits…";
     clearTimeout(saveTimer);
     saveTimer = setTimeout(() => {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-      $("#saveState").textContent = "Saved locally";
+      saveProjectNow({ announce:false });
     }, 180);
+  }
+
+  function saveProjectNow({ announce=true } = {}) {
+    clearTimeout(saveTimer);
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    $("#saveState").textContent = "Saved locally";
+    if ($("#projectMenuSaveState")) $("#projectMenuSaveState").textContent = `Saved ${new Date().toLocaleTimeString([], {hour:"2-digit",minute:"2-digit"})}`;
+    if (announce) showToast("Project saved in this browser");
+    return true;
   }
 
   function undo() {
@@ -4531,6 +4540,57 @@
 
   function projectDocument() { return JSON.stringify({format:"blockout-project",version:2,exportedAt:new Date().toISOString(),project:state},null,2); }
 
+  function createNamedSnapshot(name="") {
+    const cleanName=String(name||"").trim().slice(0,40)||`Manual save ${new Date().toLocaleString([], {dateStyle:"short",timeStyle:"short"})}`;
+    saveProjectNow({announce:false});
+    projectSnapshots.unshift({id:crypto.randomUUID(),name:cleanName,createdAt:Date.now(),project:snapshot()});
+    projectSnapshots=projectSnapshots.slice(0,20);
+    localStorage.setItem("blockout-project-snapshots-v1",JSON.stringify(projectSnapshots));
+    if ($("#snapshotName")) $("#snapshotName").value="";
+    renderSnapshots();
+    showToast(`Local version saved: ${cleanName}`);
+    return projectSnapshots[0];
+  }
+
+  function downloadProjectFile() {
+    saveProjectNow({announce:false});
+    downloadBlob(projectDocument(),"application/json",`${safeName(state.name)}.blockout.json`);
+    showToast("Editable project downloaded");
+  }
+
+  function normalizeImportedProject(document) {
+    const source=document?.format==="blockout-project"?document.project:document;
+    if(!source||typeof source!=="object"||!Array.isArray(source.rooms)||!Array.isArray(source.props))throw new Error("Not a Blockout project");
+    const project=structuredClone(source);
+    project.name=String(project.name||"Imported map").slice(0,40);
+    ["doors","windows","zones","entities","stories","layers"].forEach((key)=>{if(!Array.isArray(project[key]))project[key]=[];});
+    project.updatedAt=Date.now();
+    environmentFor(project);
+    return project;
+  }
+
+  function importProjectDocument(document,{announce=true}={}) {
+    const project=normalizeImportedProject(document),before=snapshot();
+    state=project;
+    selected=null;selection=[];history.push(before);if(history.length>80)history.shift();future=[];
+    saveProjectNow({announce:false});
+    fitView();refresh();
+    if(announce)showToast(`Project opened: ${state.name}`);
+    return structuredClone(state);
+  }
+
+  async function importProjectFile(file) {
+    if(!file)return false;
+    try{
+      const document=JSON.parse(await file.text());
+      importProjectDocument(document);
+      return true;
+    }catch(error){
+      showToast(`Import failed: ${error.message}`);
+      return false;
+    }
+  }
+
   function crc32(bytes) {
     let crc=-1;for(const byte of bytes){crc^=byte;for(let bit=0;bit<8;bit++)crc=(crc>>>1)^((crc&1)?0xedb88320:0);}return (crc^-1)>>>0;
   }
@@ -6614,6 +6674,16 @@
   $("#openLayoutsSidebar").addEventListener("click",()=>$("#layoutsButton").click());
   $("#openEnvironmentSidebar").addEventListener("click",()=>$("#environmentButton").click());
   $("#topMoreMenu").addEventListener("click",(event)=>{if(event.target.closest(".menu-action"))$("#topMoreMenu").open=false;});
+  $("#projectFileMenu").addEventListener("toggle",()=>{if($("#projectFileMenu").open)$("#topMoreMenu").open=false;});
+  $("#topMoreMenu").addEventListener("toggle",()=>{if($("#topMoreMenu").open)$("#projectFileMenu").open=false;});
+  $("#projectFileMenu").addEventListener("click",(event)=>{if(event.target.closest("button.menu-action"))$("#projectFileMenu").open=false;});
+  $("#saveProjectNow").addEventListener("click",()=>saveProjectNow());
+  $("#saveNamedVersion").addEventListener("click",()=>createNamedSnapshot());
+  $("#manageProjectVersions").addEventListener("click",()=>{productionTab="project";$("#productionDialog").showModal();renderProduction();});
+  $("#downloadProjectJson").addEventListener("click",downloadProjectFile);
+  $("#projectFileInput").addEventListener("change",async(event)=>{await importProjectFile(event.target.files?.[0]);event.target.value="";$("#projectFileMenu").open=false;});
+  $("#exportMapFromProject").addEventListener("click",exportMap);
+  $("#downloadProjectPackage").addEventListener("click",exportProductionPackage);
   $("#undoButton").addEventListener("click", undo);
   $("#redoButton").addEventListener("click", redo);
   $("#deleteButton").addEventListener("click", deleteSelected);
@@ -6779,10 +6849,10 @@
   $("#toggleRouteRecording").addEventListener("click",()=>{routeRecording=!routeRecording;if(routeRecording){recordedRoute=[];routeStartedAt=performance.now();lastRouteSampleAt=0;if(previewMode!=="walk")startWalkAt(state.entities.find((item)=>["ct","t"].includes(item.kind)));}$("#toggleRouteRecording").textContent=routeRecording?"Stop recording":"Record route";renderProduction();showToast(routeRecording?"Route recording started":"Route recording stopped");});
   $("#clearRecordedRoute").addEventListener("click",()=>{routeRecording=false;recordedRoute=[];$("#toggleRouteRecording").textContent="Record route";renderProduction();});
   $("#placeTargetFromProduction").addEventListener("click",()=>{$("#productionDialog").close();setTool("targetDummy");showToast("Click a floor to place the playtest target");});
-  $("#createSnapshot").addEventListener("click",()=>{const name=$("#snapshotName").value.trim()||`Version ${projectSnapshots.length+1}`;projectSnapshots.unshift({id:crypto.randomUUID(),name,createdAt:Date.now(),project:snapshot()});projectSnapshots=projectSnapshots.slice(0,20);localStorage.setItem("blockout-project-snapshots-v1",JSON.stringify(projectSnapshots));$("#snapshotName").value="";renderSnapshots();showToast("Named version saved locally");});
+  $("#createSnapshot").addEventListener("click",()=>createNamedSnapshot($("#snapshotName").value));
   $("#snapshotList").addEventListener("click",(event)=>{const restore=event.target.closest("[data-snapshot-restore]"),remove=event.target.closest("[data-snapshot-delete]"),id=restore?.dataset.snapshotRestore||remove?.dataset.snapshotDelete,entry=projectSnapshots.find((item)=>item.id===id);if(!entry)return;if(restore){if(!confirm(`Restore ${entry.name}? The current state remains available through Undo.`))return;const before=snapshot();state=JSON.parse(entry.project);environmentFor(state);selected=null;selection=[];commit(before);showToast("Named version restored");}else{projectSnapshots=projectSnapshots.filter((item)=>item.id!==id);localStorage.setItem("blockout-project-snapshots-v1",JSON.stringify(projectSnapshots));renderSnapshots();}});
-  $("#exportProjectJson").addEventListener("click",()=>downloadBlob(projectDocument(),"application/json",`${safeName(state.name)}.blockout.json`));
-  $("#importProjectJson").addEventListener("change",async(event)=>{const file=event.target.files?.[0];if(!file)return;try{const document=JSON.parse(await file.text()),project=document.format==="blockout-project"?document.project:document;if(!project||!Array.isArray(project.rooms)||!Array.isArray(project.props))throw new Error("Not a Blockout project");const before=snapshot();state=project;environmentFor(state);state.doors||=[];state.windows||=[];state.zones||=[];state.entities||=[];state.stories||=[];selected=null;selection=[];commit(before);showToast("Project imported");}catch(error){showToast(`Import failed: ${error.message}`);}event.target.value="";});
+  $("#exportProjectJson").addEventListener("click",downloadProjectFile);
+  $("#importProjectJson").addEventListener("change",async(event)=>{await importProjectFile(event.target.files?.[0]);event.target.value="";});
   $("#exportPackage").addEventListener("click",exportProductionPackage);
   $("#openTextureBrowser").addEventListener("click", () => openTextureLibrary("material"));
   $$(".material-miniature[data-texture-target]").forEach((image) => image.addEventListener("click", () => {
@@ -7235,6 +7305,9 @@
     if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") {
       event.preventDefault();$("#toolSearch").focus();$("#toolSearch").select();return;
     }
+    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "s") {
+      event.preventDefault();event.shiftKey?downloadProjectFile():saveProjectNow();return;
+    }
     if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "z") {
       event.preventDefault(); event.shiftKey ? redo() : undo(); return;
     }
@@ -7360,6 +7433,11 @@
   });
   window.Blockout = Object.freeze({
     getProject: () => structuredClone(state),
+    getProjectDocument: () => JSON.parse(projectDocument()),
+    importProjectDocument: (document) => importProjectDocument(document),
+    saveProjectNow: () => saveProjectNow({announce:false}),
+    createProjectVersion: (name) => structuredClone(createNamedSnapshot(name)),
+    getProjectVersions: () => projectSnapshots.map((entry)=>({id:entry.id,name:entry.name,createdAt:entry.createdAt,size:entry.project?.length||0})),
     getViewState: () => ({ cellSize, viewOffset: { ...viewOffset }, activeTool }),
     getPreviewView: () => ({ angle: previewAngle, zoom: previewZoom, pan: { ...previewPan }, panMode: previewPanMode, mode: previewMode }),
     getSelectionState: () => ({ primary:selected ? {...selected}:null, refs:selection.map((ref)=>({...ref})), entries:selectedEntries().map(({ref,item})=>({ref:{...ref},locked:isItemLocked(item),hidden:isItemHidden(item),groupId:item.groupId||null,layerId:layerForItem(item).id})) }),

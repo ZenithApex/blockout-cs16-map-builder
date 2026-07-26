@@ -51,6 +51,8 @@ the archive and executable SHA-256 hashes before installation.
 - If a compiler error reports a coordinate, click its diagnostic to focus the top-down plan.
 - If Node.js is installed, import a 256×256 texture and compile a room using it.
 - Drop a non-square photograph into **Texture Alchemist** and verify the Source, GoldSrc output, and 3 × 3 tile previews.
+- Open **Project** and verify Save now, local versions, editable `.blockout.json` download/import, `.map` export, and portable package download.
+- Import a downloaded project after making a visible edit and verify rooms, geometry, materials, entities, layers, and levels remain editable.
 - Change crop, rotation, zoom, offsets, color corrections, and edge blend; every preview and the edge-mismatch score should update.
 - Install Base, Dark, Light, and Weathered together and confirm all four cards appear after a single successful WAD rebuild.
 - Force a duplicate family code and confirm no partial source, preview, manifest, or WAD change remains.

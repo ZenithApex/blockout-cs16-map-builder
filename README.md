@@ -233,6 +233,12 @@ license are recorded in `textures/asset-manifest.base.json` and summarized in
 
 Open **Browse texture library**, then drop a PNG, JPG, WebP, or GIF photograph into **Texture Alchemist**. The visual studio provides cover/fit/stretch cropping, 90-degree rotation, zoom and crop positioning, brightness, contrast, and saturation correction. **Blend opposite edges** turns the photograph into a continuous surface, while the live 3×3 preview makes remaining seams visible before installation. The optional palette preview simulates the fixed 256-color palette used by Blockout's GoldSrc WAD builder.
 
+### Save, move, and export projects
+
+Use **Project** in the top bar for the complete file workflow. Blockout continuously autosaves the current project in the browser, while **Save now** (Ctrl/Cmd+S) flushes it immediately and **Save a local version** creates a named restore point. Ctrl/Cmd+Shift+S downloads the editable project. Local browser data belongs to that browser profile, so download a `.blockout.json` file before changing computers or clearing site data. **Open / import project** restores that file without flattening the editable rooms, geometry, entities, materials, layers, or levels.
+
+The same menu exports an editable GoldSrc `.map` source or a portable production ZIP containing the Blockout project, MAP source, texture/sky resource list, and build notes.
+
 Blockout analyzes the filename, colors, and visual variation locally and suggests a display name, GoldSrc code, and category. It can create an atomic four-texture family: Base, Dark, Light, and Weathered. The paired Windows companion validates every 256×256 PNG, stores all sources, generates miniatures and mipmaps, and rebuilds `sunburst.wad` once. If any family member, WAD build, or validation step fails, the complete family, manifest, previews, and WAD are rolled back together.
 
 Imported cards carry an **IMPORTED** badge and default to **Fit image once** when applied to a room or structure, preventing poster-like images from repeating across the face. Seamless Alchemist surfaces can instead use **Repeat / tile** for walls, floors, and terrain.
@@ -272,7 +278,7 @@ Blockout can also use another trusted GoldSrc VHLT/ZHLT tool package. Either:
 
 Standard filenames and `_x64`/`_x86` variants are supported. Build & Test now reports five independent readiness checks: CS 1.6, all four compilers, `cstrike.wad` plus `halflife.wad`, the writable `cstrike/maps` destination, and editor preflight. Choose whether to launch CS 1.6 after compilation or compile and install without launching it.
 
-Companion 1.7 clears stale compiler outputs before each build so an older BSP cannot be mistaken for a successful result. It provides a verified in-app SDHLT installer, Draft/Playtest/Final profiles, live stage and elapsed-time status, safe cancellation, clickable coordinate diagnostics, origin-locked hosted pairing, guarded Texture Alchemist family import/deletion, and atomic WAD rebuilds while remaining loopback-only. Missing stock/custom WADs, locked build artifacts, invalid custom mipmaps, incomplete compiler folders, and unwritable destinations stop early with specific recovery instructions. The complete compiler log is retained in the Build panel after a failed stage. If CS 1.6 is holding the requested BSP open, Blockout automatically installs the new build as the next available `_preview_N` map instead.
+Companion 1.8 clears stale compiler outputs before each build so an older BSP cannot be mistaken for a successful result. It provides a verified in-app SDHLT installer, Draft/Playtest/Final profiles, live stage and elapsed-time status, safe cancellation, clickable coordinate diagnostics, origin-locked hosted pairing, guarded Texture Alchemist family import/deletion, and atomic WAD rebuilds while remaining loopback-only. Missing stock/custom WADs, locked build artifacts, invalid custom mipmaps, incomplete compiler folders, and unwritable destinations stop early with specific recovery instructions. The complete compiler log is retained in the Build panel after a failed stage. If CS 1.6 is holding the requested BSP open, Blockout automatically installs the new build as the next available `_preview_N` map instead.
 
 ## Verified real compiles
 

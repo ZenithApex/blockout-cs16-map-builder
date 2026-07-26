@@ -56,6 +56,14 @@ button { color: inherit; }
 .menu-action b, .menu-action small { display: block; }
 .menu-action b { font-size: 10px; }
 .menu-action small { margin-top: 2px; color: var(--muted); font-size: 8px; }
+.project-file-popover { width: 304px; max-height: calc(100vh - 86px); overflow-y: auto; }
+.project-save-summary { display: grid; grid-template-columns: 10px minmax(0,1fr); align-items: center; gap: 8px; margin: 2px 5px 5px; padding: 9px; border: 1px solid #34402f; border-radius: 7px; background: rgba(215,244,90,.035); }
+.project-save-summary .status-dot { width: 7px; height: 7px; }
+.project-save-summary strong, .project-save-summary small { display: block; }
+.project-save-summary strong { font-size: 9px; }
+.project-save-summary small { margin-top: 2px; color: var(--muted); font-size: 7px; }
+.menu-file-action { user-select: none; }
+.visually-hidden { position: fixed !important; width: 1px !important; height: 1px !important; padding: 0 !important; overflow: hidden !important; clip: rect(0,0,0,0) !important; white-space: nowrap !important; border: 0 !important; opacity: 0 !important; pointer-events: none !important; }
 .button, .icon-button, .chip, .text-button { border: 0; cursor: pointer; transition: .16s ease; }
 .button { border-radius: 7px; padding: 10px 15px; background: var(--panel-3); font-size: 11px; font-weight: 800; letter-spacing: .02em; }
 .button:hover { transform: translateY(-1px); filter: brightness(1.12); }
