@@ -755,17 +755,52 @@
           <input id="textureFileInput" type="file" accept="image/png,image/jpeg,image/webp,image/gif" hidden />
           <button class="texture-drop-zone" id="textureDropZone" type="button">
             <span class="texture-drop-icon">+</span>
-            <span><strong>Drop an image to create a texture</strong><small>PNG, JPG, WebP or GIF · automatically cropped and analyzed locally</small></span>
+            <span><strong>Drop a photo into Texture Alchemist</strong><small>Make it seamless, GoldSrc-safe, and ready for the material library</small></span>
             <em>Choose image</em>
           </button>
           <div class="texture-import-editor hidden" id="textureImportEditor">
-            <canvas id="textureImportCanvas" width="256" height="256" aria-label="Normalized texture preview"></canvas>
+            <div class="texture-alchemist-visuals">
+              <figure>
+                <canvas id="textureImportSourceCanvas" width="256" height="256" aria-label="Source crop preview"></canvas>
+                <figcaption>Source crop</figcaption>
+              </figure>
+              <figure>
+                <canvas id="textureImportCanvas" width="256" height="256" aria-label="GoldSrc texture preview"></canvas>
+                <figcaption>GoldSrc output</figcaption>
+              </figure>
+              <figure class="texture-tile-figure">
+                <canvas id="textureTileCanvas" width="256" height="256" aria-label="Three by three seamless tile preview"></canvas>
+                <figcaption>3 × 3 seam test</figcaption>
+              </figure>
+            </div>
             <div class="texture-import-fields">
-              <div class="texture-import-analysis"><strong id="textureImportAnalysis">Analyzing image…</strong><small>Review the suggestions before installing.</small></div>
+              <div class="texture-import-analysis"><strong>Texture Alchemist</strong><small id="textureImportAnalysis">Analyzing image…</small></div>
+              <div class="texture-alchemist-controls">
+                <label>Crop mode<select id="textureCropMode"><option value="cover">Crop / cover</option><option value="contain">Fit with border</option><option value="stretch">Stretch square</option></select></label>
+                <label>Rotation<select id="textureRotation"><option value="0">0°</option><option value="90">90°</option><option value="180">180°</option><option value="270">270°</option></select></label>
+                <label>Zoom <output id="textureZoomOutput">100%</output><input id="textureZoom" type="range" min="50" max="250" value="100" step="1" /></label>
+                <label>Horizontal crop <output id="textureOffsetXOutput">0</output><input id="textureOffsetX" type="range" min="-100" max="100" value="0" step="1" /></label>
+                <label>Vertical crop <output id="textureOffsetYOutput">0</output><input id="textureOffsetY" type="range" min="-100" max="100" value="0" step="1" /></label>
+                <label>Edge blend <output id="textureSeamOutput">48 px</output><input id="textureSeamWidth" type="range" min="8" max="96" value="48" step="1" /></label>
+                <label>Brightness <output id="textureBrightnessOutput">100%</output><input id="textureBrightness" type="range" min="55" max="145" value="100" step="1" /></label>
+                <label>Contrast <output id="textureContrastOutput">100%</output><input id="textureContrast" type="range" min="55" max="155" value="100" step="1" /></label>
+                <label>Saturation <output id="textureSaturationOutput">100%</output><input id="textureSaturation" type="range" min="0" max="180" value="100" step="1" /></label>
+              </div>
+              <div class="texture-alchemist-switches">
+                <label class="chip"><input id="textureMakeSeamless" type="checkbox" checked /> Blend opposite edges</label>
+                <label class="chip"><input id="textureGoldSrcPalette" type="checkbox" checked /> Preview 256-color GoldSrc palette</label>
+              </div>
               <label>Display name<input id="textureImportLabel" maxlength="48" placeholder="Weathered concrete" /></label>
               <label>GoldSrc code<input id="textureImportName" maxlength="15" placeholder="USR_CONCRETE" /></label>
               <label>Detected category<select id="textureImportCategory"><option value="architecture">Architecture</option><option value="concrete">Concrete</option><option value="brick">Brick</option><option value="stone">Stone &amp; gems</option><option value="ground">Ground</option><option value="nature">Nature</option><option value="organic">Organic patterns</option><option value="fabric">Fabric &amp; leather</option><option value="plaster">Plaster</option><option value="floor">Floors</option><option value="metal">Metal</option><option value="wood">Wood</option></select></label>
-              <div class="texture-import-actions"><button class="button secondary" id="cancelTextureImport" type="button">Cancel</button><button class="button primary" id="installTextureImport" type="button">Install texture</button></div>
+              <fieldset class="texture-variant-picker">
+                <legend>Build a matching material family</legend>
+                <label><input type="checkbox" checked disabled /> Base</label>
+                <label><input id="textureVariantDark" type="checkbox" checked /> Dark</label>
+                <label><input id="textureVariantLight" type="checkbox" checked /> Light</label>
+                <label><input id="textureVariantWorn" type="checkbox" checked /> Weathered</label>
+              </fieldset>
+              <div class="texture-import-actions"><button class="button secondary" id="resetTextureAlchemy" type="button">Reset adjustments</button><button class="button secondary" id="cancelTextureImport" type="button">Cancel</button><button class="button primary" id="installTextureImport" type="button">Install texture family</button></div>
             </div>
           </div>
           <div class="texture-import-status hidden" id="textureImportStatus" role="status"></div>

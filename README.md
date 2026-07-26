@@ -223,11 +223,13 @@ license are recorded in `textures/asset-manifest.base.json` and summarized in
 `textures/ASSET_SOURCES.md`. Local imports are written to the ignored mutable
 `asset-manifest.json`, so personal images cannot accidentally enter a commit.
 
-### Import your own image texture
+### Texture Alchemist
 
-Open **Browse texture library**, then drop an image onto the import area or choose it from disk. Blockout center-crops and scales the image to 256×256, analyzes its filename, colors, and visual variation locally, and suggests a display name, GoldSrc code, and material category. Review those suggestions and choose **Install texture**.
+Open **Browse texture library**, then drop a PNG, JPG, WebP, or GIF photograph into **Texture Alchemist**. The visual studio provides cover/fit/stretch cropping, 90-degree rotation, zoom and crop positioning, brightness, contrast, and saturation correction. **Blend opposite edges** turns the photograph into a continuous surface, while the live 3×3 preview makes remaining seams visible before installation. The optional palette preview simulates the fixed 256-color palette used by Blockout's GoldSrc WAD builder.
 
-The companion stores the normalized source, generates its miniature and mipmaps, adds an `USR_` material to the manifest, and atomically rebuilds `sunburst.wad`. If the WAD build or validation fails, it restores the previous manifest and WAD so the library is not left half-installed. Imported cards carry an **IMPORTED** badge and default to **Fit image once** when applied to a room or structure, preventing poster-like images from repeating across the face.
+Blockout analyzes the filename, colors, and visual variation locally and suggests a display name, GoldSrc code, and category. It can create an atomic four-texture family: Base, Dark, Light, and Weathered. The paired Windows companion validates every 256×256 PNG, stores all sources, generates miniatures and mipmaps, and rebuilds `sunburst.wad` once. If any family member, WAD build, or validation step fails, the complete family, manifest, previews, and WAD are rolled back together.
+
+Imported cards carry an **IMPORTED** badge and default to **Fit image once** when applied to a room or structure, preventing poster-like images from repeating across the face. Seamless Alchemist surfaces can instead use **Repeat / tile** for walls, floors, and terrain.
 
 An imported card also has a red × delete control. Deletion is limited to `USR_` user materials; stock, CC0, and original built-in assets stay protected. Blockout refuses to delete an imported texture while the current map still uses it. Once those surfaces use another material, deletion removes the source and miniature, rebuilds the WAD, validates it, and rolls back automatically if anything fails.
 
@@ -264,7 +266,7 @@ Blockout can also use another trusted GoldSrc VHLT/ZHLT tool package. Either:
 
 Standard filenames and `_x64`/`_x86` variants are supported. Build & Test now reports five independent readiness checks: CS 1.6, all four compilers, `cstrike.wad` plus `halflife.wad`, the writable `cstrike/maps` destination, and editor preflight. Choose whether to launch CS 1.6 after compilation or compile and install without launching it.
 
-Companion 1.2 clears stale compiler outputs before each build so an older BSP cannot be mistaken for a successful result. It provides a verified in-app SDHLT installer, Draft/Playtest/Final profiles, live stage and elapsed-time status, safe cancellation, clickable coordinate diagnostics, origin-locked hosted pairing, guarded local texture import/deletion, and atomic WAD rebuilds while remaining loopback-only. Missing stock/custom WADs, locked build artifacts, invalid custom mipmaps, incomplete compiler folders, and unwritable destinations stop early with specific recovery instructions. The complete compiler log is retained in the Build panel after a failed stage. If CS 1.6 is holding the requested BSP open, Blockout automatically installs the new build as the next available `_preview_N` map instead.
+Companion 1.6 clears stale compiler outputs before each build so an older BSP cannot be mistaken for a successful result. It provides a verified in-app SDHLT installer, Draft/Playtest/Final profiles, live stage and elapsed-time status, safe cancellation, clickable coordinate diagnostics, origin-locked hosted pairing, guarded Texture Alchemist family import/deletion, and atomic WAD rebuilds while remaining loopback-only. Missing stock/custom WADs, locked build artifacts, invalid custom mipmaps, incomplete compiler folders, and unwritable destinations stop early with specific recovery instructions. The complete compiler log is retained in the Build panel after a failed stage. If CS 1.6 is holding the requested BSP open, Blockout automatically installs the new build as the next available `_preview_N` map instead.
 
 ## Verified real compiles
 

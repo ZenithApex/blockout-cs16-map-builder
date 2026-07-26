@@ -28,7 +28,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 
-VERSION = "1.5.0"
+VERSION = "1.6.0"
 HOST = "127.0.0.1"
 PORT = 41716
 ONLINE_ORIGINS = {
@@ -246,7 +246,7 @@ def rebuild_texture_wad():
     return result.stdout or "Texture pack rebuilt."
 
 
-def import_texture(payload):
+def normalize_texture_import(payload, family=""):
     raw_name = str(payload.get("name", "")).upper()
     clean_name = re.sub(r"[^A-Z0-9_]+", "_", raw_name).strip("_")
     if not clean_name.startswith("USR_"):
@@ -270,46 +270,85 @@ def import_texture(payload):
     width, height = struct.unpack_from(">II", image_bytes, 16)
     if width != 256 or height != 256:
         raise BuildError("GoldSrc imports must be normalized to exactly 256 by 256 pixels.")
+    variant = re.sub(r"[^a-z]+", "", str(payload.get("variant", "base")).lower())[:16] or "base"
+    item = {
+        "name": clean_name, "label": label, "category": category,
+        "file": clean_name + ".png", "author": "User import",
+        "license": "User supplied", "source": "user",
+        "createdAt": int(time.time()),
+    }
+    if family:
+        item["alchemistFamily"] = family[:15]
+        item["alchemistVariant"] = variant
+    return clean_name, image_bytes, item
+
+
+def install_texture_family(payloads, family=""):
+    if not isinstance(payloads, list) or not 1 <= len(payloads) <= 4:
+        raise BuildError("Texture Alchemist can install between one and four matching textures at once.")
+    family_name = re.sub(r"[^A-Z0-9_]+", "_", str(family).upper()).strip("_")[:15]
+    normalized = [normalize_texture_import(payload, family_name) for payload in payloads if isinstance(payload, dict)]
+    if len(normalized) != len(payloads):
+        raise BuildError("One of the Texture Alchemist outputs is invalid.")
+    names = [entry[0] for entry in normalized]
+    if len(set(names)) != len(names):
+        raise BuildError("Texture family codes must be unique. Shorten the base GoldSrc code.")
 
     manifest_path = MANIFEST_FILE
-    source_path = ROOT / "textures" / "sources" / (clean_name + ".png")
-    preview_path = ROOT / "textures" / "previews" / (clean_name + ".png")
     wad_path = CUSTOM_WAD_FILE
     with TEXTURE_IMPORT_LOCK:
         manifest = texture_manifest()
         existing = SUNBURST_TEXTURE_NAMES | {str(item.get("name", "")).upper() for item in manifest["textures"] if isinstance(item, dict)}
-        if clean_name in existing or source_path.exists():
-            raise BuildError("Texture code {} already exists. Choose another name.".format(clean_name))
-        previous_manifest = manifest_path.read_bytes()
+        for clean_name, _, _ in normalized:
+            source_path = ROOT / "textures" / "sources" / (clean_name + ".png")
+            if clean_name in existing or source_path.exists():
+                raise BuildError("Texture code {} already exists. Choose another name.".format(clean_name))
+        previous_manifest = manifest_path.read_bytes() if manifest_path.is_file() else None
         previous_wad = wad_path.read_bytes() if wad_path.is_file() else None
-        item = {
-            "name": clean_name, "label": label, "category": category,
-            "file": clean_name + ".png", "author": "User import",
-            "license": "User supplied", "source": "user",
-            "createdAt": int(time.time()),
-        }
+        source_paths = [ROOT / "textures" / "sources" / (clean_name + ".png") for clean_name in names]
+        preview_paths = [ROOT / "textures" / "previews" / (clean_name + ".png") for clean_name in names]
+        items = [entry[2] for entry in normalized]
         try:
-            source_path.write_bytes(image_bytes)
-            manifest["textures"].append(item)
+            for source_path, (_, image_bytes, _) in zip(source_paths, normalized):
+                source_path.write_bytes(image_bytes)
+            manifest["textures"].extend(items)
             temporary_manifest = manifest_path.with_suffix(".json.tmp")
             temporary_manifest.write_text(json.dumps(manifest, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
             os.replace(str(temporary_manifest), str(manifest_path))
             builder_log = rebuild_texture_wad()
             validate_custom_wad(wad_path)
         except Exception:
-            if source_path.exists():
-                source_path.unlink()
-            if preview_path.exists():
-                preview_path.unlink()
-            manifest_path.write_bytes(previous_manifest)
+            for path in source_paths + preview_paths:
+                if path.exists():
+                    path.unlink()
+            if previous_manifest is None:
+                if manifest_path.exists():
+                    manifest_path.unlink()
+            else:
+                manifest_path.write_bytes(previous_manifest)
             if previous_wad is None:
                 if wad_path.exists():
                     wad_path.unlink()
             else:
                 wad_path.write_bytes(previous_wad)
             raise
-        CUSTOM_TEXTURE_NAMES.add(clean_name)
-        return {"ok": True, "texture": item, "preview": "textures/previews/{}.png".format(clean_name), "log": builder_log.strip()}
+        CUSTOM_TEXTURE_NAMES.update(names)
+        return {"ok": True, "textures": items, "previews": ["textures/previews/{}.png".format(name) for name in names], "log": builder_log.strip()}
+
+
+def import_texture(payload):
+    result = install_texture_family([payload])
+    return {
+        "ok": True,
+        "texture": result["textures"][0],
+        "preview": result["previews"][0],
+        "log": result["log"],
+    }
+
+
+def alchemize_textures(payload):
+    textures = payload.get("textures", []) if isinstance(payload, dict) else []
+    return install_texture_family(textures, payload.get("family", ""))
 
 
 def remove_texture(payload):
@@ -1077,6 +1116,9 @@ class BlockoutHandler(SimpleHTTPRequestHandler):
                 return
             if path == "/api/textures/import":
                 self.send_json(200, import_texture(payload))
+                return
+            if path == "/api/textures/alchemize":
+                self.send_json(200, alchemize_textures(payload))
                 return
             if path == "/api/textures/remove":
                 self.send_json(200, remove_texture(payload))

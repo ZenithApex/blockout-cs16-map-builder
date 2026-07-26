@@ -330,7 +330,7 @@
     const storedPrefabs = JSON.parse(localStorage.getItem(CUSTOM_PREFAB_STORAGE_KEY) || "[]");
     customPrefabs = Array.isArray(storedPrefabs) ? storedPrefabs.filter(isValidCustomPrefab) : [];
   } catch (_) { customPrefabs = []; }
-  const MIN_COMPANION_VERSION = "1.1.0";
+  const MIN_COMPANION_VERSION = "1.6.0";
 
   function environmentFor(project = state) {
     project.environment = { ...DEFAULT_ENVIRONMENT, ...(project.environment || {}) };
@@ -3635,7 +3635,7 @@
       count += Object.values(room.wallTextures||{}).filter((value)=>value===texture).length;
       count += Object.values(room.edgeTextures||{}).filter((value)=>value===texture).length;
     });
-    count += state.props.filter((item)=>item.texture===texture).length;
+    state.props.forEach((item)=>{count+=(item.texture===texture?1:0)+Object.values(item.faceTextures||{}).filter((value)=>value===texture).length;});
     count += state.doors.filter((item)=>item.texture===texture).length;
     count += state.windows.filter((item)=>item.texture===texture).length;
     return count;
@@ -3681,10 +3681,140 @@
       else category="architecture";
     }
     const label=(normalized&&!/^(img|image|photo|texture|untitled)(\s*\d*)?$/i.test(normalized)?normalized:`${category} texture`).replace(/\b\w/g,(letter)=>letter.toUpperCase()).slice(0,48);
-    return {category,label,code:importedTextureCode(label),summary:`Local image analysis suggests ${category} · average RGB ${Math.round(red)}, ${Math.round(green)}, ${Math.round(blue)}`};
+    return {category,label,code:importedTextureCode(label),average:[Math.round(red),Math.round(green),Math.round(blue)],summary:`Local image analysis suggests ${category} · average RGB ${Math.round(red)}, ${Math.round(green)}, ${Math.round(blue)}`};
+  }
+
+  const TEXTURE_ALCHEMY_DEFAULTS = {
+    textureCropMode:"cover",textureRotation:"0",textureZoom:"100",textureOffsetX:"0",textureOffsetY:"0",
+    textureSeamWidth:"48",textureBrightness:"100",textureContrast:"100",textureSaturation:"100"
+  };
+
+  function resetTextureAlchemyControls(render = true) {
+    Object.entries(TEXTURE_ALCHEMY_DEFAULTS).forEach(([id,value])=>{const input=$(`#${id}`);if(input)input.value=value;});
+    $("#textureMakeSeamless").checked=true;$("#textureGoldSrcPalette").checked=true;
+    $("#textureVariantDark").checked=true;$("#textureVariantLight").checked=true;$("#textureVariantWorn").checked=true;
+    if(render&&pendingTextureImport)renderTextureAlchemy();
+  }
+
+  function textureAlchemyNumber(id,fallback=0) {
+    const value=Number($(`#${id}`)?.value);
+    return Number.isFinite(value)?value:fallback;
+  }
+
+  function drawTextureAlchemySource() {
+    if(!pendingTextureImport?.image)return null;
+    const canvas=$("#textureImportSourceCanvas"),context=canvas.getContext("2d",{willReadFrequently:true}),image=pendingTextureImport.image;
+    const imageWidth=image.naturalWidth||image.width||256,imageHeight=image.naturalHeight||image.height||256;
+    const mode=$("#textureCropMode").value,rotation=textureAlchemyNumber("textureRotation",0),zoom=textureAlchemyNumber("textureZoom",100)/100;
+    const offsetX=textureAlchemyNumber("textureOffsetX",0)*1.28,offsetY=textureAlchemyNumber("textureOffsetY",0)*1.28;
+    const rotated=rotation%180!==0,effectiveWidth=rotated?imageHeight:imageWidth,effectiveHeight=rotated?imageWidth:imageHeight;
+    const baseScale=mode==="contain"?Math.min(256/effectiveWidth,256/effectiveHeight):Math.max(256/effectiveWidth,256/effectiveHeight);
+    const average=pendingTextureImport.analysis?.average||[48,52,46];
+    context.save();context.clearRect(0,0,256,256);context.fillStyle=`rgb(${average.join(",")})`;context.fillRect(0,0,256,256);
+    context.imageSmoothingEnabled=true;context.imageSmoothingQuality="high";
+    context.filter=`brightness(${textureAlchemyNumber("textureBrightness",100)}%) contrast(${textureAlchemyNumber("textureContrast",100)}%) saturate(${textureAlchemyNumber("textureSaturation",100)}%)`;
+    context.translate(128+offsetX,128+offsetY);context.rotate(rotation*Math.PI/180);
+    if(mode==="stretch"){
+      const size=256*zoom;context.drawImage(image,-size/2,-size/2,size,size);
+    }else{
+      const scale=baseScale*zoom;context.drawImage(image,-imageWidth*scale/2,-imageHeight*scale/2,imageWidth*scale,imageHeight*scale);
+    }
+    context.restore();
+    return context.getImageData(0,0,256,256);
+  }
+
+  function blendTextureEdges(imageData,band) {
+    const width=imageData.width,height=imageData.height,output=new ImageData(new Uint8ClampedArray(imageData.data),width,height);
+    const horizontalSource=new Uint8ClampedArray(output.data),safeBand=Math.max(2,Math.min(Math.floor(Math.min(width,height)/2)-1,Math.round(band)));
+    const smooth=(value)=>value*value*(3-2*value);
+    for(let x=0;x<safeBand;x+=1){
+      const opposite=width-1-x,t=smooth(x/(safeBand-1));
+      for(let y=0;y<height;y+=1)for(let channel=0;channel<3;channel+=1){
+        const left=(y*width+x)*4+channel,right=(y*width+opposite)*4+channel,average=(horizontalSource[left]+horizontalSource[right])/2;
+        output.data[left]=Math.round(average*(1-t)+horizontalSource[left]*t);
+        output.data[right]=Math.round(average*(1-t)+horizontalSource[right]*t);
+      }
+    }
+    const verticalSource=new Uint8ClampedArray(output.data);
+    for(let y=0;y<safeBand;y+=1){
+      const opposite=height-1-y,t=smooth(y/(safeBand-1));
+      for(let x=0;x<width;x+=1)for(let channel=0;channel<3;channel+=1){
+        const top=(y*width+x)*4+channel,bottom=(opposite*width+x)*4+channel,average=(verticalSource[top]+verticalSource[bottom])/2;
+        output.data[top]=Math.round(average*(1-t)+verticalSource[top]*t);
+        output.data[bottom]=Math.round(average*(1-t)+verticalSource[bottom]*t);
+      }
+    }
+    return output;
+  }
+
+  function quantizeGoldSrcImage(imageData) {
+    const output=new ImageData(new Uint8ClampedArray(imageData.data),imageData.width,imageData.height);
+    for(let index=0;index<output.data.length;index+=4){
+      output.data[index]=Math.round(Math.round(output.data[index]*7/255)*255/7);
+      output.data[index+1]=Math.round(Math.round(output.data[index+1]*7/255)*255/7);
+      output.data[index+2]=Math.round(Math.round(output.data[index+2]*3/255)*255/3);
+      output.data[index+3]=255;
+    }
+    return output;
+  }
+
+  function textureEdgeMismatch(imageData) {
+    const {data,width,height}=imageData;let difference=0,samples=0;
+    for(let y=0;y<height;y+=4)for(let channel=0;channel<3;channel+=1){difference+=Math.abs(data[(y*width)*4+channel]-data[(y*width+width-1)*4+channel]);samples++;}
+    for(let x=0;x<width;x+=4)for(let channel=0;channel<3;channel+=1){difference+=Math.abs(data[x*4+channel]-data[((height-1)*width+x)*4+channel]);samples++;}
+    return Math.round(difference/Math.max(1,samples)/255*100);
+  }
+
+  function renderTextureTilePreview(sourceCanvas) {
+    const canvas=$("#textureTileCanvas"),context=canvas.getContext("2d"),cell=256/3;
+    context.clearRect(0,0,256,256);context.imageSmoothingEnabled=true;
+    for(let row=0;row<3;row+=1)for(let column=0;column<3;column+=1)context.drawImage(sourceCanvas,column*cell,row*cell,cell+1,cell+1);
+    context.strokeStyle="rgba(215,244,90,.28)";context.lineWidth=1;
+    [cell,cell*2].forEach((point)=>{context.beginPath();context.moveTo(point,0);context.lineTo(point,256);context.moveTo(0,point);context.lineTo(256,point);context.stroke();});
+  }
+
+  function renderTextureAlchemy() {
+    if(!pendingTextureImport)return;
+    let imageData=drawTextureAlchemySource();if(!imageData)return;
+    if($("#textureMakeSeamless").checked)imageData=blendTextureEdges(imageData,textureAlchemyNumber("textureSeamWidth",48));
+    if($("#textureGoldSrcPalette").checked)imageData=quantizeGoldSrcImage(imageData);
+    const canvas=$("#textureImportCanvas"),context=canvas.getContext("2d",{willReadFrequently:true});context.putImageData(imageData,0,0);
+    renderTextureTilePreview(canvas);pendingTextureImport.imageData=canvas.toDataURL("image/png");pendingTextureImport.edgeMismatch=textureEdgeMismatch(imageData);
+    $("#textureZoomOutput").textContent=`${textureAlchemyNumber("textureZoom",100)}%`;
+    $("#textureOffsetXOutput").textContent=String(textureAlchemyNumber("textureOffsetX",0));
+    $("#textureOffsetYOutput").textContent=String(textureAlchemyNumber("textureOffsetY",0));
+    $("#textureSeamOutput").textContent=`${textureAlchemyNumber("textureSeamWidth",48)} px`;
+    $("#textureBrightnessOutput").textContent=`${textureAlchemyNumber("textureBrightness",100)}%`;
+    $("#textureContrastOutput").textContent=`${textureAlchemyNumber("textureContrast",100)}%`;
+    $("#textureSaturationOutput").textContent=`${textureAlchemyNumber("textureSaturation",100)}%`;
+    if(pendingTextureImport.analysis)$("#textureImportAnalysis").textContent=`${pendingTextureImport.analysis.summary} · edge mismatch ${pendingTextureImport.edgeMismatch}%`;
+  }
+
+  function textureVariantData(kind) {
+    const source=$("#textureImportCanvas"),canvas=document.createElement("canvas"),context=canvas.getContext("2d",{willReadFrequently:true});canvas.width=canvas.height=256;context.drawImage(source,0,0);
+    const image=context.getImageData(0,0,256,256),data=image.data;
+    for(let index=0;index<data.length;index+=4){
+      const pixel=index/4,x=pixel%256,y=Math.floor(pixel/256);
+      if(kind==="dark"){data[index]*=.7;data[index+1]*=.72;data[index+2]*=.76;}
+      else if(kind==="light"){data[index]=data[index]*.82+46;data[index+1]=data[index+1]*.84+42;data[index+2]=data[index+2]*.86+36;}
+      else if(kind==="worn"){
+        const noise=((x*37+y*61+(x*y)%97)%43)-21,stain=Math.sin(x*.071+y*.043)*10+Math.sin(x*.019-y*.083)*8;
+        const gray=(data[index]+data[index+1]+data[index+2])/3;
+        data[index]=data[index]*.82+gray*.18+noise+stain;data[index+1]=data[index+1]*.82+gray*.18+noise*.72+stain;data[index+2]=data[index+2]*.82+gray*.18+noise*.5+stain;
+      }
+      data[index+3]=255;
+    }
+    context.putImageData(quantizeGoldSrcImage(image),0,0);return canvas.toDataURL("image/png");
+  }
+
+  function textureFamilyCode(base,suffix) {
+    const normalized=String(base||"USR_TEXTURE").toUpperCase().replace(/[^A-Z0-9_]+/g,"_").replace(/^_+|_+$/g,"");
+    const prefixed=normalized.startsWith("USR_")?normalized:`USR_${normalized}`;
+    return `${prefixed.slice(0,Math.max(5,15-suffix.length)).replace(/_+$/,"")}${suffix}`.slice(0,15);
   }
 
   function resetTextureImport() {
+    if(pendingTextureImport?.objectUrl)URL.revokeObjectURL(pendingTextureImport.objectUrl);
     pendingTextureImport=null;$("#textureFileInput").value="";$("#textureImportEditor").classList.add("hidden");$("#textureDropZone").classList.remove("hidden","drag-over");$("#textureImportStatus").classList.add("hidden");$("#textureImportStatus").classList.remove("error");
   }
 
@@ -3693,22 +3823,26 @@
     if(file.size>12_000_000){showToast("Choose an image smaller than 12 MB");return;}
     const image=new Image(),url=URL.createObjectURL(file);
     try{image.src=url;await image.decode();}catch(_){URL.revokeObjectURL(url);showToast("That image could not be decoded");return;}
-    const canvas=$("#textureImportCanvas"),context=canvas.getContext("2d",{willReadFrequently:true}),scale=Math.max(256/image.naturalWidth,256/image.naturalHeight),width=image.naturalWidth*scale,height=image.naturalHeight*scale;
-    context.clearRect(0,0,256,256);context.drawImage(image,(256-width)/2,(256-height)/2,width,height);URL.revokeObjectURL(url);
-    const analysis=analyzeImportedTexture(file.name,context);pendingTextureImport={fileName:file.name,imageData:canvas.toDataURL("image/png")};
+    if(pendingTextureImport?.objectUrl)URL.revokeObjectURL(pendingTextureImport.objectUrl);
+    pendingTextureImport={fileName:file.name,image,objectUrl:url,analysis:null,imageData:""};resetTextureAlchemyControls(false);
+    drawTextureAlchemySource();const analysis=analyzeImportedTexture(file.name,$("#textureImportSourceCanvas").getContext("2d",{willReadFrequently:true}));pendingTextureImport.analysis=analysis;
     $("#textureImportLabel").value=analysis.label;$("#textureImportName").value=analysis.code;$("#textureImportCategory").value=analysis.category;$("#textureImportAnalysis").textContent=analysis.summary;
-    $("#textureDropZone").classList.add("hidden");$("#textureImportEditor").classList.remove("hidden");$("#textureImportStatus").classList.add("hidden");
+    renderTextureAlchemy();$("#textureDropZone").classList.add("hidden");$("#textureImportEditor").classList.remove("hidden");$("#textureImportStatus").classList.add("hidden");
   }
 
   async function installImportedTexture() {
     if(!pendingTextureImport)return;
-    const button=$("#installTextureImport"),status=$("#textureImportStatus"),name=$("#textureImportName").value.toUpperCase().replace(/[^A-Z0-9_]+/g,"_").slice(0,15),label=$("#textureImportLabel").value.trim(),category=$("#textureImportCategory").value;
-    button.disabled=true;button.textContent="Building WAD…";status.classList.remove("hidden","error");status.textContent="Normalizing mipmaps and rebuilding the compile-ready texture pack…";
+    const button=$("#installTextureImport"),status=$("#textureImportStatus"),name=$("#textureImportName").value.toUpperCase().replace(/[^A-Z0-9_]+/g,"_").slice(0,15),label=$("#textureImportLabel").value.trim()||name,category=$("#textureImportCategory").value;
+    const textures=[{name,label,category,imageData:pendingTextureImport.imageData,variant:"base"}];
+    if($("#textureVariantDark").checked)textures.push({name:textureFamilyCode(name,"_D"),label:`${label} — Dark`,category,imageData:textureVariantData("dark"),variant:"dark"});
+    if($("#textureVariantLight").checked)textures.push({name:textureFamilyCode(name,"_L"),label:`${label} — Light`,category,imageData:textureVariantData("light"),variant:"light"});
+    if($("#textureVariantWorn").checked)textures.push({name:textureFamilyCode(name,"_W"),label:`${label} — Weathered`,category,imageData:textureVariantData("worn"),variant:"weathered"});
+    button.disabled=true;button.textContent="Building texture family…";status.classList.remove("hidden","error");status.textContent=`Creating ${textures.length} GoldSrc textures, mipmaps, previews, and one atomic WAD update…`;
     try{
-      const result=await companionRequest("/api/textures/import",{method:"POST",body:JSON.stringify({name,label,category,imageData:pendingTextureImport.imageData})}),item=result.texture;
-      registerMaterial(item.name,item.label,item.category,Date.now());installMaterialOptions();$("#textureSearch").value=item.name;$("#textureCategory").value="all";resetTextureImport();renderTextureBrowser();status.classList.remove("hidden","error");status.textContent=`${item.label} installed as ${item.name}. Click its card below to apply it.`;showToast("Texture installed and added to the GoldSrc WAD");
+      const result=await companionRequest("/api/textures/alchemize",{method:"POST",body:JSON.stringify({textures,family:name})}),items=result.textures||[];
+      items.forEach((item)=>registerMaterial(item.name,item.label,item.category,Date.now()));installMaterialOptions();$("#textureSearch").value=items[0]?.name||name;$("#textureCategory").value="all";resetTextureImport();renderTextureBrowser();status.classList.remove("hidden","error");status.textContent=`Installed ${items.length} matching material${items.length===1?"":"s"} as one safe WAD update. Click a card below to apply it.`;showToast(`${items.length} Texture Alchemist material${items.length===1?"":"s"} installed`);
     }catch(error){status.classList.remove("hidden");status.classList.add("error");status.textContent=`Import stopped: ${error.message}`;}
-    finally{button.disabled=false;button.textContent="Install texture";}
+    finally{button.disabled=false;button.textContent="Install texture family";}
   }
 
   function selectedTextureForTarget() {
@@ -5754,7 +5888,7 @@
     const available = !!companionStatus?.connected && versionAtLeast(companionStatus.version, MIN_COMPANION_VERSION);
     dropZone.disabled = !available;
     dropZone.innerHTML = available
-      ? '<span class="texture-drop-icon">+</span><span><strong>Drop an image to create a texture</strong><small>PNG, JPG, WebP or GIF · converted by your paired Windows companion</small></span><em>Choose image</em>'
+      ? '<span class="texture-drop-icon">+</span><span><strong>Drop a photo into Texture Alchemist</strong><small>Seamless processing happens locally; your companion builds the WAD</small></span><em>Choose image</em>'
       : '<span class="texture-drop-icon">↧</span><span><strong>Pair the Windows companion to install textures</strong><small>Open Build & Test, start Start Blockout.cmd, and enter its rotating code.</small></span><em>Pair first</em>';
   }
 
@@ -6612,6 +6746,10 @@
   $("#textureDropZone").addEventListener("drop", (event) => prepareTextureImport(event.dataTransfer?.files?.[0]));
   updateTextureImportAvailability();
   $("#cancelTextureImport").addEventListener("click", resetTextureImport);
+  $("#resetTextureAlchemy").addEventListener("click",()=>resetTextureAlchemyControls(true));
+  ["textureCropMode","textureRotation","textureZoom","textureOffsetX","textureOffsetY","textureSeamWidth","textureBrightness","textureContrast","textureSaturation","textureMakeSeamless","textureGoldSrcPalette"].forEach((id)=>{
+    $(`#${id}`).addEventListener(id.startsWith("textureMake")||id==="textureGoldSrcPalette"||id==="textureCropMode"||id==="textureRotation"?"change":"input",renderTextureAlchemy);
+  });
   $("#installTextureImport").addEventListener("click", installImportedTexture);
   $("#textureImportName").addEventListener("input", (event) => {
     const selectionStart=event.target.selectionStart;
@@ -7170,6 +7308,21 @@
     getBrokenWalkWindows: () => [...brokenWalkWindows],
     getCustomPrefabs: () => structuredClone(customPrefabs),
     getPrefabPlacement: () => ({activePrefabId,rotation:customPrefabRotation,mirrored:customPrefabMirrored}),
+    prepareTextureImage: (file) => prepareTextureImport(file),
+    getTextureAlchemyState: () => ({
+      active:!!pendingTextureImport,
+      fileName:pendingTextureImport?.fileName||"",
+      edgeMismatch:pendingTextureImport?.edgeMismatch??null,
+      imageDataBytes:pendingTextureImport?.imageData?.length||0,
+      category:$("#textureImportCategory")?.value||"",
+      code:$("#textureImportName")?.value||"",
+      variants:[
+        {kind:"base",code:$("#textureImportName")?.value||"",enabled:!!pendingTextureImport},
+        {kind:"dark",code:textureFamilyCode($("#textureImportName")?.value||"","_D"),enabled:!!$("#textureVariantDark")?.checked},
+        {kind:"light",code:textureFamilyCode($("#textureImportName")?.value||"","_L"),enabled:!!$("#textureVariantLight")?.checked},
+        {kind:"weathered",code:textureFamilyCode($("#textureImportName")?.value||"","_W"),enabled:!!$("#textureVariantWorn")?.checked}
+      ]
+    }),
     generateMapText
   });
   requestAnimationFrame(animate);

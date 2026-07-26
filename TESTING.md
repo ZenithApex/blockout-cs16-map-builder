@@ -50,6 +50,11 @@ the archive and executable SHA-256 hashes before installation.
 - Try Draft, Playtest, and Final build profiles, then cancel one running build.
 - If a compiler error reports a coordinate, click its diagnostic to focus the top-down plan.
 - If Node.js is installed, import a 256×256 texture and compile a room using it.
+- Drop a non-square photograph into **Texture Alchemist** and verify the Source, GoldSrc output, and 3 × 3 tile previews.
+- Change crop, rotation, zoom, offsets, color corrections, and edge blend; every preview and the edge-mismatch score should update.
+- Install Base, Dark, Light, and Weathered together and confirm all four cards appear after a single successful WAD rebuild.
+- Force a duplicate family code and confirm no partial source, preview, manifest, or WAD change remains.
+- Apply a generated texture to an individual brush face and confirm deletion is refused until every use is replaced.
 
 ## Reporting a problem
 
