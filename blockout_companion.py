@@ -28,7 +28,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 
-VERSION = "1.3.0"
+VERSION = "1.4.0"
 HOST = "127.0.0.1"
 PORT = 41716
 ONLINE_ORIGINS = {

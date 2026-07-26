@@ -162,6 +162,8 @@ Use the elevation selector above the plan to choose **All levels** or one physic
 
 Rooms drawn while a level is selected inherit that elevation. Large vertical transitions should still be connected with stairs, ramps, or ladders so Walkthrough and the compiled map remain playable.
 
+Every project also has named organization layers. Open **Production > Outliner** to add, rename, recolor, hide, lock, delete, and filter layers. Assign the current single or multi-selection from the **Layer** field in Selection. Hidden layers disappear from the plan and Orbit preview; locked layers remain visible but cannot be moved, resized, painted, or deleted. Deleting a layer safely returns its objects to **Default**.
+
 Choose **Elevation** in the top bar for a true side-on slice through the map. Switch between west-to-east and north-to-south views, move the slice slider, and click a visible profile to select it. The selected object's physical base and top can be edited numerically while the panel reports its total height and remaining ceiling clearance.
 
 Open **Production** and choose **Levels** to create named stories, isolate a story, or duplicate a complete level above its tallest room. Use **Floor opening** inside a rectangular upper room to cut a stairwell, ladder shaft, drop, or elevator shaft. Export cuts both the upper floor and the matching lower-room ceiling, creating a genuinely connected GoldSrc volume rather than a visual-only opening.
@@ -171,6 +173,8 @@ Preflight rejects vertically overlapping rooms, openings without a matching lowe
 ## Transform handles
 
 Select a room or structure in the plan to reveal four resize handles, a rotation handle, and a vertical-height handle. Drag a corner to resize, drag the circular handle to rotate, or drag the diamond handle to change the object's top height. Orbit also provides a vertical height handle for adjusting geometry while reading it in 3D. Each completed drag creates one undo step.
+
+The **Precision transform** panel accepts exact X, Y, Z, width, depth, and height values in GoldSrc units. Multi-selection exposes edge and center alignment, horizontal or vertical distribution, equal width/depth/size, and world-origin centering. Exact width or depth scales the complete selection as one layout, while equal-size commands match the primary selected object.
 
 ## Compile preflight
 

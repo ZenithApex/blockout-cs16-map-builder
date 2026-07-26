@@ -4,6 +4,8 @@
   const GRID = 64;
   const STORAGE_KEY = "blockout-cs16-project-v1";
   const CUSTOM_PREFAB_STORAGE_KEY = "blockout-custom-prefabs-v1";
+  const DEFAULT_LAYER_ID = "layer-default";
+  const LAYER_COLORS = ["#d7f45a","#72c8c0","#f0a45a","#8bb8ff","#d58cff","#ef7084","#f1d071","#9aa3ad"];
   const IS_LOCAL_HOST = ["127.0.0.1", "localhost", "[::1]"].includes(location.hostname);
   const HOSTED_MODE = location.protocol !== "file:" && !IS_LOCAL_HOST;
   const COMPANION_API = location.protocol === "file:" || HOSTED_MODE ? "http://127.0.0.1:41716" : "";
@@ -337,11 +339,41 @@
     project.environment.groundElevation = Math.max(-8, Math.min(16, Number(project.environment.groundElevation) || 0));
     if (!MATERIAL_INFO[project.environment.groundMaterial]) project.environment.groundMaterial = DEFAULT_ENVIRONMENT.groundMaterial;
     if (!SKY_THEMES[project.environment.skyName]) project.environment.skyName = DEFAULT_ENVIRONMENT.skyName;
+    ensureLayers(project);
     return project.environment;
   }
 
+  function ensureLayers(project = state) {
+    project.layers = Array.isArray(project.layers) ? project.layers.filter((layer) => layer && layer.id) : [];
+    let defaultLayer = project.layers.find((layer) => layer.id === DEFAULT_LAYER_ID);
+    if (!defaultLayer) {
+      defaultLayer = { id:DEFAULT_LAYER_ID, name:"Default", color:LAYER_COLORS[0], visible:true, locked:false };
+      project.layers.unshift(defaultLayer);
+    }
+    project.layers.forEach((layer,index) => {
+      layer.name = String(layer.name || `Layer ${index + 1}`).slice(0,32);
+      layer.color = /^#[0-9a-f]{6}$/i.test(layer.color || "") ? layer.color : LAYER_COLORS[index % LAYER_COLORS.length];
+      layer.visible = layer.visible !== false;
+      layer.locked = !!layer.locked;
+    });
+    return project.layers;
+  }
+
+  function layerForItem(item, project = state) {
+    const layers = ensureLayers(project);
+    return layers.find((layer) => layer.id === item?.layerId) || layers.find((layer) => layer.id === DEFAULT_LAYER_ID) || layers[0];
+  }
+
+  function isItemHidden(item) {
+    return !!item?.hidden || layerForItem(item)?.visible === false;
+  }
+
+  function isItemLocked(item) {
+    return !!item?.locked || !!layerForItem(item)?.locked;
+  }
+
   function freshProject() {
-    return { name: "My first map", rooms: [], doors: [], windows: [], zones: [], props: [], entities: [], stories:[{id:crypto.randomUUID(),name:"Ground floor",elevation:0}], environment:{...DEFAULT_ENVIRONMENT}, updatedAt: Date.now() };
+    return { name: "My first map", rooms: [], doors: [], windows: [], zones: [], props: [], entities: [], layers:[{id:DEFAULT_LAYER_ID,name:"Default",color:LAYER_COLORS[0],visible:true,locked:false}], stories:[{id:crypto.randomUUID(),name:"Ground floor",elevation:0}], environment:{...DEFAULT_ENVIRONMENT}, updatedAt: Date.now() };
   }
 
   function layoutRoom(label, x, y, w, d, options = {}) {
@@ -1064,27 +1096,27 @@
     const refs=[],lineTolerance=Math.max(.08,8/cellSize),markerTolerance=Math.max(.18,10/cellSize);
     for (let i = state.windows.length - 1; i >= 0; i--) {
       const window = state.windows[i];
-      if (window.hidden) continue;
+      if (isItemHidden(window)) continue;
       if (!onPlanLevel("window", window)) continue;
       const segment=openingSegment(window);
       if(projectToSegment(world,segment[0],segment[1]).distance<=lineTolerance)refs.push({type:"window",id:window.id});
     }
     for (let i = state.doors.length - 1; i >= 0; i--) {
       const door = state.doors[i];
-      if (door.hidden) continue;
+      if (isItemHidden(door)) continue;
       if (!onPlanLevel("door", door)) continue;
       const segment=openingSegment(door);
       if(projectToSegment(world,segment[0],segment[1]).distance<=lineTolerance)refs.push({type:"door",id:door.id});
     }
     for (let i = state.entities.length - 1; i >= 0; i--) {
       const entity = state.entities[i];
-      if (entity.hidden) continue;
+      if (isItemHidden(entity)) continue;
       if (!onPlanLevel("entity", entity)) continue;
       if(Math.hypot(world.x-(entity.x+.5),world.y-(entity.y+.5))<=markerTolerance)refs.push({type:"entity",id:entity.id});
     }
     for (let i = state.props.length - 1; i >= 0; i--) {
       const prop = state.props[i];
-      if (prop.hidden) continue;
+      if (isItemHidden(prop)) continue;
       if (!onPlanLevel("prop", prop)) continue;
       const points=prop.kind==="diagonal"?diagonalCorners(prop):prop.points;
       const hit=points?.length
@@ -1094,13 +1126,13 @@
     }
     for (let i = state.zones.length - 1; i >= 0; i--) {
       const zone = state.zones[i];
-      if (zone.hidden) continue;
+      if (isItemHidden(zone)) continue;
       if (!onPlanLevel("zone", zone)) continue;
       if(world.x>=zone.x&&world.x<=zone.x+zone.w&&world.y>=zone.y&&world.y<=zone.y+zone.d)refs.push({type:"zone",id:zone.id});
     }
     for (let i = state.rooms.length - 1; i >= 0; i--) {
       const room = state.rooms[i];
-      if (room.hidden) continue;
+      if (isItemHidden(room)) continue;
       if (!onPlanLevel("room", room)) continue;
       const points=roomPlanPoints(room);
       if(pointInRoom(world.x,world.y,room)||polygonEdgeDistance(world,points)<=lineTolerance*.65)refs.push({type:"room",id:room.id});
@@ -1204,6 +1236,97 @@
     const minX = Math.min(...bounds.map((box) => box.x)), minY = Math.min(...bounds.map((box) => box.y));
     const maxX = Math.max(...bounds.map((box) => box.x + box.w)), maxY = Math.max(...bounds.map((box) => box.y + box.d));
     return { x:minX, y:minY, w:maxX-minX, d:maxY-minY };
+  }
+
+  function entryHeight(entry) {
+    const { ref, item } = entry;
+    if (ref.type === "zone" || ref.type === "entity") return null;
+    if (ref.type === "prop" && ["floor","floorPolygon"].includes(item.kind)) return Number(item.thickness) || .25;
+    return Number(item.height) || null;
+  }
+
+  function selectionBaseLevel(entries = selectedEntries()) {
+    const values = entries.map(({ref,item}) => itemLevel(ref.type,item)).filter(Number.isFinite);
+    return values.length ? Math.min(...values) : 0;
+  }
+
+  function moveEntryBy(entry, dx = 0, dy = 0, dz = 0) {
+    const { ref, item } = entry;
+    if (ref.type === "door" || ref.type === "window") {
+      if (item.axis === "h") { item.along += dx; item.boundary += dy; }
+      else { item.boundary += dx; item.along += dy; }
+    } else {
+      item.x = (Number(item.x) || 0) + dx;
+      item.y = (Number(item.y) || 0) + dy;
+      if (item.points?.length) item.points = item.points.map(([x,y]) => [x+dx,y+dy]);
+      if (item.planPoints?.length) item.planPoints = item.planPoints.map(([x,y]) => [x+dx,y+dy]);
+    }
+    if (!dz) return;
+    const current = itemLevel(ref.type,item);
+    if (ref.type === "room") item.floorLevel = current + dz;
+    else if (ref.type === "prop" && ["floor","floorPolygon"].includes(item.kind)) item.elevation = current + dz;
+    else item.floorLevel = current + dz;
+  }
+
+  function scaleEntryInSelection(entry, bounds, scaleX, scaleY) {
+    const { ref, item } = entry;
+    if (ref.type === "door" || ref.type === "window") {
+      if (item.axis === "h") {
+        item.along = bounds.x + (item.along-bounds.x)*scaleX;
+        item.boundary = bounds.y + (item.boundary-bounds.y)*scaleY;
+        item.width = Math.max(.25,(item.width || 1)*scaleX);
+      } else {
+        item.boundary = bounds.x + (item.boundary-bounds.x)*scaleX;
+        item.along = bounds.y + (item.along-bounds.y)*scaleY;
+        item.width = Math.max(.25,(item.width || 1)*scaleY);
+      }
+      return;
+    }
+    if (item.points?.length) item.points = item.points.map(([x,y]) => [bounds.x+(x-bounds.x)*scaleX,bounds.y+(y-bounds.y)*scaleY]);
+    if (item.planPoints?.length) item.planPoints = item.planPoints.map(([x,y]) => [bounds.x+(x-bounds.x)*scaleX,bounds.y+(y-bounds.y)*scaleY]);
+    item.x = bounds.x + ((Number(item.x)||0)-bounds.x)*scaleX;
+    item.y = bounds.y + ((Number(item.y)||0)-bounds.y)*scaleY;
+    if (ref.type !== "entity") {
+      item.w = Math.max(.25,(Number(item.w)||1)*scaleX);
+      item.d = Math.max(.25,(Number(item.d)||1)*scaleY);
+      if (item.points?.length) updatePolygonBounds(item);
+    }
+  }
+
+  function resizeEntryAxis(entry, axis, target) {
+    const { ref, item } = entry;
+    if (!["room","prop","zone"].includes(ref.type) || !Number.isFinite(target) || target < .25) return false;
+    const key = axis === "x" ? "w" : "d", origin = axis === "x" ? item.x : item.y;
+    const old = Math.max(.001,Number(item[key]) || 1), ratio = target/old;
+    if (item.points?.length) item.points = item.points.map(([x,y]) => axis === "x" ? [origin+(x-origin)*ratio,y] : [x,origin+(y-origin)*ratio]);
+    if (item.planPoints?.length) item.planPoints = item.planPoints.map(([x,y]) => axis === "x" ? [origin+(x-origin)*ratio,y] : [x,origin+(y-origin)*ratio]);
+    item[key] = target;
+    if (item.points?.length) updatePolygonBounds(item);
+    return true;
+  }
+
+  function updatePrecisionInspector(entries = selectedEntries()) {
+    if (!entries.length) return;
+    const bounds = selectionBounds(entries), base = selectionBaseLevel(entries);
+    $("#precisionX").value = Math.round(bounds.x*GRID);
+    $("#precisionY").value = Math.round(bounds.y*GRID);
+    $("#precisionZ").value = Math.round(base*GRID);
+    $("#precisionWidth").value = Math.round(bounds.w*GRID);
+    $("#precisionDepth").value = Math.round(bounds.d*GRID);
+    const heights = entries.map(entryHeight).filter((value) => value != null);
+    const commonHeight = heights.length && heights.every((value) => Math.abs(value-heights[0]) < .001) ? heights[0] : null;
+    $("#precisionHeight").value = commonHeight == null ? "" : Math.round(commonHeight*GRID);
+    $("#precisionHeight").placeholder = commonHeight == null ? "Mixed" : "";
+    $("#precisionHeight").disabled = !heights.length;
+    $("#precisionActions").classList.toggle("hidden",entries.length < 2);
+    $$("[data-distribute]").forEach((button) => { button.disabled = entries.length < 3; });
+    $$("[data-equal-size]").forEach((button) => {
+      button.disabled = entries.filter((entry) => ["room","prop","zone"].includes(entry.ref.type)).length < 2;
+    });
+    const layers = ensureLayers();
+    const layerIds = [...new Set(entries.map(({item}) => layerForItem(item).id))];
+    $("#selectionLayer").innerHTML = `${layerIds.length > 1 ? '<option value="">Mixed layers</option>' : ""}${layers.map((layer) => `<option value="${html(layer.id)}">${html(layer.name)}</option>`).join("")}`;
+    $("#selectionLayer").value = layerIds.length === 1 ? layerIds[0] : "";
   }
 
   function normalizedUv(value = {}) {
@@ -1315,7 +1438,7 @@
   function selectableRefs() {
     const refs = [];
     ["room","door","window","zone","prop","entity"].forEach((type) => itemListFor(type).forEach((item) => {
-      if (!item.hidden && onPlanLevel(type,item)) refs.push({ type, id:item.id });
+      if (!isItemHidden(item) && onPlanLevel(type,item)) refs.push({ type, id:item.id });
     }));
     return refs;
   }
@@ -1339,7 +1462,7 @@
   function geometrySnapResolution(world=null) {
     const values=[];
     ["room","zone","prop","entity"].forEach((type)=>itemListFor(type).forEach((item)=>{
-      if(item.hidden)return;
+      if(isItemHidden(item))return;
       const bounds=itemBoundsForRef({type,id:item.id});
       if(world&&bounds){
         const dx=Math.max(bounds.x-world.x,0,world.x-(bounds.x+bounds.w)),dy=Math.max(bounds.y-world.y,0,world.y-(bounds.y+bounds.d));
@@ -1372,7 +1495,7 @@
     const ignored = new Set(excluded.map((ref) => `${ref.type}:${ref.id}`));
     const xs = [], ys = [];
     ["room","zone","prop","entity"].forEach((type) => itemListFor(type).forEach((item) => {
-      if (item.hidden || ignored.has(`${type}:${item.id}`)) return;
+      if (isItemHidden(item) || ignored.has(`${type}:${item.id}`)) return;
       const points = item.points?.length ? item.points : [[item.x,item.y],[item.x+(item.w||1),item.y+(item.d||1)]];
       points.forEach(([x,y]) => { xs.push(x); ys.push(y); });
       xs.push(item.x+(item.w||1)/2); ys.push(item.y+(item.d||1)/2);
@@ -1455,7 +1578,7 @@
     }
 
     state.rooms.forEach((room, index) => {
-      if (room.hidden) return;
+      if (isItemHidden(room)) return;
       const points = roomPlanPoints(room).map(([x, y]) => cellToScreen(x, y));
       if (!onPlanLevel("room", room)) {
         if (!ghostLevels) return;
@@ -1523,8 +1646,8 @@
       ectx.restore();
     }
 
-    state.zones.filter((zone) => !zone.hidden && onPlanLevel("zone", zone)).forEach((zone) => drawZone(zone));
-    state.props.filter((prop) => !prop.hidden && onPlanLevel("prop", prop)).forEach((prop) => drawProp(prop));
+    state.zones.filter((zone) => !isItemHidden(zone) && onPlanLevel("zone", zone)).forEach((zone) => drawZone(zone));
+    state.props.filter((prop) => !isItemHidden(prop) && onPlanLevel("prop", prop)).forEach((prop) => drawProp(prop));
 
     if (drawing) {
       const box = normalizeSnappedRect(drawing.start, drawing.end);
@@ -1557,12 +1680,12 @@
 
     if(lightingOverlay){
       ectx.save();ectx.setLineDash([5,5]);
-      state.entities.filter((entity)=>["light","spotlight"].includes(entity.kind)&&!entity.hidden).forEach((entity)=>{const p=cellToScreen(entity.x+.5,entity.y+.5),radius=(entity.radius||512)/GRID*cellSize;ectx.beginPath();ectx.arc(p.x,p.y,radius,0,Math.PI*2);ectx.fillStyle=`${entity.color||"#fff0d0"}0d`;ectx.fill();ectx.strokeStyle=`${entity.color||"#fff0d0"}66`;ectx.stroke();});
+      state.entities.filter((entity)=>["light","spotlight"].includes(entity.kind)&&!isItemHidden(entity)).forEach((entity)=>{const p=cellToScreen(entity.x+.5,entity.y+.5),radius=(entity.radius||512)/GRID*cellSize;ectx.beginPath();ectx.arc(p.x,p.y,radius,0,Math.PI*2);ectx.fillStyle=`${entity.color||"#fff0d0"}0d`;ectx.fill();ectx.strokeStyle=`${entity.color||"#fff0d0"}66`;ectx.stroke();});
       ectx.restore();
     }
-    state.entities.filter((entity) => !entity.hidden && onPlanLevel("entity", entity)).forEach((entity) => drawEntity(entity));
-    state.doors.filter((door) => !door.hidden && onPlanLevel("door", door)).forEach((door) => drawDoor(door));
-    state.windows.filter((window) => !window.hidden && onPlanLevel("window", window)).forEach((window) => drawWindow(window));
+    state.entities.filter((entity) => !isItemHidden(entity) && onPlanLevel("entity", entity)).forEach((entity) => drawEntity(entity));
+    state.doors.filter((door) => !isItemHidden(door) && onPlanLevel("door", door)).forEach((door) => drawDoor(door));
+    state.windows.filter((window) => !isItemHidden(window) && onPlanLevel("window", window)).forEach((window) => drawWindow(window));
     drawAnalysisOverlay();
     drawEditorSelectionOverlay();
 
@@ -1625,7 +1748,7 @@
   }
 
   function drawEditorSelectionOverlay() {
-    const entries = selectedEntries().filter((entry) => !entry.item.hidden);
+    const entries = selectedEntries().filter((entry) => !isItemHidden(entry.item));
     if (entries.length > 1) {
       const bounds = selectionBounds(entries), a = cellToScreen(bounds.x,bounds.y), b = cellToScreen(bounds.x+bounds.w,bounds.y+bounds.d);
       ectx.save(); ectx.strokeStyle = "#ffffff"; ectx.lineWidth = 1.5; ectx.setLineDash([6,4]);
@@ -1885,7 +2008,7 @@
       paintSkyBackground(pctx, rect.width, rect.height);
     }
 
-    const visibleRooms = state.rooms.filter((room) => !room.hidden);
+    const visibleRooms = state.rooms.filter((room) => !isItemHidden(room));
     const orbitRooms = previewLevelOnly && planLevel != null ? visibleRooms.filter((room) => onPlanLevel("room", room)) : visibleRooms;
     const shownRooms = orbitRooms.length ? orbitRooms : state.rooms;
     const fallbackBounds = environmentBounds(shownRooms);
@@ -1960,7 +2083,7 @@
       if (room.ceilingMode !== "sky") registerPick("room",room.id,t,"ceiling");
     });
 
-    state.zones.filter((zone) => !zone.hidden && (!previewLevelOnly || planLevel == null || onPlanLevel("zone", zone))).forEach((zone) => {
+    state.zones.filter((zone) => !isItemHidden(zone) && (!previewLevelOnly || planLevel == null || onPlanLevel("zone", zone))).forEach((zone) => {
       const hostRoom = state.rooms.find((room) => pointInRoom(zone.x + zone.w / 2, zone.y + zone.d / 2, room));
       const baseZ = roomFloor(hostRoom) + .1;
       pctx.save(); pctx.globalAlpha = isRefSelected("zone",zone.id) ? .72 : .38;
@@ -1970,7 +2093,7 @@
       pctx.restore();
     });
 
-    state.doors.filter((door) => !door.hidden && door.mode === "sliding" && (!previewLevelOnly || planLevel == null || onPlanLevel("door", door))).forEach((door) => {
+    state.doors.filter((door) => !isItemHidden(door) && door.mode === "sliding" && (!previewLevelOnly || planLevel == null || onPlanLevel("door", door))).forEach((door) => {
       const hostRoom = adjacentRoomsForOpening(door)[0];
       const baseZ = roomFloor(hostRoom) + .08;
       const selectedDoor = isRefSelected("door",door.id);
@@ -1979,7 +2102,7 @@
       registerPick("door",door.id,doorCorners.map(([x,y])=>project(x,y,baseZ+1)));
     });
 
-    state.windows.filter((window) => !window.hidden && (!previewLevelOnly || planLevel == null || onPlanLevel("window", window))).forEach((window) => {
+    state.windows.filter((window) => !isItemHidden(window) && (!previewLevelOnly || planLevel == null || onPlanLevel("window", window))).forEach((window) => {
       const hostRoom = adjacentRoomsForOpening(window)[0];
       const baseZ = roomFloor(hostRoom) + .08 + (window.sill || .75) * .58;
       const selectedWindow = isRefSelected("window",window.id);
@@ -1991,7 +2114,7 @@
       registerPick("window",window.id,windowCorners.map(([x,y])=>project(x,y,baseZ+.5)));
     });
 
-    const sortedProps = state.props.filter((prop) => !prop.hidden && (!previewLevelOnly || planLevel == null || onPlanLevel("prop", prop))).sort((a, b) => project(a.x + a.w / 2, a.y + a.d / 2).y - project(b.x + b.w / 2, b.y + b.d / 2).y);
+    const sortedProps = state.props.filter((prop) => !isItemHidden(prop) && (!previewLevelOnly || planLevel == null || onPlanLevel("prop", prop))).sort((a, b) => project(a.x + a.w / 2, a.y + a.d / 2).y - project(b.x + b.w / 2, b.y + b.d / 2).y);
     sortedProps.forEach((prop) => {
       const color = prop.kind === "stairs" ? "#d7f45a" : prop.kind === "ramp" ? "#f0a45a" : (MATERIAL_COLORS[prop.texture] || "#7a735f");
       const selectedProp = isRefSelected("prop",prop.id);
@@ -2070,7 +2193,7 @@
       pctx.textAlign = "left";
     });
 
-    state.entities.filter((entity) => !entity.hidden && (!previewLevelOnly || planLevel == null || onPlanLevel("entity", entity))).forEach((entity) => {
+    state.entities.filter((entity) => !isItemHidden(entity) && (!previewLevelOnly || planLevel == null || onPlanLevel("entity", entity))).forEach((entity) => {
       const point = project(entity.x + .5, entity.y + .5, ["light","spotlight"].includes(entity.kind) ? (entity.z || 2.5) : 3.2);
       const color = entity.kind === "ct" ? "#62a9ff" : entity.kind === "t" ? "#f09c4a" : ["light","spotlight"].includes(entity.kind) ? (entity.color || "#fff0d0") : ({hostage:"#e9d9a4",button:"#b7a780",teleDest:"#a27ee8",decal:"#c4b184",ambient:"#d7f45a",pathCorner:"#8fe1ff",targetDummy:"#ef6658"}[entity.kind]||"#d7f45a");
       if (["light","spotlight"].includes(entity.kind)) {
@@ -2205,7 +2328,7 @@
       walls.push({ axis: "v", pos: x1, start: y1, end: y2, ...details });
       walls.push({ axis: "v", pos: x2, start: y1, end: y2, ...details });
     };
-    state.rooms.filter((room)=>!room.hidden&&(level==null||(roomFloor(room)<=level+.8&&roomFloor(room)+room.height>level+.1))).forEach((room) => {
+    state.rooms.filter((room)=>!isItemHidden(room)&&(level==null||(roomFloor(room)<=level+.8&&roomFloor(room)+room.height>level+.1))).forEach((room) => {
       if (room.points?.length >= 3) {
         room.points.forEach((point, index) => {
           const next = room.points[(index + 1) % room.points.length];
@@ -2255,7 +2378,7 @@
       const segment=openingSegment(window);
       walls.push(window.axis==="v"?{axis:"v",pos:window.boundary,start:window.along,end:window.along+(window.width||1),...details}:window.axis==="h"?{axis:"h",pos:window.boundary,start:window.along,end:window.along+(window.width||1),...details}:{axis:"d",x1:segment[0][0],y1:segment[0][1],x2:segment[1][0],y2:segment[1][1],...details});
     });
-    state.props.filter((prop)=>!prop.hidden&&(level==null||((Number(prop.floorLevel??itemLevel("prop",prop))<=level+.8)&&verticalBounds({type:"prop"},prop)?.top>level+.05))).forEach((prop) => {
+    state.props.filter((prop)=>!isItemHidden(prop)&&(level==null||((Number(prop.floorLevel??itemLevel("prop",prop))<=level+.8)&&verticalBounds({type:"prop"},prop)?.top>level+.05))).forEach((prop) => {
       if (prop.kind === "ladder") return;
       if (prop.kind === "diagonal") {
         const details = { prop: true, propKind: prop.kind, heightScale: Math.min(1, Math.max(.22, prop.height / 2.4)), walkable: false };
@@ -2524,7 +2647,7 @@
       addFace(prop, [[x2,y1,base],[x2,y2,base],[x2,y2,z],[x2,y1,z]], "side");
     };
 
-    state.props.filter((prop)=>!prop.hidden).forEach((prop) => {
+    state.props.filter((prop)=>!isItemHidden(prop)).forEach((prop) => {
       if (["floor", "floorPolygon"].includes(prop.kind)) {
         const top = Number(prop.elevation) || 0;
         const base = top - Math.max(.125, Number(prop.thickness) || .25);
@@ -3159,10 +3282,11 @@
     $("#nothingSelected").classList.toggle("hidden", !!entries.length);
     $("#selectionFields").classList.toggle("hidden", !entries.length);
     $("#multiSelectionSummary").classList.toggle("hidden", !multiple);
+    if (entries.length) updatePrecisionInspector(entries);
     if (multiple) {
       const grouped = entries.every((entry) => entry.item.groupId && entry.item.groupId === entries[0].item.groupId);
       $("#selectionType").value = `${entries.length} selected objects`;
-      $("#multiSelectionSummary").textContent = `${entries.length} objects · ${grouped ? "one group" : "mixed selection"}${entries.some((entry) => entry.item.locked) ? " · includes locked" : ""}`;
+      $("#multiSelectionSummary").textContent = `${entries.length} objects · ${grouped ? "one group" : "mixed selection"}${entries.some((entry) => isItemLocked(entry.item)) ? " · includes locked" : ""}`;
       ["shapeFields","floorFields","vertexFields","lightFields","logicFields","spawnFields","doorFields","windowFields","gameEntityFields","zoneEntityFields","materialRow","roomSurfaceFields","materialPreview","openTextureBrowser","textureAlignmentFields"].forEach((id) => $(`#${id}`).classList.add("hidden"));
       $(".field-row").classList.add("hidden");
       $("#selectionActions").classList.remove("hidden");
@@ -3173,7 +3297,7 @@
       $("#levelUpSelection").disabled = $("#levelDownSelection").disabled;
       $("#groupSelection").disabled = entries.length < 2 || grouped;
       $("#ungroupSelection").disabled = !entries.some((entry) => entry.item.groupId);
-      $("#lockSelection").textContent = entries.every((entry) => entry.item.locked) ? "Unlock" : "Lock";
+      $("#lockSelection").textContent = entries.every((entry) => isItemLocked(entry.item)) ? "Unlock" : "Lock";
       $("#saveSelectionPrefab").disabled = false;
       return;
     }
@@ -3247,7 +3371,7 @@
     $("#levelUpSelection").disabled = !(isRoom || isProp);
     $("#groupSelection").disabled = true;
     $("#ungroupSelection").disabled = !item.groupId;
-    $("#lockSelection").textContent = item.locked ? "Unlock" : "Lock";
+    $("#lockSelection").textContent = isItemLocked(item) ? "Unlock" : "Lock";
     $("#saveSelectionPrefab").disabled = !supportsActions;
     $("#materialLabel").textContent = isRoom ? "Wall material" : isFloor ? "Floor material" : "Material";
     if (isDoor) {
@@ -4067,10 +4191,38 @@
     ];
   }
 
-  function renderOutliner() {
+  function renderLayers() {
+    const layers=ensureLayers(),activeIds=new Set(selectedEntries().map(({item})=>layerForItem(item).id));
+    $("#layerList").innerHTML=layers.map((layer)=>{
+      const count=productionObjects().filter(({item})=>layerForItem(item).id===layer.id).length;
+      return `<div class="layer-row ${activeIds.has(layer.id)?"active":""}" data-layer-row="${html(layer.id)}">
+        <input type="color" value="${html(layer.color)}" data-layer-color="${html(layer.id)}" title="Layer color" />
+        <input type="text" value="${html(layer.name)}" data-layer-name="${html(layer.id)}" maxlength="32" aria-label="Layer name" />
+        <button class="${layer.visible?"active":""}" data-layer-visible="${html(layer.id)}" title="Show or hide layer">${layer.visible?"VISIBLE":"HIDDEN"} ${count}</button>
+        <button class="${layer.locked?"active":""}" data-layer-lock="${html(layer.id)}" title="Lock or unlock layer">${layer.locked?"LOCKED":"FREE"}</button>
+        <button data-layer-delete="${html(layer.id)}" title="Delete layer" ${layer.id===DEFAULT_LAYER_ID?"disabled":""}>×</button>
+      </div>`;
+    }).join("");
+    const filter=$("#outlinerLayer"),current=filter.value;
+    filter.innerHTML=`<option value="all">All layers</option>${layers.map((layer)=>`<option value="${html(layer.id)}">${html(layer.name)}</option>`).join("")}`;
+    filter.value=layers.some((layer)=>layer.id===current)?current:"all";
+  }
+
+  function renderOutlinerLegacy() {
+    renderLayers();
     const search=$("#outlinerSearch").value.trim().toLowerCase(),type=$("#outlinerType").value;
     const rows=productionObjects().filter((entry)=>(type==="all"||entry.type===type)&&(!search||`${entry.label} ${entry.item.kind||""}`.toLowerCase().includes(search)));
     $("#outlinerList").innerHTML=rows.length?rows.map(({type,item,label})=>`<div class="outliner-row ${isRefSelected(type,item.id)?"selected":""}" data-outline-select="${type}:${item.id}"><span><strong>${html(label)}</strong><small>${type} · Z ${Math.round(itemLevel(type,item)*GRID)}${item.groupId?" · grouped":""}</small></span><span>${item.locked?"LOCKED":""}${item.hidden?" HIDDEN":""}</span><span class="row-actions"><button data-outline-lock="${type}:${item.id}" title="Lock">L</button><button data-outline-hide="${type}:${item.id}" title="Hide">H</button></span></div>`).join(""):`<div class="preflight-empty">No matching objects.</div>`;
+  }
+
+  function renderOutliner() {
+    renderLayers();
+    const search=$("#outlinerSearch").value.trim().toLowerCase(),type=$("#outlinerType").value,layerId=$("#outlinerLayer").value;
+    const rows=productionObjects().filter((entry)=>(type==="all"||entry.type===type)&&(layerId==="all"||layerForItem(entry.item).id===layerId)&&(!search||`${entry.label} ${entry.item.kind||""} ${layerForItem(entry.item).name}`.toLowerCase().includes(search)));
+    $("#outlinerList").innerHTML=rows.length?rows.map(({type,item,label})=>{
+      const layer=layerForItem(item),locked=isItemLocked(item),hidden=isItemHidden(item);
+      return `<div class="outliner-row ${isRefSelected(type,item.id)?"selected":""}" data-outline-select="${type}:${item.id}"><span><strong><i class="layer-dot" style="background:${html(layer.color)}"></i>${html(label)}</strong><small>${type} · ${html(layer.name)} · Z ${Math.round(itemLevel(type,item)*GRID)}${item.groupId?" · grouped":""}</small></span><span>${locked?"LOCKED ":""}${hidden?"HIDDEN":""}</span><span class="row-actions"><button data-outline-lock="${type}:${item.id}" title="Lock object">L</button><button data-outline-hide="${type}:${item.id}" title="Hide object">H</button></span></div>`;
+    }).join(""):`<div class="preflight-empty">No matching objects.</div>`;
   }
 
   function syncStories() {
@@ -4601,9 +4753,10 @@
 
   function rotateSelected(clockwise) {
     const entries = selectedEntries();
+    if (entries.length && entries.every((entry) => isItemLocked(entry.item))) { showToast("Unlock the selection or its layer before rotating"); return; }
     if (entries.length > 1) {
       const before = snapshot(), bounds = selectionBounds(entries), cx = bounds.x+bounds.w/2, cy = bounds.y+bounds.d/2;
-      entries.filter((entry) => !entry.item.locked && !["door","window"].includes(entry.ref.type)).forEach(({ref,item}) => {
+      entries.filter((entry) => !isItemLocked(entry.item) && !["door","window"].includes(entry.ref.type)).forEach(({ref,item}) => {
         const center = { x:item.x+(item.w||1)/2, y:item.y+(item.d||1)/2 };
         const rx = clockwise ? cx-(center.y-cy) : cx+(center.y-cy), ry = clockwise ? cy+(center.x-cx) : cy-(center.x-cx);
         if (item.points) item.points = item.points.map(([x,y]) => clockwise ? [cx-(y-cy),cy+(x-cx)] : [cx+(y-cy),cy-(x-cx)]);
@@ -4649,10 +4802,89 @@
     if (!item || selected.type !== "prop" || !["stairs", "ramp", "wedge", "slopeRoof"].includes(item.kind)) {
       showToast("Select stairs or a ramp to reverse"); return;
     }
+    if (isItemLocked(item)) { showToast("Unlock the structure or its layer before reversing"); return; }
     const before = snapshot();
     item.direction = ({ n: "s", s: "n", e: "w", w: "e" })[item.direction] || "w";
     commit(before);
     showToast("Uphill direction reversed");
+  }
+
+  function applyPrecisionField(field, rawValue) {
+    const value = Number(rawValue);
+    if (!Number.isFinite(value)) return;
+    const entries = selectedEntries().filter((entry) => !isItemLocked(entry.item));
+    if (!entries.length) { showToast("Unlock the selection or its layer first"); return; }
+    const before = snapshot(), bounds = selectionBounds(entries);
+    if (field === "x") entries.forEach((entry) => moveEntryBy(entry,value/GRID-bounds.x,0,0));
+    else if (field === "y") entries.forEach((entry) => moveEntryBy(entry,0,value/GRID-bounds.y,0));
+    else if (field === "z") {
+      const delta = value/GRID-selectionBaseLevel(entries);
+      entries.forEach((entry) => moveEntryBy(entry,0,0,delta));
+      planLevel = value/GRID;
+    } else if (field === "width" || field === "depth") {
+      const target = Math.max(.25,value/GRID), old = field === "width" ? bounds.w : bounds.d;
+      if (old <= .001) return;
+      entries.forEach((entry) => scaleEntryInSelection(entry,bounds,field === "width" ? target/old : 1,field === "depth" ? target/old : 1));
+    } else if (field === "height") {
+      const target = Math.max(.125,value/GRID);
+      entries.forEach(({ref,item}) => {
+        if (ref.type === "prop" && ["floor","floorPolygon"].includes(item.kind)) item.thickness = target;
+        else if (!["zone","entity"].includes(ref.type)) item.height = target;
+      });
+    }
+    commit(before);
+    showToast(`Exact ${field.toUpperCase()} applied to ${entries.length} object${entries.length===1?"":"s"}`);
+  }
+
+  function alignSelected(mode) {
+    const entries = selectedEntries().filter((entry) => !isItemLocked(entry.item) && !["door","window"].includes(entry.ref.type));
+    if (entries.length < 2) { showToast("Select at least two unlocked objects"); return; }
+    const before = snapshot(), bounds = selectionBounds(entries);
+    entries.forEach((entry) => {
+      const box = itemBoundsForRef(entry.ref);
+      let dx=0,dy=0;
+      if (mode === "left") dx=bounds.x-box.x;
+      if (mode === "centerX") dx=bounds.x+bounds.w/2-(box.x+box.w/2);
+      if (mode === "right") dx=bounds.x+bounds.w-(box.x+box.w);
+      if (mode === "top") dy=bounds.y-box.y;
+      if (mode === "centerY") dy=bounds.y+bounds.d/2-(box.y+box.d/2);
+      if (mode === "bottom") dy=bounds.y+bounds.d-(box.y+box.d);
+      moveEntryBy(entry,dx,dy,0);
+    });
+    commit(before); showToast(`Selection aligned ${mode}`);
+  }
+
+  function distributeSelected(axis) {
+    const entries = selectedEntries().filter((entry) => !isItemLocked(entry.item) && !["door","window"].includes(entry.ref.type));
+    if (entries.length < 3) { showToast("Select at least three unlocked objects"); return; }
+    const key = axis === "x" ? "x" : "y", size = axis === "x" ? "w" : "d";
+    const ordered = entries.map((entry) => ({entry,box:itemBoundsForRef(entry.ref)})).sort((a,b)=>(a.box[key]+a.box[size]/2)-(b.box[key]+b.box[size]/2));
+    const first=ordered[0].box[key]+ordered[0].box[size]/2,last=ordered.at(-1).box[key]+ordered.at(-1).box[size]/2,step=(last-first)/(ordered.length-1);
+    const before=snapshot();
+    ordered.forEach(({entry,box},index) => {
+      const delta=first+step*index-(box[key]+box[size]/2);
+      moveEntryBy(entry,axis==="x"?delta:0,axis==="y"?delta:0,0);
+    });
+    commit(before); showToast(`Selection distributed on ${axis.toUpperCase()}`);
+  }
+
+  function equalizeSelected(mode) {
+    const entries = selectedEntries().filter((entry) => !isItemLocked(entry.item) && ["room","prop","zone"].includes(entry.ref.type));
+    if (entries.length < 2) { showToast("Select at least two resizable unlocked objects"); return; }
+    const primary = entries.find((entry) => sameRef(entry.ref,selected)) || entries[0], target = itemBoundsForRef(primary.ref), before=snapshot();
+    entries.forEach((entry) => {
+      if (mode !== "depth") resizeEntryAxis(entry,"x",target.w);
+      if (mode !== "width") resizeEntryAxis(entry,"y",target.d);
+    });
+    commit(before); showToast(mode === "both" ? "Selection size matched" : `${mode} matched to the primary object`);
+  }
+
+  function centerSelectionOnOrigin() {
+    const entries=selectedEntries().filter((entry)=>!isItemLocked(entry.item));
+    if(!entries.length)return;
+    const bounds=selectionBounds(entries),before=snapshot(),dx=-(bounds.x+bounds.w/2),dy=-(bounds.y+bounds.d/2);
+    entries.forEach((entry)=>moveEntryBy(entry,dx,dy,0));
+    commit(before);showToast("Selection centered on world origin");
   }
 
   function groupSelected() {
@@ -4689,6 +4921,7 @@
   function toggleVertexEditing() {
     const item = selectedItem();
     if (!item || !["room", "prop"].includes(selected?.type)) return;
+    if (isItemLocked(item)) { showToast("Unlock the shape or its layer before editing corners"); return; }
     if (!item.points?.length) {
       const before = snapshot();
       item.points = [[item.x,item.y],[item.x+item.w,item.y],[item.x+item.w,item.y+item.d],[item.x,item.y+item.d]];
@@ -4784,7 +5017,7 @@
     if (!entries.length) return;
     const before = snapshot();
     const ids = new Map();
-    entries.forEach((entry) => { if (!entry.item.locked) { if (!ids.has(entry.ref.type)) ids.set(entry.ref.type,new Set()); ids.get(entry.ref.type).add(entry.ref.id); } });
+    entries.forEach((entry) => { if (!isItemLocked(entry.item)) { if (!ids.has(entry.ref.type)) ids.set(entry.ref.type,new Set()); ids.get(entry.ref.type).add(entry.ref.id); } });
     if (!ids.size) { showToast("Unlock the selection before deleting it"); return; }
     ["room","door","window","zone","prop","entity"].forEach((type) => {
       const remove = ids.get(type); if (!remove) return;
@@ -5601,7 +5834,7 @@
         sampledMaterial = surfaceTextureFor(item,hit.type);
         applySelectionHit(hit,false); setTool("paint"); refresh(); showToast(`${MATERIAL_INFO[sampledMaterial] || sampledMaterial} sampled — click surfaces to paint`);
       } else if (!sampledMaterial) { showToast("Use the eyedropper first"); setTool("eyedropper"); }
-      else if (item.locked) showToast("Unlock this object before painting it");
+      else if (isItemLocked(item)) showToast("Unlock this object or its layer before painting it");
       else { const before=snapshot(); setSurfaceTexture(item,hit.type,sampledMaterial); applySelectionHit(hit,false); commit(before); showToast(`${MATERIAL_INFO[sampledMaterial] || sampledMaterial} applied`); }
     } else if (activeTool === "select") {
       if (event.altKey) {
@@ -5611,6 +5844,7 @@
       const transformHandle=transformHandleHit(point);
       if(transformHandle){
         const entry=selectedEntries()[0];
+        if(isItemLocked(entry.item)){showToast("Unlock the object or its layer before transforming");return;}
         transformDrag={...transformHandle,before:snapshot(),ref:{...entry.ref},original:structuredClone(entry.item),startPoint:{...point}};
         moving=null;return;
       }
@@ -5647,7 +5881,7 @@
         moving = null; refresh(); return;
       }
       applySelectionHit(hit,event.shiftKey);
-      const movable = selectedEntries().filter((entry) => !entry.item.locked && !["door","window"].includes(entry.ref.type));
+      const movable = selectedEntries().filter((entry) => !isItemLocked(entry.item) && !["door","window"].includes(entry.ref.type));
       moving = !event.shiftKey && movable.length ? {
         before:snapshot(), start:snapped,
         entries:movable.map(({ref,item}) => ({ ref:{...ref}, original:{ x:item.x, y:item.y, points:item.points?.map((corner)=>[...corner]), planPoints:item.planPoints?.map((corner)=>[...corner]), textureUV:structuredClone(item.textureUV||null), floorUV:structuredClone(item.floorUV||null), ceilingUV:structuredClone(item.ceilingUV||null), wallUV:structuredClone(item.wallUV||null), edgeUV:structuredClone(item.edgeUV||null) } }))
@@ -5959,6 +6193,22 @@
   $("#lockSelection").addEventListener("click", toggleLockSelected);
   $("#hideSelection").addEventListener("click", hideSelected);
   $("#unhideAll").addEventListener("click", unhideAll);
+  [["precisionX","x"],["precisionY","y"],["precisionZ","z"],["precisionWidth","width"],["precisionDepth","depth"],["precisionHeight","height"]].forEach(([id,field])=>{
+    $(`#${id}`).addEventListener("change",(event)=>applyPrecisionField(field,event.target.value));
+  });
+  $("#precisionActions").addEventListener("click",(event)=>{
+    const align=event.target.closest("[data-align]"),distribute=event.target.closest("[data-distribute]"),equal=event.target.closest("[data-equal-size]");
+    if(align)alignSelected(align.dataset.align);
+    else if(distribute)distributeSelected(distribute.dataset.distribute);
+    else if(equal)equalizeSelected(equal.dataset.equalSize);
+  });
+  $("#centerSelectionOrigin").addEventListener("click",centerSelectionOnOrigin);
+  $("#selectionLayer").addEventListener("change",(event)=>{
+    if(!event.target.value)return;
+    const entries=selectedEntries(),before=snapshot();
+    entries.forEach(({item})=>{item.layerId=event.target.value===DEFAULT_LAYER_ID?undefined:event.target.value;});
+    commit(before);showToast(`${entries.length} object${entries.length===1?"":"s"} moved to ${layerForItem(entries[0]?.item).name}`);
+  });
   $("#exportButton").addEventListener("click", exportMap);
   $("#buildButton").addEventListener("click", () => { $("#buildDialog").showModal(); refreshCompanionStatus(); });
   $("#closeBuildDialog").addEventListener("click", () => $("#buildDialog").close());
@@ -6030,7 +6280,35 @@
   $("#closeProductionDialog").addEventListener("click",()=>$("#productionDialog").close());
   $("#productionDialog").addEventListener("close",()=>{lightingOverlay=false;drawEditor();});
   $$("[data-production-tab]").forEach((button)=>button.addEventListener("click",()=>{productionTab=button.dataset.productionTab;renderProduction();}));
-  $("#outlinerSearch").addEventListener("input",renderOutliner);$("#outlinerType").addEventListener("change",renderOutliner);
+  $("#outlinerSearch").addEventListener("input",renderOutliner);$("#outlinerType").addEventListener("change",renderOutliner);$("#outlinerLayer").addEventListener("change",renderOutliner);
+  $("#addLayer").addEventListener("click",()=>{
+    const before=snapshot(),layers=ensureLayers(),layer={id:crypto.randomUUID(),name:`Layer ${layers.length}`,color:LAYER_COLORS[layers.length%LAYER_COLORS.length],visible:true,locked:false};
+    layers.push(layer);commit(before);renderOutliner();requestAnimationFrame(()=>$("#layerList").querySelector(`[data-layer-name="${CSS.escape(layer.id)}"]`)?.select());showToast("Layer created — rename it in the Outliner");
+  });
+  $("#layerList").addEventListener("change",(event)=>{
+    const name=event.target.closest("[data-layer-name]"),color=event.target.closest("[data-layer-color]"),id=name?.dataset.layerName||color?.dataset.layerColor,layer=ensureLayers().find((item)=>item.id===id);
+    if(!layer)return;
+    const before=snapshot();
+    if(name)layer.name=name.value.trim().slice(0,32)||"Untitled layer";
+    if(color)layer.color=color.value;
+    commit(before);
+  });
+  $("#layerList").addEventListener("click",(event)=>{
+    const visibility=event.target.closest("[data-layer-visible]"),lock=event.target.closest("[data-layer-lock]"),remove=event.target.closest("[data-layer-delete]");
+    const id=visibility?.dataset.layerVisible||lock?.dataset.layerLock||remove?.dataset.layerDelete,layer=ensureLayers().find((item)=>item.id===id);
+    if(!layer)return;
+    const before=snapshot();
+    if(visibility){
+      layer.visible=!layer.visible;
+      if(!layer.visible){selection=selection.filter((ref)=>layerForItem(itemForRef(ref)).id!==layer.id);selected=selection[0]||null;}
+      commit(before);showToast(layer.visible?`${layer.name} shown`:`${layer.name} hidden`);
+    }else if(lock){
+      layer.locked=!layer.locked;commit(before);showToast(layer.locked?`${layer.name} locked`:`${layer.name} unlocked`);
+    }else if(remove&&layer.id!==DEFAULT_LAYER_ID){
+      productionObjects().forEach(({item})=>{if(layerForItem(item).id===layer.id)delete item.layerId;});
+      state.layers=state.layers.filter((item)=>item.id!==layer.id);commit(before);showToast(`${layer.name} removed; its objects moved to Default`);
+    }
+  });
   $("#outlinerList").addEventListener("click",(event)=>{
     const action=event.target.closest("[data-outline-lock],[data-outline-hide]");
     if(action){const token=action.dataset.outlineLock||action.dataset.outlineHide,[type,id]=token.split(":"),item=itemForRef({type,id});if(!item)return;const before=snapshot();if(action.dataset.outlineLock)item.locked=!item.locked;else item.hidden=!item.hidden;commit(before);return;}
@@ -6174,7 +6452,7 @@
   $("#projectName").addEventListener("input", (event) => { state.name = event.target.value; scheduleSave(); });
 
   function shiftSelectedLevel(delta) {
-    const entries=selectedEntries().filter((entry)=>["room","prop"].includes(entry.ref.type)&&!entry.item.locked);
+    const entries=selectedEntries().filter((entry)=>["room","prop"].includes(entry.ref.type)&&!isItemLocked(entry.item));
     if(entries.length>1){
       const before=snapshot(),selectedRoomIds=new Set(entries.filter((entry)=>entry.ref.type==="room").map((entry)=>entry.item.id));
       entries.forEach(({ref,item})=>{
@@ -6190,6 +6468,7 @@
     }
     const item = selectedItem();
     if (!item || !["room", "prop"].includes(selected?.type)) return;
+    if (isItemLocked(item)) { showToast("Unlock the object or its layer before changing elevation"); return; }
     const before = snapshot();
     if (selected.type === "room") {
       const oldLevel = roomFloor(item), nextLevel = Math.max(-8, Math.min(16, oldLevel + delta));
@@ -6217,6 +6496,7 @@
     $(`#${id}`).addEventListener("change", (event) => {
       const item = selectedItem();
       if (!item || !["room", "prop", "zone"].includes(selected.type)) return;
+      if (isItemLocked(item)) { showToast("Unlock the object or its layer before resizing"); refresh(); return; }
       const before = snapshot();
       const parsed = Number(event.target.value);
       const value = Math.max(Number(event.target.min), Math.min(Number(event.target.max), Number.isFinite(parsed) ? parsed : 1));
@@ -6615,7 +6895,8 @@
     getProject: () => structuredClone(state),
     getViewState: () => ({ cellSize, viewOffset: { ...viewOffset }, activeTool }),
     getPreviewView: () => ({ angle: previewAngle, zoom: previewZoom, pan: { ...previewPan }, panMode: previewPanMode, mode: previewMode }),
-    getSelectionState: () => ({ primary:selected ? {...selected}:null, refs:selection.map((ref)=>({...ref})), entries:selectedEntries().map(({ref,item})=>({ref:{...ref},locked:!!item.locked,hidden:!!item.hidden,groupId:item.groupId||null})) }),
+    getSelectionState: () => ({ primary:selected ? {...selected}:null, refs:selection.map((ref)=>({...ref})), entries:selectedEntries().map(({ref,item})=>({ref:{...ref},locked:isItemLocked(item),hidden:isItemHidden(item),groupId:item.groupId||null,layerId:layerForItem(item).id})) }),
+    getLayers: () => structuredClone(ensureLayers()),
     getEditorSettings: () => ({ snapUnits, effectiveSnapUnits:Math.round(snapStep()*GRID), adaptiveGridEnabled, objectSnapEnabled, smartConnectionsEnabled, measurement:measurement ? structuredClone(measurement):null, sampledMaterial, surfaceTarget }),
     getPreviewPickRegions: () => previewPickRegions.map((region)=>({ref:{...region.ref},points:region.points.map((point)=>({...point}))})),
     getTransformState: () => ({ plan:transformHandlesForSelection().map((handle)=>({...handle})), preview:previewTransformHandle?structuredClone(previewTransformHandle):null }),

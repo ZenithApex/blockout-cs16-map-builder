@@ -35,6 +35,9 @@ the archive and executable SHA-256 hashes before installation.
 - Select a multi-piece structure, save it with Custom Prefab Studio, confirm its generated miniature, then place rotated and mirrored copies.
 - Reload the editor and confirm **My prefabs** persists; export the personal library, delete a test prefab, then import the JSON again.
 - Save and place a multi-level prefab and confirm its relative heights, groups, materials, room references, and logic targets remain independent.
+- Multi-select three objects and test exact X/Y/Z and selection width/depth in the **Precision transform** panel.
+- Test left/center/right and top/middle/bottom alignment, horizontal/vertical distribution, equal size, and **To origin**.
+- In **Production > Outliner**, create and rename a layer, assign the selection, filter to it, then confirm hiding removes it from both plan and Orbit while locking prevents transforms.
 - Place a stair, ramp, or ladder without a destination and confirm it receives a grouped landing or valid upper-floor opening.
 - Try Orbit and Walkthrough, including collisions and interactive doors.
 - Change wall, floor, ceiling, ground, and sky materials.

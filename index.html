@@ -271,6 +271,34 @@
             <div class="selection-fields hidden" id="selectionFields">
               <label>Type <input id="selectionType" readonly /></label>
               <div class="multi-selection-summary hidden" id="multiSelectionSummary"></div>
+              <div class="precision-panel" id="precisionPanel">
+                <div class="precision-heading"><strong>Precision transform</strong><span>GoldSrc units</span></div>
+                <div class="precision-grid">
+                  <label>X<input id="precisionX" type="number" step="16" /></label>
+                  <label>Y<input id="precisionY" type="number" step="16" /></label>
+                  <label>Z<input id="precisionZ" type="number" step="16" /></label>
+                  <label>Width<input id="precisionWidth" type="number" min="16" max="16384" step="16" /></label>
+                  <label>Depth<input id="precisionDepth" type="number" min="16" max="16384" step="16" /></label>
+                  <label>Height<input id="precisionHeight" type="number" min="8" max="4096" step="8" /></label>
+                </div>
+                <label class="selection-layer-label">Layer
+                  <select id="selectionLayer"></select>
+                </label>
+                <div class="precision-actions hidden" id="precisionActions">
+                  <button type="button" data-align="left" title="Align left edges">Left</button>
+                  <button type="button" data-align="centerX" title="Align horizontal centers">Center X</button>
+                  <button type="button" data-align="right" title="Align right edges">Right</button>
+                  <button type="button" data-align="top" title="Align top edges">Top</button>
+                  <button type="button" data-align="centerY" title="Align vertical centers">Center Y</button>
+                  <button type="button" data-align="bottom" title="Align bottom edges">Bottom</button>
+                  <button type="button" data-distribute="x" title="Distribute horizontally">Space X</button>
+                  <button type="button" data-distribute="y" title="Distribute vertically">Space Y</button>
+                  <button type="button" data-equal-size="width" title="Match the primary object's width">Equal W</button>
+                  <button type="button" data-equal-size="depth" title="Match the primary object's depth">Equal D</button>
+                  <button type="button" data-equal-size="both" title="Match the primary object's width and depth">Equal size</button>
+                  <button type="button" id="centerSelectionOrigin" title="Center the selection at world origin">To origin</button>
+                </div>
+              </div>
               <div class="field-row">
                 <label id="widthField"><span id="widthLabel">Width</span><input id="roomWidth" type="number" min="1" max="30" /></label>
                 <label id="depthField"><span id="depthLabel">Depth</span><input id="roomDepth" type="number" min="1" max="30" /></label>
@@ -853,7 +881,11 @@
           <button data-production-tab="project">Versions</button>
         </div>
         <section class="production-pane active" data-production-pane="outliner">
-          <div class="production-toolbar"><input id="outlinerSearch" type="search" placeholder="Search rooms, brushes, entities..." /><select id="outlinerType"><option value="all">All objects</option><option value="room">Rooms</option><option value="prop">Geometry</option><option value="door">Doors</option><option value="window">Windows</option><option value="zone">Triggers</option><option value="entity">Entities</option></select></div>
+          <div class="layers-panel">
+            <div class="layers-heading"><div><strong>Layers</strong><small>Organize, hide, and protect map parts.</small></div><button class="button secondary" id="addLayer">+ Layer</button></div>
+            <div class="layer-list" id="layerList"></div>
+          </div>
+          <div class="production-toolbar"><input id="outlinerSearch" type="search" placeholder="Search rooms, brushes, entities..." /><select id="outlinerType"><option value="all">All objects</option><option value="room">Rooms</option><option value="prop">Geometry</option><option value="door">Doors</option><option value="window">Windows</option><option value="zone">Triggers</option><option value="entity">Entities</option></select><select id="outlinerLayer"><option value="all">All layers</option></select></div>
           <div class="outliner-list" id="outlinerList"></div>
         </section>
         <section class="production-pane" data-production-pane="stories">
