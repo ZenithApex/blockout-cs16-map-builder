@@ -68,6 +68,7 @@ The hosted editor can securely pair with the Windows companion for **Build & Tes
 - Search a compact, collapsible tool sidebar instead of scrolling through one long list
 - Start from 6 editable layouts: three-lane competitive, two-site skeleton, warehouse arena, open courtyard, vertical blockout, and aim-training lanes
 - Browse 24 editable brush prefabs for openings, vents, stairs, tactical cover, crates, columns, catwalks, ramps, ladders, bridges, sniper nests, market stalls, and bombsite layouts
+- Capture selections in Custom Prefab Studio with generated miniatures, categories, tags, pivot choice, rotation/mirroring, editing, and JSON import/export
 - Browse 60 materials grouped into 13 categories, with real miniature previews, source badges, search, and locally saved favorites
 - Drag in PNG, JPG, WebP, or GIF images to create new compile-ready GoldSrc materials, with local category and name suggestions
 - Analyze CT/T timings to bombsites and flag direct spawn-to-objective sightlines
@@ -186,6 +187,12 @@ The Gameplay section includes hostages and rescue zones for hostage maps, usable
 Choose **Polygon wall**, click a convex footprint, and close it with the first corner or Enter. Polygon walls and columns support numbered corner editing, collision, materials, and ordinary convex GoldSrc brush export.
 
 Open **Prefab library** and search or filter 24 beginner-ready recipes. The set includes doorway frames, vents, stair flights, cover groups, crate formations, columns, angled combat lanes, bombsite cover, catwalks, bridges, sniper nests, market stalls, ramps, ladders, and a two-level stair tower. Hold **Ctrl** or `C` to crouch through vents in Walkthrough. Every prefab is made from normal editable brushes rather than a locked model.
+
+### Custom Prefab Studio
+
+Select one or more rooms, brushes, triggers, or entities and choose **Save prefab** in Selection. The Studio generates a top-down miniature and lets you name, categorize, tag, describe, and choose a center or corner placement pivot. Personal prefabs are saved locally in the browser and appear before the built-in recipes under **My prefabs**.
+
+Before placing a personal prefab, use the Prefab Library controls to rotate it in 90-degree steps or mirror it. Every placement receives fresh object, group, room-reference, and logic-target identifiers, so the result remains editable and does not accidentally control the original. Use **Export library** and **Import JSON** to share or back up the personal collection. Doors and windows should be captured together with their connected room.
 
 ## Layout library
 

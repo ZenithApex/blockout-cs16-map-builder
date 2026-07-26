@@ -3,6 +3,7 @@
 
   const GRID = 64;
   const STORAGE_KEY = "blockout-cs16-project-v1";
+  const CUSTOM_PREFAB_STORAGE_KEY = "blockout-custom-prefabs-v1";
   const IS_LOCAL_HOST = ["127.0.0.1", "localhost", "[::1]"].includes(location.hostname);
   const HOSTED_MODE = location.protocol !== "file:" && !IS_LOCAL_HOST;
   const COMPANION_API = location.protocol === "file:" || HOSTED_MODE ? "http://127.0.0.1:41716" : "";
@@ -308,6 +309,11 @@
   let analysisOverlay = null;
   let textureFavorites = new Set();
   let activePrefabId = "halfCover";
+  let customPrefabs = [];
+  let customPrefabDraft = null;
+  let editingCustomPrefabId = null;
+  let customPrefabRotation = 0;
+  let customPrefabMirrored = false;
   let productionTab = "outliner";
   let lightingOverlay = false;
   let routeRecording = false;
@@ -318,6 +324,10 @@
   let pendingTextureImport = null;
   try { textureFavorites = new Set(JSON.parse(localStorage.getItem("blockout-texture-favorites") || "[]")); } catch (_) {}
   try { projectSnapshots = JSON.parse(localStorage.getItem("blockout-project-snapshots-v1") || "[]"); } catch (_) { projectSnapshots = []; }
+  try {
+    const storedPrefabs = JSON.parse(localStorage.getItem(CUSTOM_PREFAB_STORAGE_KEY) || "[]");
+    customPrefabs = Array.isArray(storedPrefabs) ? storedPrefabs.filter(isValidCustomPrefab) : [];
+  } catch (_) { customPrefabs = []; }
   const MIN_COMPANION_VERSION = "1.1.0";
 
   function environmentFor(project = state) {
@@ -1585,7 +1595,12 @@
       const oneClickTools=["crate","ladder","column","prefab","ct","t","bombA","bombB","light","spotlight","hostage","button","teleDest","decal","ambient","pathCorner","targetDummy"];
       ectx.save();ectx.strokeStyle="rgba(215,244,90,.7)";ectx.fillStyle="rgba(215,244,90,.07)";ectx.lineWidth=1;ectx.setLineDash([4,3]);
       if(oneClickTools.includes(activeTool)){
-        const [w,d]=activeTool==="prefab"?prefabFootprint(activePrefabId):[1,1],anchor=placementAnchor(hoverWorld,w,d),p=cellToScreen(anchor.x,anchor.y);
+        let [w,d]=activeTool==="prefab"?prefabFootprint(activePrefabId):[1,1],anchor=placementAnchor(hoverWorld,w,d);
+        if(activeTool==="prefab"&&activePrefabId.startsWith("custom:")){
+          const prefab=customPrefabs.find((item)=>item.id===activePrefabId.slice(7));
+          if(prefab){const bounds=customPrefabBounds(prefab),target=[hoverWorld.x,hoverWorld.y],placed=transformPrefabRect(bounds,customPrefabPivotPoint(prefab),target,customPrefabRotation,customPrefabMirrored);anchor={x:placed.x,y:placed.y};w=placed.w;d=placed.d;}
+        }
+        const p=cellToScreen(anchor.x,anchor.y);
         ectx.fillRect(p.x+1,p.y+1,w*cellSize-2,d*cellSize-2);ectx.strokeRect(p.x+1,p.y+1,w*cellSize-2,d*cellSize-2);
         const label=`${Math.round(w*GRID)} × ${Math.round(d*GRID)}`;ectx.setLineDash([]);ectx.font="700 7px ui-monospace";ectx.fillStyle="#d7f45a";ectx.fillText(label,p.x+5,p.y+12);
       }else{
@@ -3159,6 +3174,7 @@
       $("#groupSelection").disabled = entries.length < 2 || grouped;
       $("#ungroupSelection").disabled = !entries.some((entry) => entry.item.groupId);
       $("#lockSelection").textContent = entries.every((entry) => entry.item.locked) ? "Unlock" : "Lock";
+      $("#saveSelectionPrefab").disabled = false;
       return;
     }
     if (!item) return;
@@ -3232,6 +3248,7 @@
     $("#groupSelection").disabled = true;
     $("#ungroupSelection").disabled = !item.groupId;
     $("#lockSelection").textContent = item.locked ? "Unlock" : "Lock";
+    $("#saveSelectionPrefab").disabled = !supportsActions;
     $("#materialLabel").textContent = isRoom ? "Wall material" : isFloor ? "Floor material" : "Material";
     if (isDoor) {
       item.mode ||= "opening";
@@ -3556,7 +3573,7 @@
     $("#textureGrid").innerHTML = groups.map(([key,items]) => `<section class="texture-category-section"><h3>${categoryLabels[key] || key}<span>${items.length}</span></h3><div class="texture-category-grid">${items.map(card).join("")}</div></section>`).join("") || `<p class="analysis-intro">No textures match this filter.</p>`;
   }
 
-  function renderPrefabLibrary() {
+  function renderBuiltInPrefabLibrary() {
     const query = $("#prefabSearch").value.trim().toLowerCase();
     const category = $("#prefabCategory").value;
     const prefabs = PREFAB_LIBRARY.filter((prefab) => {
@@ -3564,6 +3581,135 @@
       return matchesSearch && (category === "all" || prefab.category === category);
     });
     $("#prefabGrid").innerHTML = prefabs.map((prefab) => `<button class="prefab-card" data-prefab="${prefab.id}" type="button"><span class="prefab-card-icon">${prefab.icon}</span><span><strong>${prefab.name}</strong><small>${prefab.description}</small><em>${prefab.category} · ${prefab.size}</em></span></button>`).join("") || `<p class="analysis-intro">No prefabs match this filter.</p>`;
+  }
+
+  function persistCustomPrefabs() {
+    localStorage.setItem(CUSTOM_PREFAB_STORAGE_KEY, JSON.stringify(customPrefabs));
+  }
+
+  function isValidCustomPrefab(prefab) {
+    const validTypes=new Set(["room","door","window","zone","prop","entity"]);
+    return !!prefab&&typeof prefab.id==="string"&&typeof prefab.name==="string"&&prefab.name.trim().length>0
+      &&Array.isArray(prefab.items)&&prefab.items.length>0&&prefab.items.length<=500
+      &&prefab.items.every((entry)=>validTypes.has(entry?.type)&&entry.item&&typeof entry.item==="object"&&typeof entry.item.id==="string");
+  }
+
+  function storedItemBounds(type, item) {
+    const points = item.points?.length ? item.points : item.planPoints?.length ? item.planPoints : null;
+    if (points) {
+      const xs=points.map((point)=>Number(point[0])),ys=points.map((point)=>Number(point[1]));
+      return {x:Math.min(...xs),y:Math.min(...ys),w:Math.max(...xs)-Math.min(...xs),d:Math.max(...ys)-Math.min(...ys)};
+    }
+    if (type === "door" || type === "window") {
+      const segment=openingSegment(item),xs=segment.map((point)=>point[0]),ys=segment.map((point)=>point[1]);
+      return {x:Math.min(...xs)-.08,y:Math.min(...ys)-.08,w:Math.max(.16,Math.max(...xs)-Math.min(...xs)+.16),d:Math.max(.16,Math.max(...ys)-Math.min(...ys)+.16)};
+    }
+    return {x:Number(item.x)||0,y:Number(item.y)||0,w:Number(item.w)||1,d:Number(item.d)||1};
+  }
+
+  function customPrefabBounds(prefab) {
+    const boxes=(prefab.items||[]).map((entry)=>storedItemBounds(entry.type,entry.item)).filter(Boolean);
+    if (!boxes.length) return prefab.bounds || {x:0,y:0,w:1,d:1};
+    const minX=Math.min(...boxes.map((box)=>box.x)),minY=Math.min(...boxes.map((box)=>box.y));
+    const maxX=Math.max(...boxes.map((box)=>box.x+box.w)),maxY=Math.max(...boxes.map((box)=>box.y+box.d));
+    return {x:minX,y:minY,w:Math.max(.25,maxX-minX),d:Math.max(.25,maxY-minY)};
+  }
+
+  function customPrefabThumbnail(prefab) {
+    const bounds=customPrefabBounds(prefab),padding=.6,view=`${bounds.x-padding} ${bounds.y-padding} ${bounds.w+padding*2} ${bounds.d+padding*2}`;
+    const colors={room:"#546b4a",prop:"#d1b057",zone:"#9b71d4",entity:"#72ddec",door:"#d7f45a",window:"#6bc9e8"};
+    const shapes=(prefab.items||[]).map(({type,item})=>{
+      const color=colors[type]||"#b6c1af";
+      if(type==="door"||type==="window"){const [a,b]=openingSegment(item);return `<line x1="${a[0]}" y1="${a[1]}" x2="${b[0]}" y2="${b[1]}" stroke="${color}" stroke-width=".18" stroke-linecap="round"/>`;}
+      if(type==="entity")return `<circle cx="${(Number(item.x)||0)+.5}" cy="${(Number(item.y)||0)+.5}" r=".34" fill="${color}" stroke="#071006" stroke-width=".08"/>`;
+      const points=item.points?.length?item.points:item.planPoints?.length?item.planPoints:null;
+      if(points)return `<polygon points="${points.map((point)=>`${Number(point[0])},${Number(point[1])}`).join(" ")}" fill="${color}" fill-opacity="${type==="room"?".46":".76"}" stroke="${color}" stroke-width=".09"${type==="zone"?' stroke-dasharray=".18 .12"':""}/>`;
+      return `<rect x="${Number(item.x)||0}" y="${Number(item.y)||0}" width="${Number(item.w)||1}" height="${Number(item.d)||1}" rx=".06" fill="${color}" fill-opacity="${type==="room"?".46":".76"}" stroke="${color}" stroke-width=".09"${type==="zone"?' stroke-dasharray=".18 .12"':""}/>`;
+    }).join("");
+    return `<svg viewBox="${view}" preserveAspectRatio="xMidYMid meet" role="img" aria-label="${html(prefab.name||"Custom prefab")} miniature"><g>${shapes}</g></svg>`;
+  }
+
+  function customPrefabPivotPoint(prefab) {
+    const bounds=customPrefabBounds(prefab);
+    if(prefab.pivot==="topLeft")return [bounds.x,bounds.y];
+    if(prefab.pivot==="bottomLeft")return [bounds.x,bounds.y+bounds.d];
+    return [bounds.x+bounds.w/2,bounds.y+bounds.d/2];
+  }
+
+  function captureSelectedPrefab() {
+    const entries=selectedEntries();
+    if(!entries.length){showToast("Select one or more objects first");return null;}
+    const selectedRoomIds=new Set(entries.filter((entry)=>entry.ref.type==="room").map((entry)=>entry.item.id));
+    const disconnectedOpening=entries.find((entry)=>["door","window"].includes(entry.ref.type)
+      &&!adjacentRoomsForOpening(entry.item).some((room)=>selectedRoomIds.has(room.id)));
+    if(disconnectedOpening){
+      showToast("Include a connected room with every saved door or window");return null;
+    }
+    const items=entries.map(({ref,item})=>{
+      const clone=structuredClone(item);
+      if(clone.floorLevel==null&&!["floor","floorPolygon"].includes(clone.kind))clone.floorLevel=itemLevel(ref.type,item);
+      if(["door","window"].includes(ref.type)){clone.segment=openingSegment(clone);clone.edge=clone.edge?.length===2?structuredClone(clone.edge):structuredClone(clone.segment);}
+      return {type:ref.type,item:clone};
+    });
+    const bounds=selectionBounds(entries)||{x:0,y:0,w:1,d:1};
+    const vertical=entries.map((entry)=>verticalBounds(entry.ref,entry.item)).filter(Boolean);
+    const base=vertical.length?Math.min(...vertical.map((item)=>item.base)):Math.min(...entries.map((entry)=>itemLevel(entry.ref.type,entry.item)));
+    return {id:crypto.randomUUID(),version:1,name:entries.length===1?`${entries[0].item.label||entries[0].item.kind||entries[0].ref.type} prefab`:`${entries.length}-piece prefab`,category:entries.some((entry)=>entry.ref.type==="room")?"rooms":"architecture",tags:[],description:"",pivot:"center",preserveMaterials:true,bounds:{...bounds,base},items,createdAt:Date.now(),updatedAt:Date.now()};
+  }
+
+  function openCustomPrefabStudio(prefab=null) {
+    const source=prefab?structuredClone(prefab):captureSelectedPrefab();
+    if(!source)return;
+    customPrefabDraft=source;editingCustomPrefabId=prefab?.id||null;
+    $("#customPrefabDialogTitle").textContent=prefab?"Edit custom prefab":"Save reusable prefab";
+    $("#customPrefabName").value=source.name||"";
+    $("#customPrefabCategory").value=source.category||"architecture";
+    $("#customPrefabPivot").value=source.pivot||"center";
+    $("#customPrefabTags").value=(source.tags||[]).join(", ");
+    $("#customPrefabDescription").value=source.description||"";
+    $("#customPrefabPreserveMaterials").checked=source.preserveMaterials!==false;
+    $("#customPrefabPreview").innerHTML=customPrefabThumbnail(source);
+    const bounds=customPrefabBounds(source);
+    $("#customPrefabFootprint").textContent=`${source.items.length} object${source.items.length===1?"":"s"} / ${Math.round(bounds.w*GRID)} x ${Math.round(bounds.d*GRID)} units`;
+    $("#customPrefabSelectionSummary").textContent=prefab?"Update its library metadata. The captured geometry stays intact.":"The selected objects will remain fully editable whenever this prefab is placed.";
+    if($("#prefabDialog").open)$("#prefabDialog").close();
+    $("#customPrefabDialog").showModal();
+    setTimeout(()=>$("#customPrefabName").focus(),0);
+  }
+
+  function saveCustomPrefabFromStudio() {
+    if(!customPrefabDraft)return;
+    const name=$("#customPrefabName").value.trim();
+    if(!name){showToast("Give the prefab a name");return;}
+    const now=Date.now(),updated={...customPrefabDraft,name,category:$("#customPrefabCategory").value,tags:$("#customPrefabTags").value.split(",").map((tag)=>tag.trim()).filter(Boolean).slice(0,12),description:$("#customPrefabDescription").value.trim(),pivot:$("#customPrefabPivot").value,preserveMaterials:$("#customPrefabPreserveMaterials").checked,updatedAt:now};
+    if(editingCustomPrefabId){const index=customPrefabs.findIndex((prefab)=>prefab.id===editingCustomPrefabId);if(index>=0)customPrefabs[index]=updated;}
+    else customPrefabs.unshift({...updated,createdAt:now});
+    persistCustomPrefabs();$("#customPrefabDialog").close();customPrefabDraft=null;editingCustomPrefabId=null;renderPrefabLibrary();
+    showToast(`${name} saved to My prefabs`);
+  }
+
+  function renderPrefabTransformSummary() {
+    $("#prefabTransformSummary").textContent=`${customPrefabRotation} degrees / ${customPrefabMirrored?"mirrored":"normal"}`;
+    $("#prefabMirror").classList.toggle("active",customPrefabMirrored);
+  }
+
+  function renderPrefabLibrary() {
+    const query = $("#prefabSearch").value.trim().toLowerCase();
+    const category = $("#prefabCategory").value;
+    const builtIns = PREFAB_LIBRARY.filter((prefab) => {
+      const matchesSearch = !query || `${prefab.name} ${prefab.description} ${prefab.size}`.toLowerCase().includes(query);
+      return matchesSearch && category!=="personal" && (category === "all" || prefab.category === category);
+    });
+    const personal=customPrefabs.filter((prefab)=>{
+      const matchesSearch=!query||`${prefab.name} ${prefab.description||""} ${(prefab.tags||[]).join(" ")}`.toLowerCase().includes(query);
+      return matchesSearch&&(category==="all"||category==="personal"||prefab.category===category);
+    });
+    const builtInCards=builtIns.map((prefab) => `<button class="prefab-card" data-prefab="${prefab.id}" type="button"><span class="prefab-card-icon">${prefab.icon}</span><span><strong>${prefab.name}</strong><small>${prefab.description}</small><em>${prefab.category} Â· ${prefab.size}</em></span></button>`);
+    const personalCards=personal.map((prefab)=>{const bounds=customPrefabBounds(prefab);return `<article class="custom-prefab-card"><button data-prefab="custom:${prefab.id}" type="button"><span class="prefab-card-icon">${customPrefabThumbnail(prefab)}</span><span class="prefab-card-details"><strong>${html(prefab.name)}</strong><small>${html(prefab.description||`${prefab.items.length} editable objects`)}</small><em>MY PREFAB Â· ${html(prefab.category)} Â· ${Math.round(bounds.w)} x ${Math.round(bounds.d)}</em></span></button><span class="custom-prefab-card-actions"><button data-edit-custom-prefab="${prefab.id}" type="button" title="Edit prefab">Edit</button><button data-delete-custom-prefab="${prefab.id}" type="button" title="Delete prefab">X</button></span></article>`;});
+    $("#prefabGrid").innerHTML=[...personalCards,...builtInCards].join("")||`<p class="analysis-intro">No prefabs match this filter.</p>`;
+    $("#createPrefabFromSelection").disabled=!selectedEntries().length;
+    $("#exportCustomPrefabs").disabled=!customPrefabs.length;
+    renderPrefabTransformSummary();
   }
 
   function renderLayoutLibrary() {
@@ -3613,12 +3759,13 @@
   }
 
   function choosePrefab(prefabId) {
-    const prefab = PREFAB_LIBRARY.find((item) => item.id === prefabId);
+    const customId=prefabId.startsWith("custom:")?prefabId.slice(7):null;
+    const prefab = customId?customPrefabs.find((item)=>item.id===customId):PREFAB_LIBRARY.find((item) => item.id === prefabId);
     if (!prefab) return;
-    activePrefabId = prefab.id;
+    activePrefabId = customId?`custom:${prefab.id}`:prefab.id;
     $("#prefabDialog").close();
-    setTool(prefab.tool || "prefab");
-    showToast(prefab.tool ? `${prefab.name}: ${TOOL_INFO[prefab.tool].tip}` : `${prefab.name} selected - click inside a clear room area`);
+    setTool(!customId&&prefab.tool ? prefab.tool : "prefab");
+    showToast(!customId&&prefab.tool ? `${prefab.name}: ${TOOL_INFO[prefab.tool].tip}` : `${prefab.name} selected - click the desired pivot position`);
   }
 
   function filterSidebarTools() {
@@ -4152,7 +4299,105 @@
     return footprints[prefabId]||[1,1];
   }
 
+  function transformPrefabPoint(point,pivot,target,rotation=0,mirrored=false) {
+    let x=Number(point[0])-pivot[0],y=Number(point[1])-pivot[1];
+    if(mirrored)x=-x;
+    const turns=((Math.round(rotation/90)%4)+4)%4;
+    for(let turn=0;turn<turns;turn++)[x,y]=[-y,x];
+    return [target[0]+x,target[1]+y];
+  }
+
+  function transformPrefabRect(item,pivot,target,rotation,mirrored) {
+    const x=Number(item.x)||0,y=Number(item.y)||0,w=Number(item.w)||1,d=Number(item.d)||1;
+    const corners=[[x,y],[x+w,y],[x+w,y+d],[x,y+d]].map((point)=>transformPrefabPoint(point,pivot,target,rotation,mirrored));
+    const xs=corners.map((point)=>point[0]),ys=corners.map((point)=>point[1]);
+    return {x:Math.min(...xs),y:Math.min(...ys),w:Math.max(...xs)-Math.min(...xs),d:Math.max(...ys)-Math.min(...ys)};
+  }
+
+  function transformPrefabDirection(direction,rotation,mirrored) {
+    const vectors={n:[0,-1],e:[1,0],s:[0,1],w:[-1,0]},names={"0,-1":"n","1,0":"e","0,1":"s","-1,0":"w"};
+    let [x,y]=vectors[direction]||vectors.e;
+    if(mirrored)x=-x;
+    const turns=((Math.round(rotation/90)%4)+4)%4;
+    for(let turn=0;turn<turns;turn++)[x,y]=[-y,x];
+    return names[`${Math.round(x)},${Math.round(y)}`]||direction;
+  }
+
+  function transformCustomPrefabItem(entry,prefab,pivot,target,newBase,idMap,groupMap,targetMap) {
+    const clone=structuredClone(entry.item),rotation=customPrefabRotation,mirrored=customPrefabMirrored;
+    clone.id=idMap.get(entry.item.id)||crypto.randomUUID();
+    if(clone.groupId)clone.groupId=groupMap.get(clone.groupId)||clone.groupId;
+    ["hostRoomId","edgeRoomId"].forEach((key)=>{
+      if(!clone[key])return;
+      if(idMap.has(clone[key]))clone[key]=idMap.get(clone[key]);
+      else delete clone[key];
+    });
+    if(clone.targetName&&targetMap.has(clone.targetName))clone.targetName=targetMap.get(clone.targetName);
+    if(clone.target&&targetMap.has(clone.target))clone.target=targetMap.get(clone.target);
+    if(["room","prop","zone"].includes(entry.type))Object.assign(clone,transformPrefabRect(clone,pivot,target,rotation,mirrored));
+    else if(entry.type==="entity"){const point=transformPrefabPoint([clone.x,clone.y],pivot,target,rotation,mirrored);clone.x=point[0];clone.y=point[1];}
+    ["points","planPoints","segment","edge"].forEach((key)=>{if(clone[key]?.length)clone[key]=clone[key].map((point)=>transformPrefabPoint(point,pivot,target,rotation,mirrored));});
+    if(["door","window"].includes(entry.type))syncOpeningLegacy(clone);
+    if(clone.direction)clone.direction=transformPrefabDirection(clone.direction,rotation,mirrored);
+    if(Number.isFinite(Number(clone.angle)))clone.angle=((Number(clone.angle)+(mirrored?180-2*Number(clone.angle):0)+rotation)%360+360)%360;
+    if(clone.slope&&(mirrored!==(((rotation/90)%2)!==0)))clone.slope=clone.slope==="up"?"down":"up";
+    const sourceBase=Number(prefab.bounds?.base)||0,delta=newBase-sourceBase;
+    if(entry.type==="room")clone.floorLevel=(Number(entry.item.floorLevel)||0)+delta;
+    else if(entry.type==="prop"&&["floor","floorPolygon"].includes(clone.kind))clone.elevation=(Number(entry.item.elevation)||0)+delta;
+    else if(clone.floorLevel!=null)clone.floorLevel=Number(entry.item.floorLevel||0)+delta;
+    if(prefab.preserveMaterials===false){
+      const material=sampledMaterial||"BO_CONCRETE";
+      if(entry.type==="room"){clone.texture=material;clone.floorTexture=material;clone.ceilingTexture=material;clone.wallTextures={};clone.edgeTextures={};}
+      else if(entry.type==="prop")clone.texture=material;
+    }
+    clone.locked=false;clone.hidden=false;
+    return {type:entry.type,item:clone};
+  }
+
+  function placeCustomPrefab(prefab,world) {
+    const snapped=snapWorldPoint(world),target=[snapped.x,snapped.y],pivot=customPrefabPivotPoint(prefab);
+    const idMap=new Map((prefab.items||[]).map((entry)=>[entry.item.id,crypto.randomUUID()]));
+    const groupMap=new Map(),targetMap=new Map();
+    (prefab.items||[]).forEach(({type,item})=>{
+      if(item.groupId&&!groupMap.has(item.groupId))groupMap.set(item.groupId,crypto.randomUUID());
+      if(item.targetName&&!targetMap.has(item.targetName))targetMap.set(item.targetName,`${item.targetName}_${crypto.randomUUID().slice(0,5)}`);
+      if(type==="entity"&&["teleDest","light","spotlight"].includes(item.kind)&&item.target&&!targetMap.has(item.target))targetMap.set(item.target,`${item.target}_${crypto.randomUUID().slice(0,5)}`);
+    });
+    const newBase=floorLevelAt(target[0],target[1]);
+    const entries=prefab.items.map((entry)=>transformCustomPrefabItem(entry,prefab,pivot,target,newBase,idMap,groupMap,targetMap));
+    const newRooms=entries.filter((entry)=>entry.type==="room").map((entry)=>entry.item);
+    if(newRooms.some((room)=>state.rooms.some((existing)=>Math.abs(roomFloor(room)-roomFloor(existing))<.13&&footprintsOverlap(room,existing)))){
+      showToast("That prefab would overlap an existing room on the same level");return;
+    }
+    const oldPropIds=new Set(state.props.map((item)=>item.id)),before=snapshot();
+    entries.forEach(({type,item})=>itemListFor(type).push(item));
+    entries.filter(({type,item})=>type==="prop"&&item.kind==="floorHole").forEach(({item})=>{
+      const host=state.rooms.find((room)=>Math.abs(roomFloor(room)-(Number(item.floorLevel)||0))<.13&&!room.points?.length
+        &&item.x>=room.x+.125&&item.y>=room.y+.125&&item.x+item.w<=room.x+room.w-.125&&item.y+item.d<=room.y+room.d-.125);
+      if(host)item.hostRoomId=host.id;else delete item.hostRoomId;
+    });
+    const invalidProp=entries.find(({type,item})=>type==="prop"&&!["floorHole"].includes(item.kind)&&!(item.points?.length?polygonIsInsideSpace(item.points):rectIsInsideSpace(item)));
+    const invalidHole=entries.find(({type,item})=>type==="prop"&&item.kind==="floorHole"&&!item.hostRoomId);
+    const invalidZone=entries.find(({type,item})=>type==="zone"&&!rectIsInsideSpace(item));
+    const invalidEntity=entries.find(({type,item})=>type==="entity"&&!isPointInSpace(item.x+.5,item.y+.5));
+    const invalidOpening=entries.find(({type,item})=>["door","window"].includes(type)&&!doorIsConnected(item));
+    const overlappingProp=entries.find(({type,item})=>type==="prop"&&state.props.some((existing)=>oldPropIds.has(existing.id)&&rectanglesOverlap(item,existing)&&verticalBounds({type:"prop"},item).base<verticalBounds({type:"prop"},existing).top-.01&&verticalBounds({type:"prop"},item).top>verticalBounds({type:"prop"},existing).base+.01));
+    if(invalidProp||invalidHole||invalidZone||invalidEntity||invalidOpening||overlappingProp){
+      state=JSON.parse(before);environmentFor(state);refresh();
+      showToast(overlappingProp?"That prefab needs a clear physical area":invalidOpening?"A placed door or window lost its connected spaces":"Keep the complete prefab on buildable floor or map ground");return;
+    }
+    selection=entries.map(({type,item})=>({type,id:item.id}));selected=selection[0]||null;
+    if(previewMode!=="orbit")setPreviewMode("orbit");
+    commit(before);
+    showToast(`${prefab.name} placed - ${entries.length} editable object${entries.length===1?"":"s"}`);
+  }
+
   function placePrefab(world) {
+    if(activePrefabId.startsWith("custom:")){
+      const prefab=customPrefabs.find((item)=>item.id===activePrefabId.slice(7));
+      if(prefab)placeCustomPrefab(prefab,world);
+      return;
+    }
     const prefab = PREFAB_LIBRARY.find((item) => item.id === activePrefabId);
     if (!prefab || prefab.tool) return;
     const [w,d] = prefabFootprint(prefab.id);
@@ -5696,6 +5941,7 @@
   $("#deleteButton").addEventListener("click", deleteSelected);
   $("#rotateLeftSelection").addEventListener("click", () => rotateSelected(false));
   $("#rotateRightSelection").addEventListener("click", () => rotateSelected(true));
+  $("#saveSelectionPrefab").addEventListener("click",()=>openCustomPrefabStudio());
   $("#reverseSelection").addEventListener("click", reverseSelected);
   $("#editVerticesButton").addEventListener("click", toggleVertexEditing);
   $("#removeVertexButton").addEventListener("click", removeSelectedVertex);
@@ -5853,8 +6099,44 @@
   $("#prefabSearch").addEventListener("input", renderPrefabLibrary);
   $("#prefabCategory").addEventListener("change", renderPrefabLibrary);
   $("#prefabGrid").addEventListener("click", (event) => {
+    const edit=event.target.closest("[data-edit-custom-prefab]");
+    if(edit){const prefab=customPrefabs.find((item)=>item.id===edit.dataset.editCustomPrefab);if(prefab)openCustomPrefabStudio(prefab);return;}
+    const remove=event.target.closest("[data-delete-custom-prefab]");
+    if(remove){
+      const prefab=customPrefabs.find((item)=>item.id===remove.dataset.deleteCustomPrefab);
+      if(prefab&&confirm(`Delete "${prefab.name}" from My prefabs?`)){
+        customPrefabs=customPrefabs.filter((item)=>item.id!==prefab.id);
+        if(activePrefabId===`custom:${prefab.id}`)activePrefabId="halfCover";
+        persistCustomPrefabs();renderPrefabLibrary();showToast(`${prefab.name} deleted`);
+      }
+      return;
+    }
     const card = event.target.closest("[data-prefab]");
     if (card) choosePrefab(card.dataset.prefab);
+  });
+  $("#createPrefabFromSelection").addEventListener("click",()=>openCustomPrefabStudio());
+  $("#closeCustomPrefabDialog").addEventListener("click",()=>$("#customPrefabDialog").close());
+  $("#cancelCustomPrefab").addEventListener("click",()=>$("#customPrefabDialog").close());
+  $("#customPrefabForm").addEventListener("submit",(event)=>{event.preventDefault();saveCustomPrefabFromStudio();});
+  $("#customPrefabPivot").addEventListener("change",()=>{if(customPrefabDraft){customPrefabDraft.pivot=$("#customPrefabPivot").value;$("#customPrefabPreview").innerHTML=customPrefabThumbnail(customPrefabDraft);}});
+  $("#prefabRotateLeft").addEventListener("click",()=>{customPrefabRotation=(customPrefabRotation+270)%360;renderPrefabTransformSummary();});
+  $("#prefabRotateRight").addEventListener("click",()=>{customPrefabRotation=(customPrefabRotation+90)%360;renderPrefabTransformSummary();});
+  $("#prefabMirror").addEventListener("click",()=>{customPrefabMirrored=!customPrefabMirrored;renderPrefabTransformSummary();});
+  $("#exportCustomPrefabs").addEventListener("click",()=>{
+    if(!customPrefabs.length)return showToast("Your personal prefab library is empty");
+    const document=JSON.stringify({format:"blockout-custom-prefabs",version:1,exportedAt:new Date().toISOString(),prefabs:customPrefabs},null,2);
+    downloadBlob(document,"application/json","blockout-custom-prefabs.json");showToast(`${customPrefabs.length} custom prefabs exported`);
+  });
+  $("#importCustomPrefabs").addEventListener("change",async(event)=>{
+    const file=event.target.files?.[0];if(!file)return;
+    try{
+      const document=JSON.parse(await file.text()),incoming=Array.isArray(document)?document:document.format==="blockout-custom-prefabs"?document.prefabs:null;
+      if(!Array.isArray(incoming))throw new Error("Not a Blockout prefab library");
+      const valid=incoming.filter(isValidCustomPrefab).slice(0,200).map((prefab)=>({...structuredClone(prefab),id:crypto.randomUUID(),createdAt:Date.now(),updatedAt:Date.now()}));
+      if(!valid.length)throw new Error("No valid prefabs found");
+      customPrefabs=[...valid,...customPrefabs];persistCustomPrefabs();renderPrefabLibrary();showToast(`${valid.length} custom prefab${valid.length===1?"":"s"} imported`);
+    }catch(error){showToast(`Prefab import failed: ${error.message}`);}
+    event.target.value="";
   });
   $("#toolSearch").addEventListener("input", filterSidebarTools);
   $("#environmentButton").addEventListener("click", () => { syncEnvironmentDialog(); $("#environmentDialog").showModal(); });
@@ -6344,6 +6626,8 @@
     getWalkSurfaceHeight: (x, y) => walkSurfaceHeightAt(x, y),
     getOpenWalkDoors: () => [...openWalkDoors],
     getBrokenWalkWindows: () => [...brokenWalkWindows],
+    getCustomPrefabs: () => structuredClone(customPrefabs),
+    getPrefabPlacement: () => ({activePrefabId,rotation:customPrefabRotation,mirrored:customPrefabMirrored}),
     generateMapText
   });
   requestAnimationFrame(animate);

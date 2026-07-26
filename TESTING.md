@@ -32,6 +32,9 @@ the archive and executable SHA-256 hashes before installation.
 - Put a thin wall inside a buy zone, then click inside and outside the wall; repeated clicks should cycle wall, zone, and room without selecting the wall from elsewhere in its old 64-unit cell.
 - With **Smart links** enabled, touch two same-level rectangular rooms and confirm one centered opening is created; disable it and confirm connections remain manual.
 - Add doors, windows, stairs, ramps, ladders, platforms, and crates.
+- Select a multi-piece structure, save it with Custom Prefab Studio, confirm its generated miniature, then place rotated and mirrored copies.
+- Reload the editor and confirm **My prefabs** persists; export the personal library, delete a test prefab, then import the JSON again.
+- Save and place a multi-level prefab and confirm its relative heights, groups, materials, room references, and logic targets remain independent.
 - Place a stair, ramp, or ladder without a destination and confirm it receives a grouped landing or valid upper-floor opening.
 - Try Orbit and Walkthrough, including collisions and interactive doors.
 - Change wall, floor, ceiling, ground, and sky materials.

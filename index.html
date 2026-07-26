@@ -331,6 +331,7 @@
                 <button id="lockSelection" type="button" title="Lock or unlock selection">Lock</button>
                 <button id="hideSelection" type="button" title="Hide selection in the editor">Hide</button>
                 <button id="unhideAll" type="button" title="Show every hidden object">Show all</button>
+                <button id="saveSelectionPrefab" class="selection-prefab-action" type="button" title="Save this selection as a reusable prefab">Save prefab</button>
               </div>
               <div class="light-fields hidden" id="lightFields">
                 <div class="field-row">
@@ -754,12 +755,53 @@
       <div class="library-card">
         <div class="build-dialog-heading"><div><span class="welcome-badge">PREFAB LIBRARY</span><h2>Choose a reusable structure</h2></div><button class="icon-button" id="closePrefabDialog" aria-label="Close">×</button></div>
         <p class="analysis-intro">Prefabs are editable GoldSrc brushes, not opaque models. Place one, then select any piece to resize, rotate, retexture, or delete it.</p>
+        <div class="prefab-studio-toolbar">
+          <div>
+            <strong>Custom Prefab Studio</strong>
+            <small>Capture selected rooms, brushes, triggers, and entities as one reusable kit.</small>
+          </div>
+          <button class="button primary" id="createPrefabFromSelection" type="button">Save selection</button>
+          <button class="button secondary" id="exportCustomPrefabs" type="button">Export library</button>
+          <label class="button secondary prefab-import-button">Import JSON<input id="importCustomPrefabs" type="file" accept=".json,application/json" /></label>
+        </div>
         <div class="library-filters prefab-filters">
           <input id="prefabSearch" placeholder="Search cover, route, ladder..." />
-          <select id="prefabCategory"><option value="all">All categories</option><option value="cover">Cover</option><option value="vertical">Vertical</option><option value="routes">Routes</option><option value="openings">Openings</option><option value="architecture">Architecture</option><option value="gameplay">Gameplay</option></select>
+          <select id="prefabCategory"><option value="all">All categories</option><option value="personal">My prefabs</option><option value="cover">Cover</option><option value="vertical">Vertical</option><option value="routes">Routes</option><option value="openings">Openings</option><option value="architecture">Architecture</option><option value="gameplay">Gameplay</option><option value="rooms">Rooms</option><option value="logic">Logic</option></select>
+        </div>
+        <div class="prefab-placement-toolbar">
+          <span>Personal prefab placement</span>
+          <button id="prefabRotateLeft" type="button" title="Rotate personal prefab left">Rotate left</button>
+          <button id="prefabRotateRight" type="button" title="Rotate personal prefab right">Rotate right</button>
+          <button id="prefabMirror" type="button" title="Mirror personal prefab">Mirror</button>
+          <strong id="prefabTransformSummary">0 degrees / normal</strong>
         </div>
         <div class="prefab-grid" id="prefabGrid"></div>
       </div>
+    </dialog>
+
+    <dialog id="customPrefabDialog" class="custom-prefab-dialog">
+      <form class="library-card" id="customPrefabForm">
+        <div class="build-dialog-heading"><div><span class="welcome-badge">CUSTOM PREFAB STUDIO</span><h2 id="customPrefabDialogTitle">Save reusable prefab</h2></div><button class="icon-button" id="closeCustomPrefabDialog" type="button" aria-label="Close">×</button></div>
+        <p class="analysis-intro" id="customPrefabSelectionSummary">The selected objects will remain fully editable whenever this prefab is placed.</p>
+        <div class="custom-prefab-layout">
+          <div class="custom-prefab-preview" id="customPrefabPreview" aria-label="Generated prefab miniature"></div>
+          <div class="custom-prefab-fields">
+            <label>Name<input id="customPrefabName" maxlength="48" required placeholder="Defensive window nest" /></label>
+            <div class="field-row">
+              <label>Category<select id="customPrefabCategory"><option value="cover">Cover</option><option value="vertical">Vertical</option><option value="routes">Routes</option><option value="openings">Openings</option><option value="architecture">Architecture</option><option value="gameplay">Gameplay</option><option value="rooms">Rooms</option><option value="logic">Logic</option></select></label>
+              <label>Placement pivot<select id="customPrefabPivot"><option value="center">Center</option><option value="topLeft">Top-left corner</option><option value="bottomLeft">Bottom-left corner</option></select></label>
+            </div>
+            <label>Tags<input id="customPrefabTags" maxlength="120" placeholder="industrial, bombsite, cover" /></label>
+            <label>Description<textarea id="customPrefabDescription" maxlength="240" rows="3" placeholder="What this prefab is useful for"></textarea></label>
+            <label class="custom-prefab-check"><input id="customPrefabPreserveMaterials" type="checkbox" checked /> Preserve every selected material and texture alignment</label>
+          </div>
+        </div>
+        <div class="custom-prefab-actions">
+          <span id="customPrefabFootprint">0 objects</span>
+          <button class="button secondary" id="cancelCustomPrefab" type="button">Cancel</button>
+          <button class="button primary" id="saveCustomPrefab" type="submit">Save to my library</button>
+        </div>
+      </form>
     </dialog>
 
     <dialog id="analysisDialog" class="analysis-dialog">
