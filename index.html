@@ -27,14 +27,22 @@
         <div class="top-actions">
           <button class="icon-button" id="undoButton" title="Undo (Ctrl+Z)" aria-label="Undo">↶</button>
           <button class="icon-button" id="redoButton" title="Redo (Ctrl+Shift+Z)" aria-label="Redo">↷</button>
-          <button class="button secondary" id="newButton">New map</button>
-          <button class="button secondary" id="layoutsButton">Layouts</button>
-          <button class="button secondary" id="environmentButton">Environment</button>
-          <button class="button secondary" id="elevationButton">Elevation</button>
-          <button class="button secondary" id="preflightButton">Preflight</button>
-          <button class="button secondary" id="productionButton">Production</button>
-          <button class="button secondary" id="brushStudioButton">Brush Studio</button>
-          <button class="button secondary" id="analyzeButton">Analyze</button>
+          <details class="top-more-menu" id="topMoreMenu">
+            <summary class="button secondary">More <span>⌄</span></summary>
+            <div class="top-more-popover">
+              <span>PROJECT</span>
+              <button class="menu-action" id="newButton"><b>New map</b><small>Start with a clean project</small></button>
+              <button class="menu-action" id="layoutsButton"><b>Layout library</b><small>Competitive starting layouts</small></button>
+              <span>WORLD</span>
+              <button class="menu-action" id="environmentButton"><b>Environment</b><small>Ground, sky, and outdoor defaults</small></button>
+              <button class="menu-action" id="elevationButton"><b>Elevation editor</b><small>Review and change vertical levels</small></button>
+              <span>REVIEW</span>
+              <button class="menu-action" id="preflightButton"><b>Preflight</b><small>Compile-safety problems</small></button>
+              <button class="menu-action" id="productionButton"><b>Production workspace</b><small>Layers, lighting, routes, versions</small></button>
+              <button class="menu-action" id="brushStudioButton"><b>Brush Studio</b><small>Advanced GoldSrc geometry</small></button>
+              <button class="menu-action" id="analyzeButton"><b>Analyze gameplay</b><small>Routes, sightlines, and timing</small></button>
+            </div>
+          </details>
           <button class="button secondary" id="exportButton">Export .map</button>
           <button class="button primary build-button" id="buildButton"><span class="build-status-dot"></span>Build &amp; Test</button>
         </div>
@@ -42,10 +50,22 @@
 
       <aside class="tool-sidebar" aria-label="Build tools">
         <div class="tool-finder">
-          <input id="toolSearch" type="search" placeholder="Find a tool..." aria-label="Find a build tool" />
-          <small>60 materials · 24 prefabs · 6 layouts</small>
+          <div class="toolbox-heading"><strong>Toolbox</strong><button id="toolModeButton" type="button" title="Show beginner or advanced tools">Beginner</button></div>
+          <label class="tool-search-field"><span>⌕</span><input id="toolSearch" type="search" placeholder="Find any tool..." aria-label="Find a build tool" /><kbd>Ctrl K</kbd></label>
+          <small id="toolboxSummary">Essential tools · choose a workspace</small>
         </div>
-        <details class="tool-group" open>
+        <nav class="tool-workspaces" id="toolWorkspaces" aria-label="Tool workspaces">
+          <button class="active" type="button" data-tool-workspace="start"><span>★</span>Start</button>
+          <button type="button" data-tool-workspace="build"><span>▦</span>Build</button>
+          <button type="button" data-tool-workspace="gameplay"><span>◎</span>Game</button>
+          <button type="button" data-tool-workspace="logic"><span>⌁</span>Logic</button>
+          <button type="button" data-tool-workspace="assets"><span>◇</span>Assets</button>
+        </nav>
+        <div class="recent-tools hidden" id="recentTools">
+          <span>RECENT</span>
+          <div id="recentToolList"></div>
+        </div>
+        <details class="tool-group" data-workspace="build" open>
           <summary class="tool-label">LAYOUT</summary>
           <button class="tool active" data-tool="room" title="Draw room (R)">
             <span class="tool-icon room-icon"></span><span>Room</span><kbd>R</kbd>
@@ -79,7 +99,7 @@
           </button>
         </details>
 
-        <details class="tool-group" open>
+        <details class="tool-group" data-workspace="build" open>
           <summary class="tool-label">GEOMETRY</summary>
           <button class="tool" data-tool="wall" title="Draw solid wall (W)">
             <span class="tool-icon wall-icon"></span><span>Solid wall</span><kbd>W</kbd>
@@ -134,14 +154,14 @@
           </button>
         </details>
 
-        <details class="tool-group" open>
+        <details class="tool-group" data-workspace="assets" open>
           <summary class="tool-label">PREFABS</summary>
           <button class="tool library-tool" id="openPrefabLibrary" title="Search reusable structures and routes">
             <span class="tool-icon prefab-library-icon">+</span><span>Open prefab library</span><kbd>14</kbd>
           </button>
         </details>
 
-        <details class="tool-group">
+        <details class="tool-group" data-workspace="build">
           <summary class="tool-label">ENVIRONMENT</summary>
           <button class="tool" data-tool="light" title="Place light (L)">
             <span class="entity-icon light">☀</span><span>Light</span><kbd>L</kbd>
@@ -151,7 +171,7 @@
           </button>
         </details>
 
-        <details class="tool-group" open>
+        <details class="tool-group" data-workspace="gameplay" open>
           <summary class="tool-label">GAMEPLAY</summary>
           <button class="tool" data-tool="ct" title="Place Counter-Terrorist spawn">
             <span class="entity-icon ct">CT</span><span>CT spawn</span>
@@ -173,6 +193,11 @@
           </button>
           <button class="tool" data-tool="hostage" title="Place hostage"><span class="entity-icon hostage">H</span><span>Hostage</span></button>
           <button class="tool" data-tool="rescue" title="Draw hostage rescue zone"><span class="entity-icon rescue">R</span><span>Rescue zone</span></button>
+          <button class="tool" data-tool="targetDummy" title="Place a playtest target"><span class="entity-icon danger">TG</span><span>Target dummy</span></button>
+        </details>
+
+        <details class="tool-group" data-workspace="logic" open>
+          <summary class="tool-label">LOGIC &amp; WORLD</summary>
           <button class="tool" data-tool="button" title="Place a usable button"><span class="entity-icon button-entity">E</span><span>Button</span></button>
           <button class="tool" data-tool="triggerHurt" title="Draw a damage trigger"><span class="entity-icon danger">!</span><span>Damage trigger</span></button>
           <button class="tool" data-tool="teleport" title="Draw a teleporter trigger"><span class="entity-icon teleport">T</span><span>Teleporter</span></button>
@@ -185,7 +210,13 @@
           <button class="tool" data-tool="rotatingDoor" title="Draw a rotating door brush"><span class="entity-icon button-entity">DR</span><span>Rotating door</span></button>
           <button class="tool" data-tool="train" title="Draw a path-driven moving platform"><span class="entity-icon water">MV</span><span>Moving platform</span></button>
           <button class="tool" data-tool="pathCorner" title="Place a path corner for a moving platform"><span class="entity-icon decal">P</span><span>Path corner</span></button>
-          <button class="tool" data-tool="targetDummy" title="Place a playtest target"><span class="entity-icon danger">TG</span><span>Target dummy</span></button>
+        </details>
+
+        <details class="tool-group toolbox-library-group" data-workspace="assets" open>
+          <summary class="tool-label">LIBRARIES</summary>
+          <button class="tool library-tool" id="openMaterialLibrarySidebar" type="button"><span class="tool-icon prefab-library-icon">▧</span><span>Material library</span><kbd>60</kbd></button>
+          <button class="tool library-tool" id="openLayoutsSidebar" type="button"><span class="tool-icon prefab-library-icon">≡</span><span>Layout library</span><kbd>6</kbd></button>
+          <button class="tool library-tool" id="openEnvironmentSidebar" type="button"><span class="tool-icon prefab-library-icon">☼</span><span>Environment &amp; sky</span></button>
         </details>
 
         <div class="tool-tip">
@@ -263,7 +294,11 @@
           </div>
 
           <div class="right-panel-scroll">
-          <section class="inspector" id="inspector">
+          <nav class="right-panel-tabs" id="rightPanelTabs" aria-label="Inspector panels">
+            <button class="active" type="button" data-right-panel="selection"><span>Selection</span><small id="selectionTabStatus">Nothing selected</small></button>
+            <button type="button" data-right-panel="guide"><span>Map guide</span><small id="guideTabStatus">0 of 5 complete</small></button>
+          </nav>
+          <section class="inspector" id="inspector" data-right-pane="selection">
             <div class="section-heading">
               <span class="eyebrow">SELECTION</span>
               <button class="text-button danger" id="deleteButton" disabled>Delete</button>
@@ -592,7 +627,7 @@
             </div>
           </section>
 
-          <section class="checklist">
+          <section class="checklist hidden" data-right-pane="guide">
             <div class="section-heading">
               <div>
                 <span class="eyebrow">MAP CHECK</span>

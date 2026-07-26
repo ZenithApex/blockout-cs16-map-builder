@@ -69,6 +69,8 @@ The hosted editor can securely pair with the Windows companion for **Build & Tes
 - Start from 6 editable layouts: three-lane competitive, two-site skeleton, warehouse arena, open courtyard, vertical blockout, and aim-training lanes
 - Browse 24 editable brush prefabs for openings, vents, stairs, tactical cover, crates, columns, catwalks, ramps, ladders, bridges, sniper nests, market stalls, and bombsite layouts
 - Capture selections in Custom Prefab Studio with generated miniatures, categories, tags, pivot choice, rotation/mirroring, editing, and JSON import/export
+- Work from organized Start, Build, Game, Logic, and Assets toolspaces, switch between Beginner and All-tools modes, and recall recently used tools
+- Find any tool globally with the toolbox search or `Ctrl+K`, while advanced project actions stay grouped in the structured **More** menu
 - Browse 60 materials grouped into 13 categories, with real miniature previews, source badges, search, and locally saved favorites
 - Drag in PNG, JPG, WebP, or GIF images to create new compile-ready GoldSrc materials, with local category and name suggestions
 - Analyze CT/T timings to bombsites and flag direct spawn-to-objective sightlines
@@ -130,6 +132,10 @@ Rectangular rooms, walls, platforms, floor slabs, and cylinders can also enter c
 The Geometry section also includes **Cylinder**, **Wedge**, **Archway**, and **Sloped roof**. Cylinders use a compile-safe twelve-sided footprint. Archways are created as a grouped pair of supports plus a lintel, so the opening stays physical and editable. Wedges and sloped roofs use the same dependable stepped GoldSrc export strategy as ramps.
 
 ## Selection, snapping, and material workflow
+
+The left toolbox opens in **Start**, which combines only the tools a beginner needs to create and test a first map. Choose **Build**, **Game**, **Logic**, or **Assets** to focus the toolbox on one job. **Beginner** keeps each workspace concise; **All tools** reveals every specialized brush and entity without changing shortcuts or existing maps. The search field ignores the current workspace so a tool is never trapped in the wrong category, and `Ctrl+K` focuses it immediately.
+
+The top bar keeps Export and Build visible while **More** organizes project setup, environment, elevation, preflight, production, Brush Studio, and analysis actions. In the right column, **Selection** and **Map guide** have separate tabs so long property forms no longer compete with beginner guidance.
 
 - Click objects in either the top-down plan or Orbit preview. **Shift-click** adds or removes objects from the current selection.
 - The plan selector uses the exact cursor position instead of treating a complete 64-unit cell as clicked. Repeated clicks at one position cycle through overlapping structures, zones, and rooms.
@@ -266,7 +272,7 @@ Blockout can also use another trusted GoldSrc VHLT/ZHLT tool package. Either:
 
 Standard filenames and `_x64`/`_x86` variants are supported. Build & Test now reports five independent readiness checks: CS 1.6, all four compilers, `cstrike.wad` plus `halflife.wad`, the writable `cstrike/maps` destination, and editor preflight. Choose whether to launch CS 1.6 after compilation or compile and install without launching it.
 
-Companion 1.6 clears stale compiler outputs before each build so an older BSP cannot be mistaken for a successful result. It provides a verified in-app SDHLT installer, Draft/Playtest/Final profiles, live stage and elapsed-time status, safe cancellation, clickable coordinate diagnostics, origin-locked hosted pairing, guarded Texture Alchemist family import/deletion, and atomic WAD rebuilds while remaining loopback-only. Missing stock/custom WADs, locked build artifacts, invalid custom mipmaps, incomplete compiler folders, and unwritable destinations stop early with specific recovery instructions. The complete compiler log is retained in the Build panel after a failed stage. If CS 1.6 is holding the requested BSP open, Blockout automatically installs the new build as the next available `_preview_N` map instead.
+Companion 1.7 clears stale compiler outputs before each build so an older BSP cannot be mistaken for a successful result. It provides a verified in-app SDHLT installer, Draft/Playtest/Final profiles, live stage and elapsed-time status, safe cancellation, clickable coordinate diagnostics, origin-locked hosted pairing, guarded Texture Alchemist family import/deletion, and atomic WAD rebuilds while remaining loopback-only. Missing stock/custom WADs, locked build artifacts, invalid custom mipmaps, incomplete compiler folders, and unwritable destinations stop early with specific recovery instructions. The complete compiler log is retained in the Build panel after a failed stage. If CS 1.6 is holding the requested BSP open, Blockout automatically installs the new build as the next available `_preview_N` map instead.
 
 ## Verified real compiles
 

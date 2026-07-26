@@ -324,8 +324,13 @@
   let lastRouteSampleAt = 0;
   let projectSnapshots = [];
   let pendingTextureImport = null;
+  let toolWorkspace = ["start","build","gameplay","logic","assets"].includes(localStorage.getItem("blockout-tool-workspace")) ? localStorage.getItem("blockout-tool-workspace") : "start";
+  let beginnerToolMode = localStorage.getItem("blockout-tool-mode") !== "advanced";
+  let recentToolIds = [];
+  let rightPanel = ["selection","guide"].includes(localStorage.getItem("blockout-right-panel")) ? localStorage.getItem("blockout-right-panel") : "selection";
   try { textureFavorites = new Set(JSON.parse(localStorage.getItem("blockout-texture-favorites") || "[]")); } catch (_) {}
   try { projectSnapshots = JSON.parse(localStorage.getItem("blockout-project-snapshots-v1") || "[]"); } catch (_) { projectSnapshots = []; }
+  try { recentToolIds = JSON.parse(localStorage.getItem("blockout-recent-tools") || "[]").filter((id)=>TOOL_INFO[id]).slice(0,4); } catch (_) { recentToolIds = []; }
   try {
     const storedPrefabs = JSON.parse(localStorage.getItem(CUSTOM_PREFAB_STORAGE_KEY) || "[]");
     customPrefabs = Array.isArray(storedPrefabs) ? storedPrefabs.filter(isValidCustomPrefab) : [];
@@ -1208,6 +1213,7 @@
       if (!additive) { selection = []; selected = null; }
       return;
     }
+    setRightPanel("selection");
     const refs = refsForHit(ref);
     if (additive) {
       const removing = refs.every((candidate) => selection.some((current) => sameRef(current, candidate)));
@@ -3262,6 +3268,8 @@
     $("#toolTip").textContent = TOOL_INFO[tool].tip;
     $("#editorTitle").textContent = TOOL_INFO[tool].title;
     $("#canvasWrap").style.cursor = tool === "pan" ? "grab" : tool === "select" ? "default" : "crosshair";
+    if(tool==="select"&&selected)setRightPanel("selection");
+    rememberRecentTool(tool);
     drawEditor();
   }
 
@@ -3279,6 +3287,7 @@
     });
     const score = Object.values(checks).filter(Boolean).length;
     $("#score").textContent = `${score}/5`;
+    $("#guideTabStatus").textContent = `${score} of 5 complete`;
     $("#checkTitle").textContent = score === 5 ? "Ready to export" : score ? "Keep building" : "Let’s get started";
 
     let step = 1;
@@ -3298,6 +3307,7 @@
     const entries = selectedEntries();
     const item = selectedItem();
     const multiple = entries.length > 1;
+    $("#selectionTabStatus").textContent=entries.length?`${entries.length} object${entries.length===1?"":"s"} selected`:"Nothing selected";
     $("#deleteButton").disabled = !entries.length;
     $("#nothingSelected").classList.toggle("hidden", !!entries.length);
     $("#selectionFields").classList.toggle("hidden", !entries.length);
@@ -4066,18 +4076,61 @@
     showToast(!customId&&prefab.tool ? `${prefab.name}: ${TOOL_INFO[prefab.tool].tip}` : `${prefab.name} selected - click the desired pivot position`);
   }
 
+  const BEGINNER_TOOLS = new Set([
+    "room","corridor","door","window","select","ruler","pan","wall","diagonal","platform","floor","crate","stairs","ramp",
+    "light","ct","t","buyCt","buyT","bombA","bombB","hostage","rescue","targetDummy"
+  ]);
+
+  function toolIsEssential(tool) {
+    return !tool.dataset.tool || BEGINNER_TOOLS.has(tool.dataset.tool);
+  }
+
+  function renderRecentTools() {
+    const valid=recentToolIds.filter((id)=>TOOL_INFO[id]&&$(`.tool[data-tool="${id}"]`)).slice(0,4);
+    recentToolIds=valid;$("#recentTools").classList.toggle("hidden",!valid.length);
+    $("#recentToolList").innerHTML=valid.map((id)=>`<button class="recent-tool" type="button" data-recent-tool="${id}" title="${html(TOOL_INFO[id].tip)}">${html(TOOL_INFO[id].title.replace(/^(Draw|Place|Select|Move) /i,""))}</button>`).join("");
+  }
+
+  function rememberRecentTool(tool) {
+    if(!TOOL_INFO[tool]||["select","pan"].includes(tool))return;
+    recentToolIds=[tool,...recentToolIds.filter((id)=>id!==tool)].slice(0,4);
+    localStorage.setItem("blockout-recent-tools",JSON.stringify(recentToolIds));renderRecentTools();
+  }
+
   function filterSidebarTools() {
-    const query = $("#toolSearch").value.trim().toLowerCase();
+    const query = $("#toolSearch").value.trim().toLowerCase(),searching=!!query;
+    let visibleCount=0;
     $$(".tool-group").forEach((group) => {
-      const tools = [...group.querySelectorAll(".tool")];
+      const tools = [...group.querySelectorAll(".tool")],workspaceMatches=toolWorkspace==="start"||group.dataset.workspace===toolWorkspace;
       tools.forEach((tool) => {
-        const matches = !query || `${tool.textContent} ${tool.title}`.toLowerCase().includes(query);
-        tool.classList.toggle("search-hidden", !matches);
+        const matchesSearch=!query||`${tool.textContent} ${tool.title||""} ${tool.dataset.tool||""}`.toLowerCase().includes(query);
+        const modeMatches=toolWorkspace==="start"?toolIsEssential(tool):(!beginnerToolMode||toolIsEssential(tool));
+        tool.classList.toggle("search-hidden",searching&&!matchesSearch);
+        tool.classList.toggle("mode-hidden",!searching&&(!workspaceMatches||!modeMatches));
+        if(!tool.classList.contains("search-hidden")&&!tool.classList.contains("mode-hidden"))visibleCount++;
       });
-      const hasMatch = tools.some((tool) => !tool.classList.contains("search-hidden"));
-      group.classList.toggle("search-hidden", !!query && !hasMatch);
-      if (query && hasMatch) group.open = true;
+      const hasVisible=tools.some((tool)=>!tool.classList.contains("search-hidden")&&!tool.classList.contains("mode-hidden"));
+      group.classList.toggle("search-hidden",searching&&!hasVisible);
+      group.classList.toggle("workspace-hidden",!searching&&!hasVisible);
+      if((searching||toolWorkspace==="start")&&hasVisible)group.open=true;
     });
+    $$("#toolWorkspaces [data-tool-workspace]").forEach((button)=>button.classList.toggle("active",button.dataset.toolWorkspace===toolWorkspace));
+    $("#toolModeButton").textContent=beginnerToolMode?"Beginner":"All tools";
+    $("#toolModeButton").title=beginnerToolMode?"Show every advanced tool in this workspace":"Return to the beginner tool set";
+    $("#toolboxSummary").textContent=searching?`${visibleCount} matching tool${visibleCount===1?"":"s"}`:toolWorkspace==="start"?`${visibleCount} essential tools · everything needed to begin`:`${visibleCount} ${beginnerToolMode?"essential ":""}tool${visibleCount===1?"":"s"} in ${toolWorkspace}`;
+  }
+
+  function setToolWorkspace(workspace) {
+    if(!["start","build","gameplay","logic","assets"].includes(workspace))return;
+    toolWorkspace=workspace;localStorage.setItem("blockout-tool-workspace",workspace);
+    $("#toolSearch").value="";filterSidebarTools();
+  }
+
+  function setRightPanel(panel) {
+    if(!["selection","guide"].includes(panel))return;
+    rightPanel=panel;localStorage.setItem("blockout-right-panel",panel);
+    $$("[data-right-pane]").forEach((pane)=>pane.classList.toggle("hidden",pane.dataset.rightPane!==panel));
+    $$("#rightPanelTabs [data-right-panel]").forEach((button)=>button.classList.toggle("active",button.dataset.rightPanel===panel));
   }
 
   function applyBrowserTexture(texture) {
@@ -6553,6 +6606,14 @@
   });
 
   $$(".tool[data-tool]").forEach((button) => button.addEventListener("click", () => setTool(button.dataset.tool)));
+  $("#toolWorkspaces").addEventListener("click",(event)=>{const button=event.target.closest("[data-tool-workspace]");if(button)setToolWorkspace(button.dataset.toolWorkspace);});
+  $("#toolModeButton").addEventListener("click",()=>{beginnerToolMode=!beginnerToolMode;localStorage.setItem("blockout-tool-mode",beginnerToolMode?"beginner":"advanced");filterSidebarTools();});
+  $("#recentToolList").addEventListener("click",(event)=>{const button=event.target.closest("[data-recent-tool]");if(button)setTool(button.dataset.recentTool);});
+  $("#rightPanelTabs").addEventListener("click",(event)=>{const button=event.target.closest("[data-right-panel]");if(button)setRightPanel(button.dataset.rightPanel);});
+  $("#openMaterialLibrarySidebar").addEventListener("click",()=>openTextureLibrary(["room","prop"].includes(selected?.type)?"material":"ground"));
+  $("#openLayoutsSidebar").addEventListener("click",()=>$("#layoutsButton").click());
+  $("#openEnvironmentSidebar").addEventListener("click",()=>$("#environmentButton").click());
+  $("#topMoreMenu").addEventListener("click",(event)=>{if(event.target.closest(".menu-action"))$("#topMoreMenu").open=false;});
   $("#undoButton").addEventListener("click", undo);
   $("#redoButton").addEventListener("click", redo);
   $("#deleteButton").addEventListener("click", deleteSelected);
@@ -6816,6 +6877,7 @@
     event.target.value="";
   });
   $("#toolSearch").addEventListener("input", filterSidebarTools);
+  $("#toolSearch").addEventListener("keydown",(event)=>{if(event.key==="Escape"){event.preventDefault();event.target.value="";filterSidebarTools();event.target.blur();}});
   $("#environmentButton").addEventListener("click", () => { syncEnvironmentDialog(); $("#environmentDialog").showModal(); });
   $("#closeEnvironmentDialog").addEventListener("click", () => $("#environmentDialog").close());
   $("#finishEnvironment").addEventListener("click", () => $("#environmentDialog").close());
@@ -7170,6 +7232,9 @@
 
   window.addEventListener("keydown", (event) => {
     const typing = ["INPUT", "TEXTAREA"].includes(document.activeElement?.tagName);
+    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") {
+      event.preventDefault();$("#toolSearch").focus();$("#toolSearch").select();return;
+    }
     if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "z") {
       event.preventDefault(); event.shiftKey ? redo() : undo(); return;
     }
@@ -7283,6 +7348,9 @@
     if ($("#dontShowAgain").checked) localStorage.setItem("blockout-welcome-seen", "yes");
   });
 
+  renderRecentTools();
+  filterSidebarTools();
+  setRightPanel(rightPanel);
   requestAnimationFrame(() => {
     fitView(); refresh();
     refreshCompanionStatus();

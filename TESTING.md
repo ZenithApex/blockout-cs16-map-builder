@@ -55,6 +55,11 @@ the archive and executable SHA-256 hashes before installation.
 - Install Base, Dark, Light, and Weathered together and confirm all four cards appear after a single successful WAD rebuild.
 - Force a duplicate family code and confirm no partial source, preview, manifest, or WAD change remains.
 - Apply a generated texture to an individual brush face and confirm deletion is refused until every use is replaced.
+- Switch through Start, Build, Game, Logic, and Assets; confirm unrelated groups disappear without changing the active tool.
+- Toggle Beginner / All tools, search for a tool outside the current workspace, and use `Ctrl+K` to focus global tool search.
+- Use several drawing tools and confirm recent-tool shortcuts appear and survive reload.
+- Open **More** and confirm project, world, and review actions remain reachable.
+- Switch the right column between Selection and Map guide; selecting an object should return to Selection.
 
 ## Reporting a problem
 
