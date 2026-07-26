@@ -746,7 +746,7 @@
       project.stories = Array.isArray(project.stories) && project.stories.length ? project.stories : [{id:crypto.randomUUID(),name:"Ground floor",elevation:0}];
       project.rooms = (project.rooms || []).map((room) => ({
         kind: "room", texture: "C1A0_LABW3", floorTexture: "CSTRIKE_FP2DARK",
-        ceilingTexture: "C1A0_LABW3", ceilingMode: "ceiling", ...room
+        ceilingTexture: "C1A0_LABW3", ceilingMode: "ceiling", wallThickness:.25, ...room
       }));
       project.doors = (project.doors || []).map((door) => ({ width: 1, height: 2, mode: "opening", texture: "CSTRIKE_ME4METL", speed: 100, ...door }));
       project.windows = (project.windows || []).map((window) => ({
@@ -1355,6 +1355,11 @@
       if (create) item.wallUV[target] = normalizedUv(item.wallUV[target]);
       return normalizedUv(item.wallUV[target]);
     }
+    if (type === "prop" && target !== "object") {
+      item.faceUV ||= {};
+      if (create) item.faceUV[target] = normalizedUv(item.faceUV[target]);
+      return normalizedUv(item.faceUV[target]);
+    }
     if (create) item.textureUV = normalizedUv(item.textureUV);
     return normalizedUv(item.textureUV);
   }
@@ -1365,6 +1370,7 @@
     else if(type==="room"&&target==="ceiling")item.ceilingUV=value;
     else if(type==="room"&&target.startsWith("edge:")){item.edgeUV||={};item.edgeUV[Number(target.split(":")[1])]=value;}
     else if(type==="room"&&target!=="object"){item.wallUV||={};item.wallUV[target]=value;}
+    else if(type==="prop"&&target!=="object"){item.faceUV||={};item.faceUV[target]=value;}
     else item.textureUV=value;
     return value;
   }
@@ -1383,6 +1389,15 @@
       }
       return {width:Math.max(item.w||1,item.d||1)*GRID,height:(item.height||4)*GRID};
     }
+    if(type==="prop"){
+      if(target.startsWith("side:")){
+        const index=Number(target.split(":")[1]),points=item.points||[],a=points[index],b=points[(index+1)%points.length];
+        if(a&&b)return {width:Math.hypot(b[0]-a[0],b[1]-a[1])*GRID,height:(item.height||1)*GRID};
+      }
+      if(["north","south"].includes(target))return {width:(item.w||1)*GRID,height:(item.height||1)*GRID};
+      if(["east","west"].includes(target))return {width:(item.d||1)*GRID,height:(item.height||1)*GRID};
+      if(["top","bottom"].includes(target))return {width:(item.w||1)*GRID,height:(item.d||1)*GRID};
+    }
     return {width:(item.w||1)*GRID,height:(item.d||item.height||1)*GRID};
   }
 
@@ -1400,6 +1415,7 @@
     if (type === "room" && target === "ceiling") return item.ceilingTexture || "C1A0_LABW3";
     if (type === "room" && target.startsWith("edge:")) return item.edgeTextures?.[Number(target.split(":")[1])] || item.texture || "C1A0_LABW3";
     if (type === "room" && target !== "object") return item.wallTextures?.[target] || item.texture || "C1A0_LABW3";
+    if (type === "prop" && target !== "object") return item.faceTextures?.[target] || item.texture || "C1A0_LABW3";
     return item.texture || (item.kind === "crate" ? "BCRATE02" : "C1A0_LABW3");
   }
 
@@ -1412,6 +1428,9 @@
     } else if (type === "room" && target !== "object") {
       item.wallTextures ||= {};
       item.wallTextures[target] = texture;
+    } else if (type === "prop" && target !== "object") {
+      item.faceTextures ||= {};
+      item.faceTextures[target] = texture;
     } else item.texture = texture;
     if(texture.startsWith("USR_")){
       const uv=surfaceUvFor(item,type,target,true);uv.mode="fit";setSurfaceUv(item,type,target,uv);
@@ -2129,8 +2148,8 @@
         const top = Number(prop.elevation) || 0;
         const thickness = Math.max(.125, Number(prop.thickness) || .25);
         const slabBase = top - thickness + .08;
-        if (prop.kind === "floorPolygon") drawIsoPolygonPrism(prop.points || [], thickness, color, selectedProp, slabBase, prop.texture, resolvedSurfaceUv(prop,"prop","object"));
-        else drawIsoPrism(prop.x, prop.y, prop.x + prop.w, prop.y + prop.d, thickness, color, selectedProp, slabBase, prop.texture, resolvedSurfaceUv(prop,"prop","object"));
+        if (prop.kind === "floorPolygon") drawIsoPolygonPrism(prop.points || [], thickness, color, selectedProp, slabBase, prop.texture, resolvedSurfaceUv(prop,"prop","object"),prop.faceTextures,prop.faceUV);
+        else drawIsoPrism(prop.x, prop.y, prop.x + prop.w, prop.y + prop.d, thickness, color, selectedProp, slabBase, prop.texture, resolvedSurfaceUv(prop,"prop","object"),prop.faceTextures,prop.faceUV);
         return;
       }
       if (prop.kind === "ladder") {
@@ -2142,19 +2161,19 @@
         return;
       }
       if (prop.kind === "diagonal") {
-        drawIsoPolygonPrism(diagonalCorners(prop), prop.height * .7, color, selectedProp, baseZ, prop.texture, resolvedSurfaceUv(prop,"prop","object"));
+        drawIsoPolygonPrism(diagonalCorners(prop), prop.height * .7, color, selectedProp, baseZ, prop.texture, resolvedSurfaceUv(prop,"prop","object"),prop.faceTextures,prop.faceUV);
         return;
       }
       if (["wallPolygon","cylinder"].includes(prop.kind)) {
-        drawIsoPolygonPrism(prop.points || [], prop.height * .7, color, selectedProp, baseZ, prop.texture, resolvedSurfaceUv(prop,"prop","object"));
+        drawIsoPolygonPrism(prop.points || [], prop.height * .7, color, selectedProp, baseZ, prop.texture, resolvedSurfaceUv(prop,"prop","object"),prop.faceTextures,prop.faceUV);
         return;
       }
       if (prop.kind === "platformPolygon") {
-        drawIsoPolygonPrism(prop.points || [], prop.height * .7, color, selectedProp, baseZ, prop.texture, resolvedSurfaceUv(prop,"prop","object"));
+        drawIsoPolygonPrism(prop.points || [], prop.height * .7, color, selectedProp, baseZ, prop.texture, resolvedSurfaceUv(prop,"prop","object"),prop.faceTextures,prop.faceUV);
         return;
       }
       if (["crate","wall","platform","arch","water","breakable","elevator","rotatingDoor","train"].includes(prop.kind)) {
-        drawIsoPrism(prop.x, prop.y, prop.x + prop.w, prop.y + prop.d, prop.height * .7, color, selectedProp, baseZ, prop.texture, resolvedSurfaceUv(prop,"prop","object"));
+        drawIsoPrism(prop.x, prop.y, prop.x + prop.w, prop.y + prop.d, prop.height * .7, color, selectedProp, baseZ, prop.texture, resolvedSurfaceUv(prop,"prop","object"),prop.faceTextures,prop.faceUV);
         return;
       }
       if (["ramp","wedge","slopeRoof"].includes(prop.kind)) {
@@ -2241,24 +2260,25 @@
       polygon(t, isSelected ? "#ffd39e" : color, stroke, texture, .04, uv);
     }
 
-    function drawIsoPrism(x1, y1, x2, y2, height, color, isSelected, baseZ = 0, texture, uv = null) {
+    function drawIsoPrism(x1, y1, x2, y2, height, color, isSelected, baseZ = 0, texture, uv = null, faceTextures = null, faceUV = null) {
       const b = [project(x1,y1,baseZ), project(x2,y1,baseZ), project(x2,y2,baseZ), project(x1,y2,baseZ)];
       const t = [project(x1,y1,baseZ+height), project(x2,y1,baseZ+height), project(x2,y2,baseZ+height), project(x1,y2,baseZ+height)];
-      polygon([b[0],b[1],t[1],t[0]], "#4a4234", isSelected ? "#d7f45a" : "#7d7058", texture, .3, uv);
-      polygon([b[1],b[2],t[2],t[1]], "#3b3831", isSelected ? "#d7f45a" : "#6f695a", texture, .42, uv);
-      polygon([b[2],b[3],t[3],t[2]], "#51493a", isSelected ? "#d7f45a" : "#81755e", texture, .22, uv);
-      polygon(t, isSelected ? "#a8b55d" : color, isSelected ? "#d7f45a" : "#a3987c", texture, .04, uv);
+      const ft=(name)=>faceTextures?.[name]||texture,fu=(name)=>faceUV?.[name]||uv;
+      polygon([b[0],b[1],t[1],t[0]], "#4a4234", isSelected ? "#d7f45a" : "#7d7058", ft("north"), .3, fu("north"));
+      polygon([b[1],b[2],t[2],t[1]], "#3b3831", isSelected ? "#d7f45a" : "#6f695a", ft("east"), .42, fu("east"));
+      polygon([b[2],b[3],t[3],t[2]], "#51493a", isSelected ? "#d7f45a" : "#81755e", ft("south"), .22, fu("south"));
+      polygon(t, isSelected ? "#a8b55d" : color, isSelected ? "#d7f45a" : "#a3987c", ft("top"), .04, fu("top"));
     }
 
-    function drawIsoPolygonPrism(corners, height, color, isSelected, baseZ = 0, texture, uv = null) {
+    function drawIsoPolygonPrism(corners, height, color, isSelected, baseZ = 0, texture, uv = null, faceTextures = null, faceUV = null) {
       const bottom = corners.map(([x, y]) => project(x, y, baseZ));
       const top = corners.map(([x, y]) => project(x, y, baseZ + height));
       for (let index = 0; index < corners.length; index++) {
         const next = (index + 1) % corners.length;
         polygon([bottom[index], bottom[next], top[next], top[index]], index % 2 ? "#3b3831" : "#4a4234",
-          isSelected ? "#d7f45a" : "#80735a", texture, index % 2 ? .42 : .3, uv);
+          isSelected ? "#d7f45a" : "#80735a", faceTextures?.[`side:${index}`]||texture, index % 2 ? .42 : .3, faceUV?.[`side:${index}`]||uv);
       }
-      polygon(top, isSelected ? "#a8b55d" : color, isSelected ? "#d7f45a" : "#a3987c", texture, .04, uv);
+      polygon(top, isSelected ? "#a8b55d" : color, isSelected ? "#d7f45a" : "#a3987c", faceTextures?.top||texture, .04, faceUV?.top||uv);
     }
 
     function polygon(points, fill, stroke, texture, shade = 0, uv = null) {
@@ -3283,6 +3303,7 @@
     $("#selectionFields").classList.toggle("hidden", !entries.length);
     $("#multiSelectionSummary").classList.toggle("hidden", !multiple);
     if (entries.length) updatePrecisionInspector(entries);
+    $("#openBrushStudioSelection").disabled = !brushStudioEntries().length;
     if (multiple) {
       const grouped = entries.every((entry) => entry.item.groupId && entry.item.groupId === entries[0].item.groupId);
       $("#selectionType").value = `${entries.length} selected objects`;
@@ -3467,17 +3488,36 @@
       $("#roomHeight").min = isFloor ? -8 : isRoom ? 2 : .25;
       $("#roomHeight").step = isRoom ? 1 : .25;
       $("#roomHeight").max = isFloor ? 16 : 12;
-      if (!isRoom) surfaceTarget = "object";
+      if (!isRoom && !isProp) surfaceTarget = "object";
       const surfaceSelect = $("#surfaceTargetSelect");
-      [...surfaceSelect.querySelectorAll("option[data-edge]")].forEach((option) => option.remove());
+      [...surfaceSelect.querySelectorAll("option[data-edge],option[data-brush-face]")].forEach((option) => option.remove());
       if (isRoom) roomPlanPoints(item).forEach((_, index) => {
         const option = document.createElement("option"); option.value = `edge:${index}`; option.dataset.edge = "true";
         option.textContent = `Wall face ${index + 1}`; surfaceSelect.append(option);
       });
+      if (isProp) {
+        [["top","Top face"],["bottom","Bottom face"]].forEach(([value,label]) => {
+          const option=document.createElement("option");option.value=value;option.dataset.brushFace="true";option.textContent=label;surfaceSelect.append(option);
+        });
+        if(item.points?.length)item.points.forEach((_,index)=>{
+          const option=document.createElement("option");option.value=`side:${index}`;option.dataset.brushFace="true";option.textContent=`Side face ${index+1}`;surfaceSelect.append(option);
+        });
+      }
       if (isRoom && surfaceTarget.startsWith("edge:") && Number(surfaceTarget.split(":")[1]) >= roomPlanPoints(item).length) surfaceTarget = "object";
+      if (isProp && surfaceTarget.startsWith("side:") && Number(surfaceTarget.split(":")[1]) >= (item.points?.length||0)) surfaceTarget = "object";
+      if (isRoom && (["top","bottom"].includes(surfaceTarget)||surfaceTarget.startsWith("side:"))) surfaceTarget="object";
+      if (isProp && (["floor","ceiling"].includes(surfaceTarget)||surfaceTarget.startsWith("edge:"))) surfaceTarget="object";
       $("#surfaceTargetSelect").value = surfaceTarget;
-      $("#surfaceTargetSelect").disabled = !isRoom;
-      [...$("#surfaceTargetSelect").options].forEach((option) => { if (option.value !== "object") option.hidden = !isRoom; });
+      $("#surfaceTargetSelect").disabled = !(isRoom||isProp);
+      [...$("#surfaceTargetSelect").options].forEach((option) => {
+        if(option.value==="object")option.hidden=false;
+        else if(["floor","ceiling"].includes(option.value))option.hidden=!isRoom;
+        else if(["north","east","south","west"].includes(option.value))option.hidden=!(isRoom||(isProp&&!item.points?.length));
+      });
+      ["north","east","south","west"].forEach((face)=>{
+        const option=[...surfaceSelect.options].find((candidate)=>candidate.value===face);
+        if(option)option.textContent=`${face[0].toUpperCase()+face.slice(1)} ${isProp?"face":"wall"}`;
+      });
       const texture = surfaceTextureFor(item, selected.type);
       if (!isZone) {
         $("#materialSelect").value = texture;
@@ -4142,6 +4182,12 @@
       if(overlap>.13)add("error","Building levels overlap",`${a.label||"Room"} and ${b.label||"Room"} occupy the same horizontal and vertical space by ${Math.round(overlap*GRID)} units.`,{type:"room",id:b.id});
     }
     state.props.forEach((prop)=>{if(prop.points?.length){const error=polygonValidation(prop.points);if(error)add("error","Invalid structure polygon",error,{type:"prop",id:prop.id});}if(!(["platformPolygon","floorPolygon","wallPolygon","cylinder"].includes(prop.kind)?polygonIsInsideSpace(prop.points||[]):rectIsInsideSpace(prop)))add("error","Structure outside buildable space",`${prop.kind} is not fully supported by a room or map ground.`,{type:"prop",id:prop.id});const propLevel=itemLevel("prop",prop),host=state.rooms.find((room)=>Math.abs(roomFloor(room)-propLevel)<.13&&pointInRoom(prop.x+(prop.w||1)/2,prop.y+(prop.d||1)/2,room)),vb=verticalBounds({type:"prop"},prop);if(host&&vb?.top>roomFloor(host)+host.height+.01)add("error","Structure crosses the ceiling",`Top is ${Math.round((vb.top-roomFloor(host))*GRID)} units above this floor, beyond the room ceiling.`,{type:"prop",id:prop.id});if(prop.kind==="stairs"&&prop.height*GRID/Math.max(1,prop.steps||1)>18)add("warning","Stair risers are too tall","Keep individual risers at or below 18 GoldSrc units.",{type:"prop",id:prop.id});if(["ramp","wedge"].includes(prop.kind)&&prop.height/Math.max(.01,structureRun(prop))>1)add("warning","Ramp is steeper than 45°","Reduce its rise or lengthen the run.",{type:"prop",id:prop.id});});
+    [...state.rooms.map((item)=>({type:"room",item})),...state.props.map((item)=>({type:"prop",item}))].forEach(({type,item})=>{
+      const bounds=itemBoundsForRef({type,id:item.id});
+      if(bounds&&Math.min(bounds.w,bounds.d)*GRID<8)add("error","Brush is too thin","GoldSrc brush footprints must remain at least 8 units thick.",{type,id:item.id});
+      if(item.points?.length>16)add("error","Brush has too many corners",`${item.points.length} corners exceed Blockout's 16-corner compile-safe limit.`,{type,id:item.id});
+      if(type==="room"&&((Number(item.wallThickness)||.25)*GRID<8||(Number(item.wallThickness)||.25)*GRID>64))add("warning","Unusual room wall thickness","Keep room shell thickness between 8 and 64 units.",{type,id:item.id});
+    });
     state.props.filter((prop)=>prop.kind==="floorHole").forEach((prop)=>{const host=state.rooms.find((room)=>room.id===prop.hostRoomId),level=Number(prop.floorLevel)||0,cx=prop.x+prop.w/2,cy=prop.y+prop.d/2,lowerRooms=state.rooms.filter((room)=>room.id!==prop.hostRoomId&&roomFloor(room)<level-.1&&pointInRoom(cx,cy,room)).sort((a,b)=>roomFloor(b)-roomFloor(a)),lower=lowerRooms[0];if(!host||host.points?.length)add("error","Unsupported floor opening","Floor openings require one rectangular host room.",{type:"prop",id:prop.id});if(!lower&&!(environmentFor().groundEnabled&&environmentFor().groundElevation<level-.1))add("error","Floor opening has no lower landing","Add a lower room or terrain below this opening to avoid a void leak.",{type:"prop",id:prop.id});if(lower&&lower.points?.length)add("error","Unsupported lower shaft ceiling","The room below a floor opening must be rectangular so its ceiling can be cut safely.",{type:"room",id:lower.id});if(lower&&Math.abs(roomFloor(lower)+(lower.height||4)-level)>.13)add("error","Floor opening crosses a sealed gap",`${lower.label||"Lower room"}'s ceiling does not meet this floor. Align the levels or add a connecting shaft room.`,{type:"prop",id:prop.id});if(Math.min(prop.w,prop.d)<.5)add("error","Floor opening is too small","Use an opening at least 32 units wide.",{type:"prop",id:prop.id});else if(Math.min(prop.w,prop.d)<1)add("warning","Tight floor opening","A 64-unit opening is safer for players and ladders.",{type:"prop",id:prop.id});});
     state.props.filter((prop)=>["stairs","stairPrefab","ramp","ladder"].includes(prop.kind)).forEach((prop)=>{
       const destination=connectorDestination(prop),topLevel=destination.level,topPoint=destination.point,upperRoom=destination.room;
@@ -4328,6 +4374,7 @@
     drawPreview();
     if($("#elevationDialog")?.open)drawElevationEditor();
     if($("#productionDialog")?.open)renderProduction();
+    if($("#brushStudioDialog")?.open)syncBrushStudio();
   }
 
   function fitView() {
@@ -4963,7 +5010,7 @@
   }
 
   function polygonEditWouldOrphan(item, type) {
-    if (type === "prop") return !polygonIsInsideSpace(item.points || []);
+    if (type === "prop") return item.points?.length ? !polygonIsInsideSpace(item.points) : !rectIsInsideSpace(item);
     return state.entities.some((entity) => !isPointInSpace(entity.x + .5,entity.y + .5))
       || state.props.some((prop) => ["platformPolygon","floorPolygon","wallPolygon"].includes(prop.kind) ? !polygonIsInsideSpace(prop.points || []) : !rectIsInsideSpace(prop))
       || state.zones.some((zone) => !rectIsInsideSpace(zone));
@@ -5010,6 +5057,205 @@
     const distance=Math.max(.25,snapStep())*direction;
     const points=item.points.map((point)=>{const dx=center[0]-point[0],dy=center[1]-point[1],length=Math.max(.001,Math.hypot(dx,dy));return [point[0]+dx/length*distance,point[1]+dy/length*distance];});
     applySafePolygonEdit(points,direction>0?"Polygon inset safely":"Polygon outset safely");
+  }
+
+  function brushStudioEntries() {
+    const propKinds=new Set(["crate","wall","wallPolygon","platform","platformPolygon","floor","floorPolygon","cylinder","arch","breakable"]);
+    return selectedEntries().filter(({ref,item})=>ref.type==="room"||(ref.type==="prop"&&propKinds.has(item.kind)));
+  }
+
+  function brushPresetPoints(item,preset) {
+    const x=Number(item.x)||0,y=Number(item.y)||0,w=Math.max(.5,Number(item.w)||1),d=Math.max(.5,Number(item.d)||1),cut=Math.min(w,d)*.22;
+    if(preset==="rectangle")return [[x,y],[x+w,y],[x+w,y+d],[x,y+d]];
+    if(preset==="triangle")return [[x+w/2,y],[x+w,y+d],[x,y+d]];
+    if(preset==="trapezoid")return [[x+cut,y],[x+w-cut,y],[x+w,y+d],[x,y+d]];
+    if(preset==="hexagon")return [[x+cut,y],[x+w-cut,y],[x+w,y+d/2],[x+w-cut,y+d],[x+cut,y+d],[x,y+d/2]];
+    if(preset==="octagon")return octagonPoints(x,y,w,d,cut);
+    if(preset==="round12")return Array.from({length:12},(_,index)=>{
+      const angle=-Math.PI/2+index*Math.PI/6;
+      return [x+w/2+Math.cos(angle)*w/2,y+d/2+Math.sin(angle)*d/2];
+    });
+    return [[x,y],[x+w,y],[x+w,y+d],[x,y+d]];
+  }
+
+  function convertBrushKind(item,type,polygon) {
+    if(type==="room"){item.kind=item.kind==="corridor"?"corridor":"room";return;}
+    if(!polygon){
+      if(["wallPolygon","cylinder"].includes(item.kind))item.kind="wall";
+      if(item.kind==="platformPolygon")item.kind="platform";
+      if(item.kind==="floorPolygon")item.kind="floor";
+      return;
+    }
+    if(["floor","floorPolygon"].includes(item.kind))item.kind="floorPolygon";
+    else if(["platform","platformPolygon"].includes(item.kind))item.kind="platformPolygon";
+    else item.kind="wallPolygon";
+  }
+
+  function clearRemappedBrushFaces(item,type) {
+    if(type==="room"){item.edgeTextures={};item.edgeUV={};}
+    else {
+      const keptTextures={},keptUv={};
+      ["top","bottom"].forEach((face)=>{if(item.faceTextures?.[face])keptTextures[face]=item.faceTextures[face];if(item.faceUV?.[face])keptUv[face]=item.faceUV[face];});
+      item.faceTextures=keptTextures;item.faceUV=keptUv;
+    }
+  }
+
+  function applyBrushPreset() {
+    const entries=brushStudioEntries();
+    if(entries.length!==1)return showToast("Select one room or brush for a shape preset");
+    const entry=entries[0],item=entry.item;
+    if(isItemLocked(item))return showToast("Unlock the brush or its layer first");
+    const preset=$("#brushPreset").value,before=snapshot(),points=brushPresetPoints(item,preset);
+    if(preset==="rectangle"){delete item.points;delete item.planPoints;convertBrushKind(item,entry.ref.type,false);}
+    else {item.points=points;delete item.planPoints;convertBrushKind(item,entry.ref.type,true);updatePolygonBounds(item);}
+    clearRemappedBrushFaces(item,entry.ref.type);
+    const error=preset==="rectangle"?"":polygonValidation(item.points);
+    if(error||polygonEditWouldOrphan(item,entry.ref.type)){state=JSON.parse(before);environmentFor(state);refresh();return showToast(error||"That shape would leave existing geometry outside its floor");}
+    commit(before);syncBrushStudio();showToast(`${$("#brushPreset").selectedOptions[0].textContent} brush applied`);
+  }
+
+  function bevelSelectedBrush() {
+    const entries=brushStudioEntries();
+    if(entries.length!==1)return showToast("Select one room or brush to bevel");
+    const {ref,item}=entries[0];
+    if(isItemLocked(item))return showToast("Unlock the brush or its layer first");
+    const source=(item.points?.length?item.points:brushPresetPoints(item,"rectangle")).map((point)=>[...point]);
+    if(source.length*2>16)return showToast("This bevel would exceed the 16-corner safety limit");
+    const amount=Math.max(.375,Math.min(2,Number($("#brushBevelAmount").value)/GRID||.5)),points=[];
+    source.forEach((current,index)=>{
+      const previous=source[(index-1+source.length)%source.length],next=source[(index+1)%source.length];
+      const previousLength=Math.max(.001,Math.hypot(previous[0]-current[0],previous[1]-current[1])),nextLength=Math.max(.001,Math.hypot(next[0]-current[0],next[1]-current[1]));
+      const firstDistance=Math.min(amount,previousLength*.4),secondDistance=Math.min(amount,nextLength*.4);
+      points.push([current[0]+(previous[0]-current[0])*firstDistance/previousLength,current[1]+(previous[1]-current[1])*firstDistance/previousLength]);
+      points.push([current[0]+(next[0]-current[0])*secondDistance/nextLength,current[1]+(next[1]-current[1])*secondDistance/nextLength]);
+    });
+    const before=snapshot();item.points=points;delete item.planPoints;convertBrushKind(item,ref.type,true);updatePolygonBounds(item);clearRemappedBrushFaces(item,ref.type);
+    const error=polygonValidation(item.points);
+    if(error||polygonEditWouldOrphan(item,ref.type)){state=JSON.parse(before);environmentFor(state);refresh();return showToast(error||"That bevel would orphan contained geometry");}
+    commit(before);syncBrushStudio();showToast(`${Math.round(amount*GRID)}-unit bevel applied`);
+  }
+
+  function splitSelectedBrush() {
+    const entries=brushStudioEntries();
+    if(entries.length!==1)return showToast("Select one rectangular room or brush to split");
+    const {ref,item}=entries[0];
+    if(item.points?.length)return showToast("Split currently needs a rectangular brush; use Edit corners for polygons");
+    if(isItemLocked(item))return showToast("Unlock the brush or its layer first");
+    const axis=$("#brushSplitAxis").value,ratio=Math.max(.1,Math.min(.9,(Number($("#brushSplitRatio").value)||50)/100));
+    const key=axis==="x"?"w":"d",position=axis==="x"?"x":"y",total=Number(item[key])||1,first=Math.max(.25,baseSnap(total*ratio,.25)),second=total-first;
+    if(second<.25)return showToast("The cut would create a brush thinner than 16 units");
+    const before=snapshot(),clone=structuredClone(item),groupId=crypto.randomUUID();
+    clone.id=crypto.randomUUID();clone[position]=(Number(item[position])||0)+first;clone[key]=second;clone.groupId=groupId;
+    item[key]=first;item.groupId=groupId;
+    itemListFor(ref.type).push(clone);
+    if(ref.type==="room"){
+      [...state.doors,...state.windows].filter((opening)=>opening.edgeRoomId===item.id).forEach((opening)=>{
+        const adjacent=adjacentRoomsForOpening(opening);if(!adjacent.some((room)=>room.id===item.id)&&adjacent.some((room)=>room.id===clone.id))opening.edgeRoomId=clone.id;
+      });
+      smartConnectRoom(clone);
+    }
+    selection=[{...ref},{type:ref.type,id:clone.id}];selected=selection[0];
+    commit(before);syncBrushStudio();showToast(`Brush split into ${Math.round(first*GRID)} and ${Math.round(second*GRID)} units`);
+  }
+
+  function extrudeBrushSide() {
+    const entries=brushStudioEntries();
+    if(entries.length!==1)return showToast("Select one room or brush to extrude");
+    const {ref,item}=entries[0];
+    if(isItemLocked(item))return showToast("Unlock the brush or its layer first");
+    const side=$("#brushExtrudeSide").value,amount=Math.max(.125,Math.min(8,Math.abs(Number($("#brushExtrudeAmount").value)||64)/GRID)),before=snapshot();
+    if(item.points?.length){
+      const values=item.points.map((point)=>["east","west"].includes(side)?point[0]:point[1]),extreme=["north","west"].includes(side)?Math.min(...values):Math.max(...values);
+      item.points=item.points.map(([x,y])=>{
+        if(["east","west"].includes(side)&&Math.abs(x-extreme)<.01)x+=side==="east"?amount:-amount;
+        if(["north","south"].includes(side)&&Math.abs(y-extreme)<.01)y+=side==="south"?amount:-amount;
+        return [x,y];
+      });
+      updatePolygonBounds(item);
+    }else{
+      if(side==="north"){item.y-=amount;item.d+=amount;}
+      if(side==="south")item.d+=amount;
+      if(side==="west"){item.x-=amount;item.w+=amount;}
+      if(side==="east")item.w+=amount;
+    }
+    const error=item.points?.length?polygonValidation(item.points):"";
+    if(error||polygonEditWouldOrphan(item,ref.type)){state=JSON.parse(before);environmentFor(state);refresh();return showToast(error||"That extrusion would orphan contained geometry");}
+    commit(before);syncBrushStudio();showToast(`${Math.round(amount*GRID)} units extruded ${side}`);
+  }
+
+  function mirrorBrushSelection(axis) {
+    const entries=selectedEntries().filter(({item})=>!isItemLocked(item));
+    if(!entries.length)return showToast("Select unlocked objects to mirror");
+    const bounds=selectionBounds(entries),pivot=[bounds.x+bounds.w/2,bounds.y+bounds.d/2],rotation=axis==="y"?180:0,before=snapshot();
+    entries.forEach(({ref,item})=>{
+      if(["room","prop","zone"].includes(ref.type))Object.assign(item,transformPrefabRect(item,pivot,pivot,rotation,true));
+      else if(ref.type==="entity"){const point=transformPrefabPoint([item.x,item.y],pivot,pivot,rotation,true);item.x=point[0];item.y=point[1];}
+      ["points","planPoints","segment","edge"].forEach((key)=>{if(item[key]?.length)item[key]=item[key].map((point)=>transformPrefabPoint(point,pivot,pivot,rotation,true));});
+      if(["door","window"].includes(ref.type))syncOpeningLegacy(item);
+      if(item.direction)item.direction=transformPrefabDirection(item.direction,rotation,true);
+      if(Number.isFinite(Number(item.angle)))item.angle=((Number(item.angle)+(180-2*Number(item.angle))+rotation)%360+360)%360;
+      if(item.points?.length)updatePolygonBounds(item);
+    });
+    commit(before);syncBrushStudio();showToast(`Selection mirrored on ${axis.toUpperCase()}`);
+  }
+
+  function createBrushArray() {
+    const prefab=captureSelectedPrefab();
+    if(!prefab)return;
+    if(selectedEntries().some(({item})=>isItemLocked(item)))return showToast("Unlock the complete selection before creating an array");
+    const copies=Math.max(1,Math.min(32,Math.round(Number($("#brushArrayCopies").value)||1))),dx=(Number($("#brushArrayX").value)||0)/GRID,dy=(Number($("#brushArrayY").value)||0)/GRID;
+    if(Math.abs(dx)<.001&&Math.abs(dy)<.001)return showToast("Set X or Y spacing for the array");
+    const before=snapshot(),pivot=customPrefabPivotPoint(prefab),created=[],oldRotation=customPrefabRotation,oldMirrored=customPrefabMirrored;
+    customPrefabRotation=0;customPrefabMirrored=false;
+    for(let copyIndex=1;copyIndex<=copies;copyIndex++){
+      const idMap=new Map(prefab.items.map((entry)=>[entry.item.id,crypto.randomUUID()])),groupMap=new Map(),targetMap=new Map();
+      prefab.items.forEach(({type,item})=>{
+        if(item.groupId&&!groupMap.has(item.groupId))groupMap.set(item.groupId,crypto.randomUUID());
+        if(item.targetName&&!targetMap.has(item.targetName))targetMap.set(item.targetName,`${item.targetName}_${crypto.randomUUID().slice(0,5)}`);
+        if(type==="entity"&&["teleDest","light","spotlight"].includes(item.kind)&&item.target&&!targetMap.has(item.target))targetMap.set(item.target,`${item.target}_${crypto.randomUUID().slice(0,5)}`);
+      });
+      const target=[pivot[0]+dx*copyIndex,pivot[1]+dy*copyIndex];
+      prefab.items.map((entry)=>transformCustomPrefabItem(entry,prefab,pivot,target,prefab.bounds.base,idMap,groupMap,targetMap)).forEach((entry)=>{itemListFor(entry.type).push(entry.item);created.push({type:entry.type,id:entry.item.id});});
+    }
+    customPrefabRotation=oldRotation;customPrefabMirrored=oldMirrored;
+    selection=[...selection,...created];selected=selection[0]||null;
+    commit(before);syncBrushStudio();showToast(`${copies} array cop${copies===1?"y":"ies"} created as editable geometry`);
+  }
+
+  function applyBrushWallThickness() {
+    const entries=brushStudioEntries();
+    if(entries.length!==1||entries[0].ref.type!=="room")return showToast("Select one room to set wall thickness");
+    const room=entries[0].item;if(isItemLocked(room))return showToast("Unlock the room or its layer first");
+    const before=snapshot(),units=Math.max(8,Math.min(64,Number($("#brushWallThickness").value)||16));room.wallThickness=units/GRID;
+    commit(before);syncBrushStudio();showToast(`Room shell thickness set to ${units} units`);
+  }
+
+  function syncBrushStudio() {
+    if(!$("#brushStudioDialog")?.open)return;
+    const entries=brushStudioEntries(),single=entries.length===1?entries[0]:null,locked=entries.some(({item})=>isItemLocked(item));
+    $("#brushStudioSummary").textContent=entries.length?`${entries.length} selected brush${entries.length===1?"":"es"} · ${Math.round((selectionBounds(entries)?.w||0)*GRID)} × ${Math.round((selectionBounds(entries)?.d||0)*GRID)} units${locked?" · includes locked geometry":""}`:"Select a room, wall, platform, floor, crate, or brush group in the plan.";
+    ["applyBrushPreset","bevelBrush","splitBrush","extrudeBrush"].forEach((id)=>{$(`#${id}`).disabled=!single||locked;});
+    $("#applyWallThickness").disabled=!single||single.ref.type!=="room"||locked;
+    $("#editBrushCorners").disabled=!single||locked;
+    $("#mirrorBrushX").disabled=$("#mirrorBrushY").disabled=$("#createBrushArray").disabled=!entries.length||locked;
+    if(single?.ref.type==="room")$("#brushWallThickness").value=Math.round((Number(single.item.wallThickness)||.25)*GRID);
+    const reports=[],errors=[];
+    entries.forEach(({ref,item})=>{
+      const points=item.points?.length?item.points:null;
+      if(points){
+        const error=polygonValidation(points);if(error)errors.push(error);
+        reports.push(`${item.label||item.kind||ref.type}: ${points.length} convex faces`);
+        if(points.length>16)errors.push("More than 16 plan corners");
+      }else reports.push(`${item.label||item.kind||ref.type}: rectangular brush`);
+      const bounds=itemBoundsForRef(ref);if(bounds&&(bounds.w*GRID<8||bounds.d*GRID<8))errors.push("Brush is thinner than 8 units");
+    });
+    $("#brushSafetyBadge").textContent=errors.length?"CHECK":"READY";
+    $("#brushSafetyBadge").classList.toggle("warning",!!errors.length);
+    $("#brushSafetyReport").textContent=errors.length?[...new Set(errors)].join(" · "):reports.length?`${reports.join(" · ")}. Every operation creates one Undo step and exports as convex GoldSrc brushes.`:"No brush selected.";
+  }
+
+  function openBrushStudio() {
+    $("#brushStudioDialog").showModal();syncBrushStudio();
   }
 
   function deleteSelected() {
@@ -5060,36 +5306,38 @@
     return `${texture} ${Math.round(value.shiftX)} ${Math.round(value.shiftY)} ${Math.round(value.rotation)} ${value.scaleX} ${value.scaleY}`;
   }
 
-  function boxBrush(x1, y1, z1, x2, y2, z2, texture = "C1A0_LABW3", uv = null) {
-    const f = (a, b, c) => `( ${a.join(" ")} ) ( ${b.join(" ")} ) ( ${c.join(" ")} ) ${textureFace(texture,uv)}`;
+  function boxBrush(x1, y1, z1, x2, y2, z2, texture = "C1A0_LABW3", uv = null, faceTextures = null, faceUV = null) {
+    const f = (a, b, c, face) => `( ${a.join(" ")} ) ( ${b.join(" ")} ) ( ${c.join(" ")} ) ${textureFace(faceTextures?.[face]||texture,faceUV?.[face]||uv)}`;
     return [
       "{",
-      f([x1,y1,z2],[x2,y2,z2],[x2,y1,z2]),
-      f([x2,y1,z1],[x1,y2,z1],[x1,y1,z1]),
-      f([x1,y1,z1],[x1,y2,z2],[x1,y1,z2]),
-      f([x2,y2,z1],[x2,y1,z2],[x2,y2,z2]),
-      f([x2,y1,z1],[x1,y1,z2],[x2,y1,z2]),
-      f([x1,y2,z1],[x2,y2,z2],[x1,y2,z2]),
+      f([x1,y1,z2],[x2,y2,z2],[x2,y1,z2],"top"),
+      f([x2,y1,z1],[x1,y2,z1],[x1,y1,z1],"bottom"),
+      f([x1,y1,z1],[x1,y2,z2],[x1,y1,z2],"west"),
+      f([x2,y2,z1],[x2,y1,z2],[x2,y2,z2],"east"),
+      f([x2,y1,z1],[x1,y1,z2],[x2,y1,z2],"north"),
+      f([x1,y2,z1],[x2,y2,z2],[x1,y2,z2],"south"),
       "}"
     ].join("\n");
   }
 
-  function polygonPrismBrush(corners, z1, z2, texture = "C1A0_LABW3", uv = null) {
+  function polygonPrismBrush(corners, z1, z2, texture = "C1A0_LABW3", uv = null, faceTextures = null, faceUV = null) {
     let rounded = corners.map(([x, y]) => [Math.round(x), Math.round(y)]);
     const signedArea = rounded.reduce((sum, point, index) => {
       const next = rounded[(index + 1) % rounded.length];
       return sum + point[0] * next[1] - next[0] * point[1];
     }, 0);
-    if (signedArea > 0) rounded = [...rounded].reverse();
-    const f = (a, b, c) => `( ${a.join(" ")} ) ( ${b.join(" ")} ) ( ${c.join(" ")} ) ${textureFace(texture,uv)}`;
+    const reversed=signedArea>0;
+    if (reversed) rounded = [...rounded].reverse();
+    const f = (a, b, c, face) => `( ${a.join(" ")} ) ( ${b.join(" ")} ) ( ${c.join(" ")} ) ${textureFace(faceTextures?.[face]||texture,faceUV?.[face]||uv)}`;
     const top = rounded.map(([x, y]) => [x, y, Math.round(z2)]);
     const bottom = rounded.map(([x, y]) => [x, y, Math.round(z1)]);
     // diagonalCorners is clockwise. GoldSrc expects the top plane clockwise,
     // the bottom plane reversed, and each side to follow its clockwise edge.
-    const faces = [f(top[0], top[1], top[2]), f(bottom[0], bottom[2], bottom[1])];
+    const faces = [f(top[0], top[1], top[2],"top"), f(bottom[0], bottom[2], bottom[1],"bottom")];
     for (let index = 0; index < rounded.length; index++) {
       const next = (index + 1) % rounded.length;
-      faces.push(f(bottom[index], top[next], top[index]));
+      const sourceIndex=reversed?(rounded.length-2-index+rounded.length)%rounded.length:index;
+      faces.push(f(bottom[index], top[next], top[index],`side:${sourceIndex}`));
     }
     return ["{", ...faces, "}"].join("\n");
   }
@@ -5205,26 +5453,26 @@
     if (["water","breakable","elevator","rotatingDoor","train","floorHole"].includes(prop.kind)) return [];
     if (prop.kind === "diagonal") {
       const corners = diagonalCorners(prop).map(([x, y]) => [x * GRID, y * GRID]);
-      return [polygonPrismBrush(corners, floorZ, floorZ + totalHeight, texture, uv)];
+      return [polygonPrismBrush(corners, floorZ, floorZ + totalHeight, texture, uv, prop.faceTextures, prop.faceUV)];
     }
     if (["wallPolygon","cylinder"].includes(prop.kind)) {
       const corners = (prop.points || []).map(([x, y]) => [x * GRID, y * GRID]);
-      return [polygonPrismBrush(corners, floorZ, floorZ + totalHeight, texture, uv)];
+      return [polygonPrismBrush(corners, floorZ, floorZ + totalHeight, texture, uv, prop.faceTextures, prop.faceUV)];
     }
     if (prop.kind === "platformPolygon") {
       const corners = (prop.points || []).map(([x, y]) => [x * GRID, y * GRID]);
-      return [polygonPrismBrush(corners, floorZ, floorZ + totalHeight, texture, uv)];
+      return [polygonPrismBrush(corners, floorZ, floorZ + totalHeight, texture, uv, prop.faceTextures, prop.faceUV)];
     }
     if (["floor", "floorPolygon"].includes(prop.kind)) {
       const top = Math.round((Number(prop.elevation) || 0) * GRID);
       const bottom = top - Math.max(8, Math.round((Number(prop.thickness) || .25) * GRID));
       if (prop.kind === "floorPolygon") {
         const corners = (prop.points || []).map(([x, y]) => [x * GRID, y * GRID]);
-        return [polygonPrismBrush(corners, bottom, top, texture, uv)];
+        return [polygonPrismBrush(corners, bottom, top, texture, uv, prop.faceTextures, prop.faceUV)];
       }
-      return [boxBrush(x1, y1, bottom, x2, y2, top, texture, uv)];
+      return [boxBrush(x1, y1, bottom, x2, y2, top, texture, uv, prop.faceTextures, prop.faceUV)];
     }
-    if (["crate","wall","platform","arch"].includes(prop.kind)) return [boxBrush(x1, y1, floorZ, x2, y2, floorZ + totalHeight, texture, uv)];
+    if (["crate","wall","platform","arch"].includes(prop.kind)) return [boxBrush(x1, y1, floorZ, x2, y2, floorZ + totalHeight, texture, uv, prop.faceTextures, prop.faceUV)];
 
     const alongX = prop.direction === "e" || prop.direction === "w";
     const segments = ["ramp","wedge","slopeRoof"].includes(prop.kind) ? Math.max(4, Math.round((alongX ? prop.w : prop.d) * 4)) : Math.max(1, Math.round(prop.steps || recommendedStairSteps(prop)));
@@ -5235,11 +5483,11 @@
       if (alongX) {
         const start = Math.round(x1 + (x2 - x1) * i / segments);
         const end = Math.round(x1 + (x2 - x1) * (i + 1) / segments);
-        output.push(boxBrush(start, y1, floorZ, end, y2, floorZ + height, texture, uv));
+        output.push(boxBrush(start, y1, floorZ, end, y2, floorZ + height, texture, uv, prop.faceTextures, prop.faceUV));
       } else {
         const start = Math.round(y1 + (y2 - y1) * i / segments);
         const end = Math.round(y1 + (y2 - y1) * (i + 1) / segments);
-        output.push(boxBrush(x1, start, floorZ, x2, end, floorZ + height, texture, uv));
+        output.push(boxBrush(x1, start, floorZ, x2, end, floorZ + height, texture, uv, prop.faceTextures, prop.faceUV));
       }
     }
     return output;
@@ -5282,21 +5530,22 @@
     state.rooms.forEach((room) => {
       const floorZ = Math.round(roomFloor(room) * GRID);
       const ceiling = floorZ + room.height * GRID;
+      const roomWall=Math.max(8,Math.min(64,Math.round((Number(room.wallThickness)||.25)*GRID)));
       const floorTexture = room.floorTexture || "CSTRIKE_FP2DARK";
       const ceilingTexture = room.ceilingMode === "sky" ? "SKY" : (room.ceilingTexture || "C1A0_LABW3");
       const floorUv=resolvedSurfaceUv(room,"room","floor"),ceilingUv=resolvedSurfaceUv(room,"room","ceiling");
       if (room.points?.length >= 3) {
         const corners = room.points.map(([x, y]) => [x * GRID, y * GRID]);
-        const shellCorners = overlapPolygon(corners, wall * 1.5);
-        if (!environment.groundEnabled || floorZ !== terrainZ) brushes.push(polygonPrismBrush(shellCorners, floorZ - wall, floorZ, floorTexture,floorUv));
-        brushes.push(polygonPrismBrush(shellCorners, ceiling, ceiling + wall, ceilingTexture,ceilingUv));
-        brushes.push(...buildPolygonRoomWalls(room, wall));
+        const shellCorners = overlapPolygon(corners, roomWall * 1.5);
+        if (!environment.groundEnabled || floorZ !== terrainZ) brushes.push(polygonPrismBrush(shellCorners, floorZ - roomWall, floorZ, floorTexture,floorUv));
+        brushes.push(polygonPrismBrush(shellCorners, ceiling, ceiling + roomWall, ceilingTexture,ceilingUv));
+        brushes.push(...buildPolygonRoomWalls(room, roomWall));
       } else {
         const x1 = room.x * GRID, y1 = room.y * GRID;
         const x2 = (room.x + room.w) * GRID, y2 = (room.y + room.d) * GRID;
-        if (!environment.groundEnabled || floorZ !== terrainZ) brushes.push(...buildRoomFloorBrushes(room,wall,floorZ,floorTexture,floorUv));
-        brushes.push(...buildRoomCeilingBrushes(room,wall,ceiling,ceilingTexture,ceilingUv));
-        brushes.push(...buildRoomWalls(room, wall));
+        if (!environment.groundEnabled || floorZ !== terrainZ) brushes.push(...buildRoomFloorBrushes(room,roomWall,floorZ,floorTexture,floorUv));
+        brushes.push(...buildRoomCeilingBrushes(room,roomWall,ceiling,ceilingTexture,ceilingUv));
+        brushes.push(...buildRoomWalls(room, roomWall));
       }
     });
     if (terrainBounds) {
@@ -5392,7 +5641,7 @@
       const x1=prop.x*GRID,y1=prop.y*GRID,x2=(prop.x+prop.w)*GRID,y2=(prop.y+prop.d)*GRID,floorZ=Math.round((Number(prop.floorLevel)||0)*GRID),top=floorZ+Math.round((prop.height||1)*GRID);
       if(prop.kind==="water")return ["{",'"classname" "func_water"','"renderamt" "120"','"rendermode" "2"',boxBrush(x1,y1,floorZ,x2,y2,top,"!WATERBLUE"),"}"].join("\n");
       if(prop.kind==="breakable")return ["{",'"classname" "func_breakable"',`"health" "${prop.health||40}"`,'"material" "1"',boxBrush(x1,y1,floorZ,x2,y2,top,prop.texture||"BCRATE02",resolvedSurfaceUv(prop,"prop","object")),"}"].join("\n");
-      const brush=boxBrush(x1,y1,floorZ,x2,y2,top,prop.texture||"CSTRIKE_ME4METL",resolvedSurfaceUv(prop,"prop","object"));
+      const brush=boxBrush(x1,y1,floorZ,x2,y2,top,prop.texture||"CSTRIKE_ME4METL",resolvedSurfaceUv(prop,"prop","object"),prop.faceTextures,prop.faceUV);
       if(prop.kind==="elevator")return ["{",'"classname" "func_plat"',`"targetname" "${prop.targetName||"elevator_1"}"`,`"speed" "${prop.speed||120}"`,`"height" "${Math.round((prop.travel||2)*GRID)}"`,brush,"}"].join("\n");
       if(prop.kind==="rotatingDoor")return ["{",'"classname" "func_door_rotating"',`"targetname" "${prop.targetName||"rot_door_1"}"`,`"speed" "${prop.speed||100}"`,`"wait" "${prop.wait??3}"`,`"distance" "${prop.angle||90}"`,brush,"}"].join("\n");
       return ["{",'"classname" "func_train"',`"targetname" "${prop.targetName||"train_1"}"`,`"target" "${prop.target||"path_1"}"`,`"speed" "${prop.speed||100}"`,brush,"}"].join("\n");
@@ -6175,6 +6424,18 @@
   $("#deleteButton").addEventListener("click", deleteSelected);
   $("#rotateLeftSelection").addEventListener("click", () => rotateSelected(false));
   $("#rotateRightSelection").addEventListener("click", () => rotateSelected(true));
+  $("#brushStudioButton").addEventListener("click",openBrushStudio);
+  $("#openBrushStudioSelection").addEventListener("click",openBrushStudio);
+  $("#closeBrushStudioDialog").addEventListener("click",()=>$("#brushStudioDialog").close());
+  $("#applyBrushPreset").addEventListener("click",applyBrushPreset);
+  $("#bevelBrush").addEventListener("click",bevelSelectedBrush);
+  $("#splitBrush").addEventListener("click",splitSelectedBrush);
+  $("#extrudeBrush").addEventListener("click",extrudeBrushSide);
+  $("#mirrorBrushX").addEventListener("click",()=>mirrorBrushSelection("x"));
+  $("#mirrorBrushY").addEventListener("click",()=>mirrorBrushSelection("y"));
+  $("#createBrushArray").addEventListener("click",createBrushArray);
+  $("#applyWallThickness").addEventListener("click",applyBrushWallThickness);
+  $("#editBrushCorners").addEventListener("click",()=>{$("#brushStudioDialog").close();toggleVertexEditing();});
   $("#saveSelectionPrefab").addEventListener("click",()=>openCustomPrefabStudio());
   $("#reverseSelection").addEventListener("click", reverseSelected);
   $("#editVerticesButton").addEventListener("click", toggleVertexEditing);

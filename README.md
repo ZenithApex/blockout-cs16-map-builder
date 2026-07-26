@@ -176,6 +176,16 @@ Select a room or structure in the plan to reveal four resize handles, a rotation
 
 The **Precision transform** panel accepts exact X, Y, Z, width, depth, and height values in GoldSrc units. Multi-selection exposes edge and center alignment, horizontal or vertical distribution, equal width/depth/size, and world-origin centering. Exact width or depth scales the complete selection as one layout, while equal-size commands match the primary selected object.
 
+## GoldSrc Brush Studio
+
+Select a room, wall, platform, floor, crate, or compatible brush and choose **Brush Studio**. Apply rectangle, triangle, trapezoid, hexagon, octagon, or 12-sided round presets; bevel corners; split rectangular brushes; or extrude one side by an exact GoldSrc-unit distance. Every result remains normal editable geometry and creates one Undo step.
+
+The Studio can mirror a complete selection or create up to 32 editable array copies with exact X/Y spacing. Rooms expose an 8–64 unit shell-thickness control; Blockout rooms are already hollow playable spaces, so this changes their compiled wall, floor, and roof thickness without constructing an overlapping inner solid.
+
+Brush Studio reports convexity, corner-count, minimum-thickness, and lock problems before export. Polygon brushes remain limited to 16 plan corners. Existing corner editing adds vertex clipping, edge extrusion, inset, and outset operations for more detailed manual work.
+
+For a selected structure, the material **Surface** menu now supports top, bottom, cardinal, or numbered polygon side faces. Face-specific textures and UV mapping appear in Orbit and are written to the corresponding MAP brush planes.
+
 ## Compile preflight
 
 Choose **Preflight** before building. Blockout checks for invalid or non-convex polygons, low player clearance, structures crossing ceilings or leaving playable space, unsafe stairs and ramps, invalid multi-level connections, disconnected openings, overlapping solids, unmatched teleporter targets, missing ambient WAV names, excessive entity counts, large coordinates, and invalid exported numbers. Click an issue to select its object on the plan.

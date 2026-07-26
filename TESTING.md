@@ -38,6 +38,10 @@ the archive and executable SHA-256 hashes before installation.
 - Multi-select three objects and test exact X/Y/Z and selection width/depth in the **Precision transform** panel.
 - Test left/center/right and top/middle/bottom alignment, horizontal/vertical distribution, equal size, and **To origin**.
 - In **Production > Outliner**, create and rename a layer, assign the selection, filter to it, then confirm hiding removes it from both plan and Orbit while locking prevents transforms.
+- Open **Brush Studio** on a wall and test every convex preset, bevel, rectangular split, and directional extrusion.
+- Mirror a multi-selection, then create a three-copy array and confirm every copy remains independently selectable and editable.
+- Change a room shell to 32 units, export MAP, and confirm its wall/floor/roof brush thickness changes without filling the playable room.
+- Apply different materials to a brush top and side face, then confirm both Orbit and exported MAP use the face-specific textures.
 - Place a stair, ramp, or ladder without a destination and confirm it receives a grouped landing or valid upper-floor opening.
 - Try Orbit and Walkthrough, including collisions and interactive doors.
 - Change wall, floor, ceiling, ground, and sky materials.

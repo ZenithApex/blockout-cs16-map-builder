@@ -33,6 +33,7 @@
           <button class="button secondary" id="elevationButton">Elevation</button>
           <button class="button secondary" id="preflightButton">Preflight</button>
           <button class="button secondary" id="productionButton">Production</button>
+          <button class="button secondary" id="brushStudioButton">Brush Studio</button>
           <button class="button secondary" id="analyzeButton">Analyze</button>
           <button class="button secondary" id="exportButton">Export .map</button>
           <button class="button primary build-button" id="buildButton"><span class="build-status-dot"></span>Build &amp; Test</button>
@@ -359,6 +360,7 @@
                 <button id="lockSelection" type="button" title="Lock or unlock selection">Lock</button>
                 <button id="hideSelection" type="button" title="Hide selection in the editor">Hide</button>
                 <button id="unhideAll" type="button" title="Show every hidden object">Show all</button>
+                <button id="openBrushStudioSelection" class="selection-brush-action" type="button" title="Open advanced GoldSrc-safe geometry tools">Brush Studio</button>
                 <button id="saveSelectionPrefab" class="selection-prefab-action" type="button" title="Save this selection as a reusable prefab">Save prefab</button>
               </div>
               <div class="light-fields hidden" id="lightFields">
@@ -830,6 +832,66 @@
           <button class="button primary" id="saveCustomPrefab" type="submit">Save to my library</button>
         </div>
       </form>
+    </dialog>
+
+    <dialog id="brushStudioDialog" class="brush-studio-dialog">
+      <div class="library-card brush-studio-card">
+        <div class="build-dialog-heading"><div><span class="welcome-badge">GOLDSRC BRUSH STUDIO</span><h2>Shape and repeat geometry</h2></div><button class="icon-button" id="closeBrushStudioDialog" type="button" aria-label="Close">×</button></div>
+        <p class="analysis-intro" id="brushStudioSummary">Select a room, wall, platform, floor, or group to begin.</p>
+        <div class="brush-studio-layout">
+          <section class="brush-studio-section">
+            <div class="brush-section-heading"><strong>Shape</strong><span>Single brush</span></div>
+            <label>Convex preset
+              <select id="brushPreset">
+                <option value="rectangle">Rectangle</option>
+                <option value="triangle">Triangle</option>
+                <option value="trapezoid">Trapezoid</option>
+                <option value="hexagon">Hexagon</option>
+                <option value="octagon">Octagon</option>
+                <option value="round12">12-sided round</option>
+              </select>
+            </label>
+            <button class="button primary" id="applyBrushPreset" type="button">Apply preset</button>
+            <div class="brush-inline">
+              <label>Bevel<input id="brushBevelAmount" type="number" min="24" max="128" step="8" value="32" /></label>
+              <button class="button secondary" id="bevelBrush" type="button">Bevel corners</button>
+            </div>
+            <div class="brush-inline">
+              <label>Wall thickness<input id="brushWallThickness" type="number" min="8" max="64" step="8" value="16" /></label>
+              <button class="button secondary" id="applyWallThickness" type="button">Apply</button>
+            </div>
+          </section>
+          <section class="brush-studio-section">
+            <div class="brush-section-heading"><strong>Cut and extrude</strong><span>Compile-safe</span></div>
+            <div class="brush-inline three">
+              <label>Axis<select id="brushSplitAxis"><option value="x">Vertical cut</option><option value="y">Horizontal cut</option></select></label>
+              <label>Position %<input id="brushSplitRatio" type="number" min="10" max="90" step="5" value="50" /></label>
+              <button class="button primary" id="splitBrush" type="button">Split</button>
+            </div>
+            <div class="brush-inline three">
+              <label>Side<select id="brushExtrudeSide"><option value="north">North</option><option value="east">East</option><option value="south">South</option><option value="west">West</option></select></label>
+              <label>Distance<input id="brushExtrudeAmount" type="number" min="8" max="512" step="8" value="64" /></label>
+              <button class="button secondary" id="extrudeBrush" type="button">Extrude</button>
+            </div>
+            <small class="brush-note">Split works on rectangular brushes. Polygon extrusion moves the outermost edge while preserving a convex outline.</small>
+          </section>
+          <section class="brush-studio-section">
+            <div class="brush-section-heading"><strong>Mirror and array</strong><span>Selection</span></div>
+            <div class="brush-button-grid"><button class="button secondary" id="mirrorBrushX" type="button">Mirror X</button><button class="button secondary" id="mirrorBrushY" type="button">Mirror Y</button></div>
+            <div class="brush-inline three">
+              <label>Copies<input id="brushArrayCopies" type="number" min="1" max="32" step="1" value="3" /></label>
+              <label>X spacing<input id="brushArrayX" type="number" min="-4096" max="4096" step="16" value="512" /></label>
+              <label>Y spacing<input id="brushArrayY" type="number" min="-4096" max="4096" step="16" value="0" /></label>
+            </div>
+            <button class="button primary" id="createBrushArray" type="button">Create editable array</button>
+          </section>
+          <section class="brush-studio-section brush-safety-section">
+            <div class="brush-section-heading"><strong>GoldSrc safety</strong><span id="brushSafetyBadge">READY</span></div>
+            <div class="brush-safety-report" id="brushSafetyReport">Select geometry to inspect its brush limits.</div>
+            <button class="button secondary" id="editBrushCorners" type="button">Edit corners on plan</button>
+          </section>
+        </div>
+      </div>
     </dialog>
 
     <dialog id="analysisDialog" class="analysis-dialog">
