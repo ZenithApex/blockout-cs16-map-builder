@@ -689,7 +689,7 @@
 
   function blueprintConnectNearbyRooms(rooms) {
     const connectors=[],occupied=(x,y)=>rooms.some((room)=>x>room.x+.01&&x<room.x+room.w-.01&&y>room.y+.01&&y<room.y+room.d-.01);
-    for(let left=0;left<rooms.length&&connectors.length<28;left+=1)for(let right=left+1;right<rooms.length&&connectors.length<28;right+=1){
+    for(let left=0;left<rooms.length&&connectors.length<64;left+=1)for(let right=left+1;right<rooms.length&&connectors.length<64;right+=1){
       const a=rooms[left],b=rooms[right];if(Math.abs((a.floorLevel||0)-(b.floorLevel||0))>.01)continue;
       const gapEast=b.x-(a.x+a.w),gapWest=a.x-(b.x+b.w),overlapY=Math.min(a.y+a.d,b.y+b.d)-Math.max(a.y,b.y);
       if(overlapY>=1&&((gapEast>.01&&gapEast<=2.1)||(gapWest>.01&&gapWest<=2.1))){
@@ -703,6 +703,64 @@
       }
     }
     return connectors.filter((connector,index)=>!connectors.slice(0,index).some((other)=>Math.abs(other.x-connector.x)<.05&&Math.abs(other.y-connector.y)<.05&&Math.abs(other.w-connector.w)<.05&&Math.abs(other.d-connector.d)<.05));
+  }
+
+  function fillBlueprintMaskHoles(source,width,height) {
+    const mask=new Uint8Array(source),visited=new Uint8Array(mask.length),queue=new Int32Array(mask.length),maximumHole=Math.max(4,Math.round(width*height*.08));
+    for(let seed=0;seed<mask.length;seed+=1){
+      if(mask[seed]||visited[seed])continue;
+      let head=0,tail=0,touchesEdge=false;const cells=[];visited[seed]=1;queue[tail++]=seed;
+      while(head<tail){
+        const index=queue[head++],x=index%width,y=Math.floor(index/width);cells.push(index);if(x===0||y===0||x===width-1||y===height-1)touchesEdge=true;
+        [[x-1,y],[x+1,y],[x,y-1],[x,y+1]].forEach(([nx,ny])=>{if(nx<0||ny<0||nx>=width||ny>=height)return;const next=ny*width+nx;if(!mask[next]&&!visited[next]){visited[next]=1;queue[tail++]=next;}});
+      }
+      if(!touchesEdge&&cells.length<=maximumHole)cells.forEach((index)=>{mask[index]=1;});
+    }
+    return mask;
+  }
+
+  function carveBlueprintConnectors(source,width,height,connectors) {
+    const mask=new Uint8Array(source);
+    connectors.forEach((connector)=>{
+      const startX=Math.max(0,Math.floor(connector.x)),endX=Math.min(width,Math.ceil(connector.x+connector.w)),startY=Math.max(0,Math.floor(connector.y)),endY=Math.min(height,Math.ceil(connector.y+connector.d));
+      for(let y=startY;y<endY;y+=1)for(let x=startX;x<endX;x+=1)mask[y*width+x]=1;
+    });
+    return mask;
+  }
+
+  function largestBlueprintComponent(source,width,height) {
+    const visited=new Uint8Array(source.length),queue=new Int32Array(source.length);let best=[],components=0;
+    for(let seed=0;seed<source.length;seed+=1){
+      if(!source[seed]||visited[seed])continue;components+=1;let head=0,tail=0;const cells=[];visited[seed]=1;queue[tail++]=seed;
+      while(head<tail){
+        const index=queue[head++],x=index%width,y=Math.floor(index/width);cells.push(index);
+        [[x-1,y],[x+1,y],[x,y-1],[x,y+1]].forEach(([nx,ny])=>{if(nx<0||ny<0||nx>=width||ny>=height)return;const next=ny*width+nx;if(source[next]&&!visited[next]){visited[next]=1;queue[tail++]=next;}});
+      }
+      if(cells.length>best.length)best=cells;
+    }
+    const mask=new Uint8Array(source.length);best.forEach((index)=>{mask[index]=1;});return {mask,area:best.length,components};
+  }
+
+  function blueprintBoundaryWalls(mask,width,height) {
+    const props=[],addWall=(x,y,w,d,index)=>props.push(prefabProp("wall",x,y,w,d,4,0,"BO_CONCRETE",{label:`TRACED WALL ${index}`,blueprintWall:true}));
+    let wallIndex=1;
+    for(let y=1;y<height;y+=1){
+      let start=-1;
+      for(let x=0;x<=width;x+=1){
+        const edge=x<width&&mask[(y-1)*width+x]!==mask[y*width+x];
+        if(edge&&start<0)start=x;
+        if(!edge&&start>=0){if(x-start>=.75)addWall(start,y-.125,x-start,.25,wallIndex++);start=-1;}
+      }
+    }
+    for(let x=1;x<width;x+=1){
+      let start=-1;
+      for(let y=0;y<=height;y+=1){
+        const edge=y<height&&mask[y*width+x-1]!==mask[y*width+x];
+        if(edge&&start<0)start=y;
+        if(!edge&&start>=0){if(y-start>=.75)addWall(x-.125,start,.25,y-start,wallIndex++);start=-1;}
+      }
+    }
+    return props;
   }
 
   function blueprintSpawnPoints(room,count=5) {
@@ -743,6 +801,34 @@
     return {entities,zones:[zoneFor(tRoom,"buyT"),zoneFor(ctRoom,"buyCt")],spawnRooms:[tRoom,ctRoom],objectiveRooms:[objectiveA,objectiveB],minimumSpawnSeparation};
   }
 
+  function blueprintCompetitiveSetupFromMask(mask,width,height) {
+    if(!mask)return {entities:[],zones:[],spawnRooms:[],objectiveRooms:[],spawnWarning:"No continuous playable area was detected."};
+    const safe=[];
+    for(let y=1;y<height-1;y+=1)for(let x=1;x<width-1;x+=1){
+      let clear=true;for(let oy=-1;oy<=1&&clear;oy+=1)for(let ox=-1;ox<=1;ox+=1)if(!mask[(y+oy)*width+x+ox]){clear=false;break;}
+      if(clear)safe.push({x,y});
+    }
+    const clusterFor=(anchor)=>{
+      const nearby=safe.filter((point)=>Math.hypot(point.x-anchor.x,point.y-anchor.y)<=4.25).sort((a,b)=>Math.hypot(a.x-anchor.x,a.y-anchor.y)-Math.hypot(b.x-anchor.x,b.y-anchor.y)),chosen=[];
+      for(const point of nearby){if(chosen.every((other)=>Math.hypot(point.x-other.x,point.y-other.y)>=.9))chosen.push(point);if(chosen.length===5)break;}
+      return chosen;
+    };
+    const edge=safe.filter((point)=>point.x<width*.28||point.x>width*.72||point.y<height*.28||point.y>height*.72).filter((point)=>clusterFor(point).length===5),pool=edge.length>=2?edge:safe.filter((point)=>clusterFor(point).length===5);
+    if(pool.length<2)return {entities:[],zones:[],spawnRooms:[],objectiveRooms:[],spawnWarning:"The cleaned plan has fewer than two clear areas large enough for safe 5v5 spawns."};
+    const step=Math.max(1,Math.ceil(pool.length/260)),sampled=pool.filter((_,index)=>index%step===0);let first=sampled[0],second=sampled.at(-1),bestDistance=-1;
+    for(let left=0;left<sampled.length;left+=1)for(let right=left+1;right<sampled.length;right+=1){const distance=Math.hypot(sampled[left].x-sampled[right].x,sampled[left].y-sampled[right].y);if(distance>bestDistance){bestDistance=distance;first=sampled[left];second=sampled[right];}}
+    const tPoints=clusterFor(first),ctPoints=clusterFor(second),angleToward=(from,to)=>{const dx=to.x-from.x,dy=to.y-from.y;return Math.abs(dx)>=Math.abs(dy)?(dx>=0?0:180):(dy>=0?90:270);},entities=[
+      ...tPoints.map((point)=>layoutEntity("t",point.x,point.y,angleToward(first,second))),
+      ...ctPoints.map((point)=>layoutEntity("ct",point.x,point.y,angleToward(second,first)))
+    ];
+    const objectivePool=safe.filter((point)=>Math.min(Math.hypot(point.x-first.x,point.y-first.y),Math.hypot(point.x-second.x,point.y-second.y))>=Math.max(5,bestDistance*.24));
+    const score=(point)=>Math.min(Math.hypot(point.x-first.x,point.y-first.y),Math.hypot(point.x-second.x,point.y-second.y)),objectiveA=objectivePool.slice().sort((a,b)=>score(b)-score(a))[0]||safe[Math.floor(safe.length/2)],objectiveB=objectivePool.filter((point)=>point!==objectiveA).sort((a,b)=>Math.hypot(b.x-objectiveA.x,b.y-objectiveA.y)-Math.hypot(a.x-objectiveA.x,a.y-objectiveA.y))[0]||objectiveA;
+    entities.push(layoutEntity("bombA",objectiveA.x,objectiveA.y),layoutEntity("bombB",objectiveB.x,objectiveB.y));
+    const zoneFor=(points,kind)=>{const minX=Math.min(...points.map((point)=>point.x)),minY=Math.min(...points.map((point)=>point.y)),maxX=Math.max(...points.map((point)=>point.x)),maxY=Math.max(...points.map((point)=>point.y));return {id:crypto.randomUUID(),kind,x:minX-.2,y:minY-.2,w:maxX-minX+1.4,d:maxY-minY+1.4,height:2,floorLevel:0};};
+    const pseudoRoom=(points,label)=>{const zone=zoneFor(points,"spawn");return {id:crypto.randomUUID(),label,x:zone.x,y:zone.y,w:zone.w,d:zone.d,floorLevel:0};},minimumSpawnSeparation=Math.min(...[tPoints,ctPoints].flatMap((points)=>points.flatMap((point,index)=>points.slice(index+1).map((other)=>Math.hypot(point.x-other.x,point.y-other.y)))))*GRID;
+    return {entities,zones:[zoneFor(tPoints,"buyT"),zoneFor(ctPoints,"buyCt")],spawnRooms:[pseudoRoom(tPoints,"T SPAWN"),pseudoRoom(ctPoints,"CT SPAWN")],objectiveRooms:[],minimumSpawnSeparation};
+  }
+
   function analyzeBlueprintImage() {
     if(!pendingBlueprint?.image)return null;
     const image=pendingBlueprint.image,source=document.createElement("canvas"),context=source.getContext("2d",{willReadFrequently:true}),scale=Math.min(1,720/(image.naturalWidth||image.width),520/(image.naturalHeight||image.height));
@@ -770,23 +856,32 @@
     }
     const cleanupPasses=detail<=40?2:detail>=72?0:1;
     for(let pass=0;pass<cleanupPasses;pass+=1){const next=new Uint8Array(mask);for(let y=1;y<gridHeight-1;y+=1)for(let x=1;x<gridWidth-1;x+=1){let neighbors=0;for(let oy=-1;oy<=1;oy+=1)for(let ox=-1;ox<=1;ox+=1)if(ox||oy)neighbors+=mask[(y+oy)*gridWidth+x+ox];const index=y*gridWidth+x;if(!mask[index]&&neighbors>=6)next[index]=1;if(mask[index]&&neighbors<=1)next[index]=0;}mask.set(next);}
-    const rectangles=decomposeBlueprintMask(mask,gridWidth,gridHeight,detail<=40?64:detail>=72?112:88),inferLevels=$("#blueprintLevels").checked;
+    const inferLevels=$("#blueprintLevels").checked,cleanMask=inferLevels?mask:fillBlueprintMaskHoles(mask,gridWidth,gridHeight),rectangles=decomposeBlueprintMask(cleanMask,gridWidth,gridHeight,detail<=40?64:detail>=72?112:88);
     const rooms=rectangles.map((rectangle,index)=>{
       const color=blueprintRoomAverage(context,width,height,sourceBounds,gridWidth,gridHeight,rectangle),floorLevel=inferLevels?blueprintLevelFromColor(color):0;
       return {...rectangle,id:crypto.randomUUID(),kind:"room",label:`TRACED SPACE ${index+1}`,height:floorLevel?5:4,floorLevel,color,sourceArea:rectangle.area,blueprintConnector:false};
     });
     const connectors=blueprintConnectNearbyRooms(rooms).map((connector,index)=>({...connector,id:crypto.randomUUID(),kind:"room",label:`AUTO CONNECTOR ${index+1}`,height:4,color:[114,200,192],sourceArea:connector.w*connector.d,blueprintConnector:true}));
     rooms.push(...connectors);
-    const openings=blueprintOpenings(rooms),gameplay=$("#blueprintGameplay").checked?blueprintCompetitiveSetup(rooms.filter((room)=>!room.blueprintConnector)):{entities:[],zones:[],spawnRooms:[],objectiveRooms:[]},props=[];
+    const component=inferLevels?null:largestBlueprintComponent(carveBlueprintConnectors(cleanMask,gridWidth,gridHeight,connectors),gridWidth,gridHeight);
+    const navigableMask=component?.mask||null;
+    const competitiveRooms=rooms.filter((room)=>{
+      if(room.blueprintConnector)return false;
+      if(!navigableMask)return true;
+      const x=Math.min(gridWidth-1,Math.max(0,Math.floor(room.x+room.w/2))),y=Math.min(gridHeight-1,Math.max(0,Math.floor(room.y+room.d/2)));
+      return Boolean(navigableMask[y*gridWidth+x]);
+    });
+    const openings=inferLevels?blueprintOpenings(rooms):[],gameplay=$("#blueprintGameplay").checked?(inferLevels?blueprintCompetitiveSetup(competitiveRooms):blueprintCompetitiveSetupFromMask(navigableMask,gridWidth,gridHeight)):{entities:[],zones:[],spawnRooms:[],objectiveRooms:[]},props=inferLevels?[]:blueprintBoundaryWalls(navigableMask,gridWidth,gridHeight);
     if($("#blueprintCover").checked){
       const excluded=new Set([...(gameplay.spawnRooms||[]),...(gameplay.objectiveRooms||[])].map((room)=>room.id));
-      rooms.filter((room)=>!room.blueprintConnector&&!excluded.has(room.id)&&room.w*room.d>=24).sort((a,b)=>b.w*b.d-a.w*a.d).slice(0,14).forEach((room,index)=>{
+      const protectedPoints=(gameplay.entities||[]).filter((entity)=>["ct","t","bombA","bombB"].includes(entity.kind)).map((entity)=>({x:entity.x+.5,y:entity.y+.5}));
+      competitiveRooms.filter((room)=>!excluded.has(room.id)&&room.w*room.d>=24&&protectedPoints.every((point)=>Math.hypot(point.x-(room.x+room.w/2),point.y-(room.y+room.d/2))>4)).sort((a,b)=>b.w*b.d-a.w*a.d).slice(0,10).forEach((room,index)=>{
         props.push(prefabProp(index%3?"crate":"wall",Math.floor(room.x+room.w/2),Math.floor(room.y+room.d/2),index%3?1:Math.min(2,Math.max(1,room.w/3)),1,index%3?1:.75,room.floorLevel||0,"BO_RUSTIRON",{label:"AUTO COVER"}));
       });
     }
     const palette=blueprintPaletteFromPixels(context,width,height,interior),materials=blueprintMaterialKit(palette,pendingBlueprint.fileName),coverage=mask.reduce((sum,value)=>sum+value,0)/Math.max(1,mask.length),levelCount=new Set(rooms.map((room)=>room.floorLevel||0)).size;
     let confidence=86;if(coverage<.08||coverage>.82)confidence-=24;if(rectangles.length>78)confidence-=14;if(rectangles.length<3)confidence-=25;if(connectors.length>20)confidence-=10;confidence=Math.max(28,Math.min(94,confidence));
-    pendingBlueprint.analysis={source,sourceWidth:width,sourceHeight:height,sourceBounds,gridWidth,gridHeight,widthMeters,playabilityScale,rooms,openings,props,entities:gameplay.entities,zones:gameplay.zones,palette,materials,confidence,coverage,levelCount,connectorCount:connectors.length,minimumSpawnSeparation:gameplay.minimumSpawnSeparation||0,spawnWarning:gameplay.spawnWarning||""};
+    pendingBlueprint.analysis={source,sourceWidth:width,sourceHeight:height,sourceBounds,gridWidth,gridHeight,widthMeters,playabilityScale,rooms,openings,props,entities:gameplay.entities,zones:gameplay.zones,palette,materials,confidence,coverage,levelCount:inferLevels?levelCount:1,connectorCount:connectors.length,minimumSpawnSeparation:gameplay.minimumSpawnSeparation||0,spawnWarning:gameplay.spawnWarning||"",shellMode:inferLevels?"rooms":"competitive",navigableMask,componentCount:component?.components||1,wallCount:props.filter((prop)=>prop.blueprintWall).length};
     renderBlueprintAnalysis();
     return pendingBlueprint.analysis;
   }
@@ -796,15 +891,19 @@
     const canvas=$("#blueprintCanvas"),context=canvas.getContext("2d"),maxWidth=760,maxHeight=500,scale=Math.min(maxWidth/analysis.sourceWidth,maxHeight/analysis.sourceHeight);canvas.width=Math.round(analysis.sourceWidth*scale);canvas.height=Math.round(analysis.sourceHeight*scale);
     context.drawImage(analysis.source,0,0,canvas.width,canvas.height);context.fillStyle="rgba(4,8,5,.18)";context.fillRect(0,0,canvas.width,canvas.height);
     const bounds=analysis.sourceBounds||{x:0,y:0,w:analysis.sourceWidth,d:analysis.sourceHeight},offsetX=bounds.x/analysis.sourceWidth*canvas.width,offsetY=bounds.y/analysis.sourceHeight*canvas.height,sx=bounds.w/analysis.sourceWidth*canvas.width/analysis.gridWidth,sy=bounds.d/analysis.sourceHeight*canvas.height/analysis.gridHeight;
-    analysis.rooms.forEach((room)=>{context.fillStyle=room.blueprintConnector?"rgba(114,200,192,.3)":room.floorLevel>0?"rgba(240,164,90,.25)":room.floorLevel<0?"rgba(114,184,255,.24)":"rgba(215,244,90,.18)";context.strokeStyle=room.blueprintConnector?"#72c8c0":"#d7f45a";context.lineWidth=Math.max(1,scale);context.fillRect(offsetX+room.x*sx,offsetY+room.y*sy,room.w*sx,room.d*sy);context.strokeRect(offsetX+room.x*sx+.5,offsetY+room.y*sy+.5,Math.max(1,room.w*sx-1),Math.max(1,room.d*sy-1));});
+    if(analysis.shellMode==="competitive"&&analysis.navigableMask){
+      context.fillStyle="rgba(215,244,90,.2)";for(let y=0;y<analysis.gridHeight;y+=1){let start=-1;for(let x=0;x<=analysis.gridWidth;x+=1){const filled=x<analysis.gridWidth&&analysis.navigableMask[y*analysis.gridWidth+x];if(filled&&start<0)start=x;if(!filled&&start>=0){context.fillRect(offsetX+start*sx,offsetY+y*sy,(x-start)*sx,sy);start=-1;}}}
+      context.fillStyle="rgba(114,200,192,.72)";analysis.props.filter((prop)=>prop.blueprintWall).forEach((prop)=>context.fillRect(offsetX+prop.x*sx,offsetY+prop.y*sy,Math.max(1,prop.w*sx),Math.max(1,prop.d*sy)));
+    }else analysis.rooms.forEach((room)=>{context.fillStyle=room.blueprintConnector?"rgba(114,200,192,.3)":room.floorLevel>0?"rgba(240,164,90,.25)":room.floorLevel<0?"rgba(114,184,255,.24)":"rgba(215,244,90,.18)";context.strokeStyle=room.blueprintConnector?"#72c8c0":"#d7f45a";context.lineWidth=Math.max(1,scale);context.fillRect(offsetX+room.x*sx,offsetY+room.y*sy,room.w*sx,room.d*sy);context.strokeRect(offsetX+room.x*sx+.5,offsetY+room.y*sy+.5,Math.max(1,room.w*sx-1),Math.max(1,room.d*sy-1));});
     analysis.entities.forEach((entity)=>{const color=entity.kind==="ct"?"#62a9ff":entity.kind==="t"?"#f0a45a":"#d7f45a";context.fillStyle=color;context.beginPath();context.arc(offsetX+(entity.x+.5)*sx,offsetY+(entity.y+.5)*sy,Math.max(3,Math.min(sx,sy)*.28),0,Math.PI*2);context.fill();});
     $("#blueprintImageSize").textContent=`${pendingBlueprint.image.naturalWidth}×${pendingBlueprint.image.naturalHeight} px · ${analysis.gridWidth}×${analysis.gridHeight} editable grid`;
     const confidence=$("#blueprintConfidence");confidence.textContent=`${analysis.confidence}% CONFIDENCE`;confidence.classList.toggle("low",analysis.confidence<65);
-    const values=[analysis.rooms.length,analysis.openings.length,analysis.levelCount,`${analysis.confidence}%`];$("#blueprintMetrics").querySelectorAll("strong").forEach((element,index)=>{element.textContent=values[index];});
+    const values=[analysis.shellMode==="competitive"?1:analysis.rooms.length,analysis.shellMode==="competitive"?analysis.wallCount:analysis.openings.length,analysis.levelCount,`${analysis.confidence}%`];$("#blueprintMetrics").querySelectorAll("strong").forEach((element,index)=>{element.textContent=values[index];});
+    const metricLabels=$("#blueprintMetrics").querySelectorAll("small");if(metricLabels.length>=2){metricLabels[0].textContent=analysis.shellMode==="competitive"?"PLAYFIELD":"ROOMS";metricLabels[1].textContent=analysis.shellMode==="competitive"?"MERGED WALLS":"OPENINGS";}
     $("#blueprintPalette").innerHTML=analysis.materials.map((material)=>`<div class="blueprint-swatch" title="${html(material.label)}"><img src="${material.imageData}" alt="${html(material.label)} texture preview"><span>${html(material.role)}</span></div>`).join("");
     const textureNote=$("#blueprintTextures").checked?(companionStatus?.connected?"The matching texture kit will be installed into your local Blockout WAD.":"The map will use matching built-in materials unless the Windows companion is paired before creation."):"Existing categorized Blockout materials will be used.";
     const calibrationNote=pendingBlueprint.widthDetected?"":` Plan width was not detected from the filename; verify the ${analysis.widthMeters} m value against the dimension printed on the plan.`;
-    $("#blueprintStatus").className=`blueprint-status${analysis.confidence<65||analysis.spawnWarning||!pendingBlueprint.widthDetected?" warning":""}`;$("#blueprintStatus").textContent=`Detected ${analysis.rooms.length-analysis.connectorCount} spaces, ${analysis.connectorCount} short connections, ${analysis.openings.length} openings, and ${analysis.levelCount} level${analysis.levelCount===1?"":"s"}. Result: ${Math.round(analysis.gridWidth*GRID)} × ${Math.round(analysis.gridHeight*GRID)} units at ${analysis.playabilityScale.toFixed(2)}× playability scale.${calibrationNote} ${analysis.spawnWarning||textureNote} Review and edit the result after creation.`;
+    $("#blueprintStatus").className=`blueprint-status${analysis.confidence<65||analysis.spawnWarning||!pendingBlueprint.widthDetected?" warning":""}`;$("#blueprintStatus").textContent=analysis.shellMode==="competitive"?`Built one continuous competitive playfield with ${analysis.wallCount} merged plan walls; ${Math.max(0,analysis.componentCount-1)} disconnected fragment${analysis.componentCount===2?" was":"s were"} discarded. Result: ${Math.round(analysis.gridWidth*GRID)} × ${Math.round(analysis.gridHeight*GRID)} units at ${analysis.playabilityScale.toFixed(2)}× playability scale.${calibrationNote} ${analysis.spawnWarning||textureNote} Review and edit the result after creation.`:`Detected ${analysis.rooms.length-analysis.connectorCount} spaces, ${analysis.connectorCount} short connections, ${analysis.openings.length} openings, and ${analysis.levelCount} levels. Result: ${Math.round(analysis.gridWidth*GRID)} × ${Math.round(analysis.gridHeight*GRID)} units.${calibrationNote} ${analysis.spawnWarning||textureNote}`;
     $("#reanalyzeBlueprint").classList.remove("hidden");$("#createBlueprintMap").classList.remove("hidden");$("#replaceBlueprintImage").classList.remove("hidden");
   }
 
@@ -849,12 +948,13 @@
     if(state.rooms.length&&!confirm("Replace the current map with this generated blueprint blockout? The current map remains available through Undo and autosave."))return;
     const button=$("#createBlueprintMap");button.disabled=true;button.textContent="Building editable map…";$("#blueprintCommitNote").textContent="Preparing map geometry and material kit…";
     const materials=await installBlueprintMaterialKit(analysis),before=snapshot(),openSky=$("#blueprintOpenSky").checked,cleanName=String(pendingBlueprint.fileName||"Blueprint map").replace(/\.[^.]+$/,"").replace(/[_-]+/g," ").trim().slice(0,40)||"Blueprint map";
-    const project=freshProject();project.name=cleanName;project.rooms=analysis.rooms.map((source,index)=>{
+    const roomSources=analysis.shellMode==="competitive"?[{id:crypto.randomUUID(),kind:"room",label:"COMPETITIVE PLAYFIELD",x:0,y:0,w:analysis.gridWidth,d:analysis.gridHeight,height:4,floorLevel:0,color:analysis.palette[0],sourceArea:analysis.gridWidth*analysis.gridHeight,blueprintConnector:false}]:analysis.rooms;
+    const project=freshProject();project.name=cleanName;project.rooms=roomSources.map((source,index)=>{
       const info=blueprintColorInfo(source.color),accent=info.saturation>.34&&index%3===0;
       return {...source,id:crypto.randomUUID(),texture:accent?materials.accent:materials.wall,floorTexture:accent?materials.accent:materials.floor,ceilingTexture:materials.trim,ceilingMode:openSky?"sky":"ceiling",wallThickness:.25};
     });
     project.doors=analysis.openings.map((opening)=>({...structuredClone(opening),id:crypto.randomUUID(),texture:materials.trim}));
-    project.props=analysis.props.map((prop,index)=>({...structuredClone(prop),id:crypto.randomUUID(),texture:index%3?materials.accent:materials.trim}));
+    project.props=analysis.props.map((prop,index)=>({...structuredClone(prop),id:crypto.randomUUID(),texture:prop.blueprintWall?materials.wall:(index%3?materials.accent:materials.trim)}));
     project.entities=analysis.entities.map((entity)=>({...structuredClone(entity),id:crypto.randomUUID()}));project.zones=analysis.zones.map((zone)=>({...structuredClone(zone),id:crypto.randomUUID()}));
     project.stories=[...new Set(project.rooms.map((room)=>room.floorLevel||0))].sort((a,b)=>a-b).map((elevation,index)=>({id:crypto.randomUUID(),name:elevation===0?"Ground floor":elevation>0?`Upper level +${Math.round(elevation*GRID)}`:`Lower level ${Math.round(elevation*GRID)}`,elevation}));
     project.environment={...DEFAULT_ENVIRONMENT,groundEnabled:false,openSkyDefault:openSky,groundSize:Math.max(32,Math.min(128,analysis.gridWidth+8))};
@@ -4969,7 +5069,7 @@
     state.entities.filter((item)=>item.kind==="pathCorner"&&item.target).forEach((item)=>{if(!state.entities.some((next)=>next.kind==="pathCorner"&&next.targetName===item.target))add("error","Broken path chain",`${item.targetName||"Path corner"} points to missing ${item.target}.`,{type:"entity",id:item.id});});
     [...new Set(namedTargetList.filter((name,index)=>namedTargetList.indexOf(name)!==index))].forEach((name)=>add("warning","Duplicate target name",`${name} is used by more than one object.`));
     state.props.filter((item)=>item.kind==="elevator").forEach((item)=>{const base=Number(item.floorLevel)||0,target=base+(Number(item.travel)||2),host=state.rooms.find((room)=>Math.abs(roomFloor(room)-base)<.13&&pointInRoom(item.x+item.w/2,item.y+item.d/2,room)),shaft=state.props.some((prop)=>prop.kind==="floorHole"&&Math.abs((Number(prop.floorLevel)||0)-target)<.13&&prop.x<=item.x+.01&&prop.y<=item.y+.01&&prop.x+prop.w>=item.x+item.w-.01&&prop.y+prop.d>=item.y+item.d-.01);if(host&&!shaft&&base+(item.height||1)+(item.travel||2)>roomFloor(host)+host.height)add("warning","Elevator travel crosses ceiling","Add a floor opening around the elevator shaft, increase room height, or reduce travel.",{type:"prop",id:item.id});});
-    const solids=state.props.filter((prop)=>["crate","wall","wallPolygon","cylinder","arch","breakable"].includes(prop.kind));for(let i=0;i<solids.length;i++)for(let j=i+1;j<solids.length;j++)if(rectanglesOverlap(solids[i],solids[j])&&Math.abs((solids[i].floorLevel||0)-(solids[j].floorLevel||0))<.1)add("warning","Overlapping solid brushes",`${solids[i].kind} overlaps ${solids[j].kind}; this may create unnecessary cuts.`,{type:"prop",id:solids[j].id});
+    const solids=state.props.filter((prop)=>["crate","wall","wallPolygon","cylinder","arch","breakable"].includes(prop.kind));for(let i=0;i<solids.length;i++)for(let j=i+1;j<solids.length;j++)if(!(solids[i].blueprintWall&&solids[j].blueprintWall)&&rectanglesOverlap(solids[i],solids[j])&&Math.abs((solids[i].floorLevel||0)-(solids[j].floorLevel||0))<.1)add("warning","Overlapping solid brushes",`${solids[i].kind} overlaps ${solids[j].kind}; this may create unnecessary cuts.`,{type:"prop",id:solids[j].id});
     const all=[...state.rooms,...state.props,...state.zones,...state.entities],extent=all.length?Math.max(...all.flatMap((item)=>[Math.abs((item.x||0)*GRID),Math.abs(((item.x||0)+(item.w||1))*GRID),Math.abs((item.y||0)*GRID),Math.abs(((item.y||0)+(item.d||1))*GRID)])):0;if(extent>4096)add(extent>8192?"error":"warning","Large world coordinates",`The map reaches ${Math.round(extent)} units from origin; GoldSrc is safest inside ±4096.`);
     const mapText=generateMapText();if(mapText&&/undefined|NaN/.test(mapText))add("error","Invalid exported number","The generated MAP contains an undefined or NaN value.");const entityCount=state.entities.length+state.zones.length+state.doors.length+state.windows.length;if(entityCount>450)add(entityCount>512?"error":"warning","Entity limit pressure",`${entityCount} designed entities; GoldSrc's practical limit is near 512.`);
     return {issues,errors:issues.filter((issue)=>issue.severity==="error").length,warnings:issues.filter((issue)=>issue.severity==="warning").length,infos:issues.filter((issue)=>issue.severity==="info").length};
@@ -8047,7 +8147,7 @@
       imageHeight:pendingBlueprint.image?.naturalHeight||0,
       analysis:pendingBlueprint.analysis ? {
         gridWidth:pendingBlueprint.analysis.gridWidth,gridHeight:pendingBlueprint.analysis.gridHeight,
-        widthMeters:pendingBlueprint.analysis.widthMeters,playabilityScale:pendingBlueprint.analysis.playabilityScale,sourceBounds:pendingBlueprint.analysis.sourceBounds,minimumSpawnSeparation:pendingBlueprint.analysis.minimumSpawnSeparation,spawnWarning:pendingBlueprint.analysis.spawnWarning,rooms:pendingBlueprint.analysis.rooms.length,
+        widthMeters:pendingBlueprint.analysis.widthMeters,playabilityScale:pendingBlueprint.analysis.playabilityScale,sourceBounds:pendingBlueprint.analysis.sourceBounds,minimumSpawnSeparation:pendingBlueprint.analysis.minimumSpawnSeparation,spawnWarning:pendingBlueprint.analysis.spawnWarning,shellMode:pendingBlueprint.analysis.shellMode,wallCount:pendingBlueprint.analysis.wallCount,componentCount:pendingBlueprint.analysis.componentCount,rooms:pendingBlueprint.analysis.rooms.length,
         connectors:pendingBlueprint.analysis.connectorCount,openings:pendingBlueprint.analysis.openings.length,
         props:pendingBlueprint.analysis.props.length,entities:pendingBlueprint.analysis.entities.length,
         zones:pendingBlueprint.analysis.zones.length,levels:pendingBlueprint.analysis.levelCount,

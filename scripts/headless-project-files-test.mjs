@@ -44,7 +44,7 @@ async function navigate(url){
   throw new Error(`App did not finish loading: ${url}`);
 }
 
-await command("Page.enable");await command("Runtime.enable");await navigate(baseUrl);
+await command("Page.enable");await command("Runtime.enable");await command("Page.addScriptToEvaluateOnNewDocument",{source:'localStorage.removeItem("blockout-project-snapshots-v1");'});await navigate(baseUrl);
 const result=await evaluate(`(async()=>{
   const assert=(condition,message)=>{if(!condition)throw new Error(message);};
   localStorage.removeItem("blockout-project-snapshots-v1");
