@@ -102,16 +102,27 @@ const result=await evaluate(`(async()=>{
     {id:"cstrike/de_aztec.wad",name:"de_aztec.wad",textures:150}
   ]});
   assert(installed.textures===450&&installed.wads===2,"Official texture catalog was not registered");
+  const installedMaps=Blockout.installMapTextureCatalog({textures:[
+    {name:"MAP_INFERNO_1",label:"Inferno plaster",category:"plaster",uses:["wall"],mapId:"de_inferno",map:"de_inferno.bsp",mapIds:["de_inferno"],width:128,height:128},
+    {name:"OF_0000",label:"Official 0",category:"floor",uses:["floor","tile"],mapId:"de_inferno",map:"de_inferno.bsp",mapIds:["de_inferno"],width:64,height:64}
+  ],maps:[{id:"de_inferno",name:"de_inferno.bsp",label:"De Inferno",textures:2,official:true}]});
+  assert(installedMaps.textures===2&&installedMaps.maps===1,"Installed-map texture catalog was not registered");
   const wadFilter=document.querySelector("#textureWadFilter");
   assert([...wadFilter.options].some((option)=>option.value==="cstrike/cs_dust.wad"),"Official WAD filter is missing");
+  assert([...wadFilter.options].some((option)=>option.value==="map:de_inferno"),"Installed map filter is missing");
   document.querySelector("#textureUseFilter").value="all";
   wadFilter.value="cstrike/cs_dust.wad";wadFilter.dispatchEvent(new Event("change",{bubbles:true}));
   const officialCards=[...document.querySelectorAll("#textureGrid [data-texture]")];
   assert(officialCards.length===300,"WAD filter did not isolate the official pack");
   assert(officialCards[0].querySelector("img").src.includes("/api/official-textures/preview"),"Official preview does not use the local companion");
+  wadFilter.value="map:de_inferno";wadFilter.dispatchEvent(new Event("change",{bubbles:true}));
+  const mapCards=[...document.querySelectorAll("#textureGrid [data-texture]")];
+  assert(mapCards.length===2,"Map filter did not isolate embedded BSP textures");
+  const embeddedCard=mapCards.find((card)=>card.dataset.texture==="MAP_INFERNO_1");
+  assert(embeddedCard?.querySelector("img").src.includes("/api/map-textures/preview"),"Embedded map preview does not use the local companion");
   wadFilter.value="all";wadFilter.dispatchEvent(new Event("change",{bubbles:true}));
   assert(document.querySelectorAll("#textureGrid [data-texture]").length<=320,"Large official catalog was not render-limited");
-  return {category:seamless.category,uses:seamless.uses,edgeMismatch:seamless.edgeMismatch,rawMismatch:raw.edgeMismatch,outputBytes:seamless.imageDataBytes,codes:seamless.variants.map((item)=>item.code),floorChoices:floorCards.length,wallChoices:wallCards.length,official:installed};
+  return {category:seamless.category,uses:seamless.uses,edgeMismatch:seamless.edgeMismatch,rawMismatch:raw.edgeMismatch,outputBytes:seamless.imageDataBytes,codes:seamless.variants.map((item)=>item.code),floorChoices:floorCards.length,wallChoices:wallCards.length,official:installed,maps:installedMaps};
 })()`);
 
 if(pageErrors.length)throw new Error(`Page errors: ${pageErrors.join("; ")}`);

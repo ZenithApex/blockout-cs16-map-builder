@@ -47,6 +47,8 @@ the archive and executable SHA-256 hashes before installation.
 - Change wall, floor, ceiling, ground, and sky materials.
 - With the companion running, open the material library and confirm the Official Steam status reports the locally installed WAD and texture totals.
 - Filter official materials by `cs_dust.wad`, `de_aztec.wad`, and `cs_office.wad`; verify their miniatures appear, apply one to a suitable surface, then compile and launch the map.
+- Choose **De Inferno** under **Installed map BSPs**, apply an embedded-only texture such as `KEEP01`, compile it, and confirm the result has no missing-texture checkerboard.
+- Install a community BSP such as Tuscan, restart the companion, and confirm it appears automatically under **Installed map BSPs** without copying its textures into the Blockout folder.
 - Confirm the hosted/public package contains no Valve WAD or extracted official texture image; official previews must come only from the paired local companion.
 - Save a project, reload the page, and confirm autosave recovery.
 - Export `.map`, run preflight, compile, install, and launch the BSP.

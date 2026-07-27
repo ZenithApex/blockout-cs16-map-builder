@@ -46,12 +46,34 @@ def write_wad(path, textures):
     path.write_bytes(struct.pack("<4sii", b"WAD3", len(lumps), directory_offset) + b"".join(lumps) + directory)
 
 
+def write_bsp(path, textures):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    lumps = []
+    for name, seed in textures:
+        value = bytearray(miptex(name, seed))
+        while len(value) % 4:
+            value.append(0)
+        lumps.append(bytes(value))
+    cursor = 4 + len(lumps) * 4
+    offsets = []
+    for lump in lumps:
+        offsets.append(cursor)
+        cursor += len(lump)
+    texture_lump = struct.pack("<i", len(lumps)) + b"".join(struct.pack("<i", offset) for offset in offsets) + b"".join(lumps)
+    header = bytearray(124)
+    struct.pack_into("<i", header, 0, 30)
+    struct.pack_into("<ii", header, 4 + 2 * 8, 124, len(texture_lump))
+    path.write_bytes(bytes(header) + texture_lump)
+
+
 def main():
     with tempfile.TemporaryDirectory(prefix="blockout-official-wad-test-") as folder:
         game = Path(folder)
         write_wad(game / "cstrike" / "cstrike.wad", [("CS_WALL", 1), ("SHARED", 2)])
         write_wad(game / "cstrike" / "cs_dust.wad", [("DUST_FLOOR", 3)])
         write_wad(game / "valve" / "halflife.wad", [("HALF_METAL", 4), ("SHARED", 5)])
+        write_bsp(game / "cstrike" / "maps" / "de_inferno.bsp", [("INFERNO_WALL", 6), ("MAP_SHARED", 7)])
+        write_bsp(game / "cstrike" / "maps" / "de_dust2.bsp", [("DUST_EMBED", 8), ("MAP_SHARED", 9)])
 
         catalog = COMPANION.official_texture_catalog(game)
         names = {item["name"] for item in catalog["textures"]}
@@ -80,7 +102,32 @@ def main():
         else:
             raise AssertionError("An arbitrary WAD path was accepted.")
 
-    print("Official WAD catalog tests passed: allowlist, dedupe, PNG preview, classification, and compile paths.")
+        map_catalog = COMPANION.map_texture_catalog(game)
+        map_names = {item["name"] for item in map_catalog["textures"]}
+        assert map_catalog["mapCount"] == 2
+        assert map_names == {"INFERNO_WALL", "MAP_SHARED", "DUST_EMBED"}, map_names
+        shared = next(item for item in map_catalog["textures"] if item["name"] == "MAP_SHARED")
+        assert set(shared["mapIds"]) == {"de_inferno", "de_dust2"}
+        map_png = COMPANION.map_texture_png(game, "de_inferno", "INFERNO_WALL")
+        assert map_png.startswith(b"\x89PNG\r\n\x1a\n")
+
+        embedded_map = map_text.replace("DUST_FLOOR", "INFERNO_WALL")
+        temporary_wad = game / "generated-map-textures.wad"
+        embedded_names = COMPANION.build_embedded_map_texture_wad(game, embedded_map, temporary_wad)
+        assert embedded_names == {"INFERNO_WALL"}
+        COMPANION.validate_custom_wad(temporary_wad, require_power_of_two=False)
+        replaced_embedded = COMPANION.replace_wad_paths(
+            embedded_map, game, extra_wads=[temporary_wad]
+        )
+        assert str(temporary_wad) in replaced_embedded
+        try:
+            COMPANION.map_texture_png(game, "../secret", "INFERNO_WALL")
+        except COMPANION.BuildError:
+            pass
+        else:
+            raise AssertionError("An arbitrary BSP path was accepted.")
+
+    print("Local game texture tests passed: WAD/BSP allowlists, dedupe, previews, classification, and compile embedding.")
 
 
 if __name__ == "__main__":

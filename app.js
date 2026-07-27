@@ -16,13 +16,20 @@
   ]);
   const officialTextureSources = new Map();
   let officialTextureWads = [];
+  let installedTextureMaps = [];
   const texturePreviewUrl = (texture, cacheBust = "") => {
     const official = officialTextureSources.get(texture);
-    if (official) {
+    if (official?.wadId) {
       const parameters = new URLSearchParams({wad:official.wadId,texture});
       if (cacheBust) parameters.set("v", cacheBust);
       if (HOSTED_MODE && companionPairingCode) parameters.set("pair", companionPairingCode);
       return `${COMPANION_API}/api/official-textures/preview?${parameters}`;
+    }
+    if (official?.mapId) {
+      const parameters = new URLSearchParams({map:official.mapId,texture});
+      if (cacheBust) parameters.set("v", cacheBust);
+      if (HOSTED_MODE && companionPairingCode) parameters.set("pair", companionPairingCode);
+      return `${COMPANION_API}/api/map-textures/preview?${parameters}`;
     }
     const base = texture.startsWith("USR_") && COMPANION_API
       ? `${COMPANION_API}/textures/previews`
@@ -240,7 +247,21 @@
     MATERIAL_INFO[texture]=item.label||texture;
     CC0_TEXTURE_CATEGORIES[texture]=item.category||"architecture";
     if(Array.isArray(item.uses)&&item.uses.length)MATERIAL_SURFACE_USES[texture]=[...new Set(item.uses.filter((use)=>TEXTURE_USE_INFO[use]))];
-    officialTextureSources.set(texture,{wadId:item.wadId,wad:item.wad||item.wadId.split("/").pop(),width:item.width,height:item.height});
+    officialTextureSources.set(texture,{kind:"wad",wadId:item.wadId,wad:item.wad||item.wadId.split("/").pop(),mapIds:[],width:item.width,height:item.height});
+  }
+
+  function registerMapMaterial(item) {
+    const texture=String(item?.name||"").toUpperCase();
+    if(!texture||!item?.mapId)return;
+    MATERIAL_INFO[texture]=MATERIAL_INFO[texture]||item.label||texture;
+    CC0_TEXTURE_CATEGORIES[texture]=CC0_TEXTURE_CATEGORIES[texture]||item.category||"architecture";
+    if(!MATERIAL_SURFACE_USES[texture]?.length&&Array.isArray(item.uses)&&item.uses.length)MATERIAL_SURFACE_USES[texture]=[...new Set(item.uses.filter((use)=>TEXTURE_USE_INFO[use]))];
+    const existing=officialTextureSources.get(texture);
+    if(existing){
+      existing.mapIds=[...new Set([...(existing.mapIds||[]),...(item.mapIds||[item.mapId])])];
+      return;
+    }
+    officialTextureSources.set(texture,{kind:"map",mapId:item.mapId,map:item.map||`${item.mapId}.bsp`,mapIds:item.mapIds||[item.mapId],width:item.width,height:item.height});
   }
   Object.keys(MATERIAL_COLORS).forEach((texture) => registerMaterial(texture));
 
@@ -377,7 +398,7 @@
     const storedPrefabs = JSON.parse(localStorage.getItem(CUSTOM_PREFAB_STORAGE_KEY) || "[]");
     customPrefabs = Array.isArray(storedPrefabs) ? storedPrefabs.filter(isValidCustomPrefab) : [];
   } catch (_) { customPrefabs = []; }
-  const MIN_COMPANION_VERSION = "1.10.0";
+  const MIN_COMPANION_VERSION = "1.11.0";
 
   function environmentFor(project = state) {
     project.environment = { ...DEFAULT_ENVIRONMENT, ...(project.environment || {}) };
@@ -3743,7 +3764,7 @@
   }
 
   async function refreshTextureCatalog() {
-    let customCatalog=null,officialCatalog=null;
+    let customCatalog=null,officialCatalog=null,mapCatalog=null;
     try {
       customCatalog=await companionRequest("/api/textures");
       (customCatalog.textures||[]).forEach((item)=>registerMaterial(item.name,item.label||item.name,item.category||"architecture","",item.uses));
@@ -3754,14 +3775,20 @@
     } catch (_) {
       officialCatalog=null;officialTextureWads=[];
     }
+    try {
+      mapCatalog=await companionRequest("/api/map-textures");
+      installMapTextureCatalog(mapCatalog);
+    } catch (_) {
+      mapCatalog=null;installedTextureMaps=[];
+    }
     installMaterialOptions();
     populateTextureWadFilter();
     const status=$("#officialTextureStatus");
     if(status)status.textContent=officialCatalog
-      ? `Official Steam library: ${officialCatalog.textureCount.toLocaleString()} textures from ${officialCatalog.wadCount} local WADs. Valve assets stay on this computer.`
+      ? `Local Steam library: ${officialCatalog.textureCount.toLocaleString()} WAD textures from ${officialCatalog.wadCount} archives${mapCatalog?` plus ${mapCatalog.textureCount.toLocaleString()} embedded textures from ${mapCatalog.mapCount} installed maps`:""}. Game assets stay on this computer.`
       : "Official Steam library: start or pair the Windows companion to browse textures from your legitimate CS 1.6 installation.";
     if($("#textureDialog")?.open)renderTextureBrowser();
-    return {custom:customCatalog,official:officialCatalog};
+    return {custom:customCatalog,official:officialCatalog,maps:mapCatalog};
   }
 
   function installOfficialTextureCatalog(catalog) {
@@ -3774,12 +3801,22 @@
     return {textures:officialTextureSources.size,wads:officialTextureWads.length};
   }
 
+  function installMapTextureCatalog(catalog) {
+    (catalog?.textures||[]).forEach(registerMapMaterial);
+    installedTextureMaps=catalog?.maps||[];
+    populateTextureWadFilter();
+    refresh();
+    if($("#textureDialog")?.open)renderTextureBrowser();
+    return {textures:(catalog?.textures||[]).length,maps:installedTextureMaps.length};
+  }
+
   function populateTextureWadFilter() {
     const select=$("#textureWadFilter");
     if(!select)return;
     const current=select.value||"all";
     select.innerHTML='<option value="all">All texture packs</option><option value="included">Included & imported</option>'
-      +officialTextureWads.map((wad)=>`<option value="${html(wad.id)}">${html(wad.name)} (${wad.textures})</option>`).join("");
+      +(officialTextureWads.length?`<optgroup label="Steam WAD archives">${officialTextureWads.map((wad)=>`<option value="${html(wad.id)}">${html(wad.name)} (${wad.textures})</option>`).join("")}</optgroup>`:"")
+      +(installedTextureMaps.length?`<optgroup label="Installed map BSPs">${installedTextureMaps.map((map)=>`<option value="map:${html(map.id)}">${html(map.label)} · ${map.textures}</option>`).join("")}</optgroup>`:"");
     select.value=[...select.options].some((option)=>option.value===current)?current:"all";
   }
 
@@ -4029,12 +4066,12 @@
       const matchesCategory = category === "all" || (category === "favorites" ? textureFavorites.has(texture) : textureCategory(texture) === category);
       const matchesUsage=resolvedUsage==="all"||textureSurfaceUses(texture).includes(resolvedUsage);
       const official=officialTextureSources.get(texture);
-      const matchesWad=wadFilter==="all"||(wadFilter==="included"?!official:official?.wadId===wadFilter);
+      const matchesWad=wadFilter==="all"||(wadFilter==="included"?!official:wadFilter.startsWith("map:")?(official?.mapIds||[]).includes(wadFilter.slice(4)):official?.wadId===wadFilter);
       return matchesSearch && matchesCategory&&matchesUsage&&matchesWad;
     }).sort((a,b)=>(a===selectedTexture?-2:b===selectedTexture?2:0)||(textureFavorites.has(a)?-1:textureFavorites.has(b)?1:0)||MATERIAL_INFO[a].localeCompare(MATERIAL_INFO[b]));
     const categoryLabels = {architecture:"Architecture",concrete:"Concrete",brick:"Brick",stone:"Stone & gems",ground:"Ground",nature:"Nature",organic:"Organic patterns",fabric:"Fabric & leather",plaster:"Plaster",floor:"Floors",metal:"Metal",wood:"Wood",sunburst:"Sunburst"};
     const categoryOrder = ["architecture","concrete","brick","stone","ground","nature","organic","fabric","plaster","floor","metal","wood","sunburst"];
-    const sourceLabel = (texture) => officialTextureSources.has(texture) ? officialTextureSources.get(texture).wad : texture.startsWith("USR_") ? "IMPORTED" : texture.startsWith("BO_") ? "CC0" : texture.startsWith("SUN_") ? "ORIGINAL" : "INCLUDED";
+    const sourceLabel = (texture) => {const source=officialTextureSources.get(texture);return source?(wadFilter.startsWith("map:")?`${wadFilter.slice(4)}.bsp`:source.wad||source.map):texture.startsWith("USR_") ? "IMPORTED" : texture.startsWith("BO_") ? "CC0" : texture.startsWith("SUN_") ? "ORIGINAL" : "INCLUDED";};
     const card = (texture) => {const safeTexture=html(texture),label=html(MATERIAL_INFO[texture]),uses=textureSurfaceUses(texture),source=officialTextureSources.get(texture);return `<button class="texture-card ${texture === selectedTexture ? "selected" : ""}" data-texture="${safeTexture}" type="button" title="Apply ${label}"><span class="texture-source ${source?"official":""}">${html(sourceLabel(texture))}</span><img loading="lazy" src="${texturePreviewUrl(texture)}" alt="Miniature preview of ${label}"><strong>${label}</strong><small>${safeTexture}${source?` · ${source.width}×${source.height}`:""}</small><span class="texture-category-badge">${categoryLabels[textureCategory(texture)] || textureCategory(texture)}</span><span class="texture-use-badges">${uses.slice(0,3).map((use)=>`<span>${TEXTURE_USE_INFO[use]?.short||use}</span>`).join("")}${uses.length>3?`<span>+${uses.length-3}</span>`:""}</span><span class="favorite-texture ${textureFavorites.has(texture) ? "active" : ""}" data-favorite="${safeTexture}">★</span>${texture.startsWith("USR_")?`<span class="delete-texture" data-delete-texture="${safeTexture}" title="Delete imported texture">×</span>`:""}</button>`;};
     const visibleTextures=textures.slice(0,320);
     const groups = categoryOrder.map((key) => [key,visibleTextures.filter((texture) => textureCategory(texture) === key)]).filter(([,items]) => items.length);
@@ -5983,7 +6020,7 @@
     }
     state.props.forEach((prop) => brushes.push(...buildPropBrushes(prop)));
 
-    const officialWads=[...new Set(Object.keys(MATERIAL_INFO).filter((texture)=>officialTextureSources.has(texture)&&textureUsageCount(texture)>0).map((texture)=>officialTextureSources.get(texture).wad))];
+    const officialWads=[...new Set(Object.keys(MATERIAL_INFO).filter((texture)=>officialTextureSources.get(texture)?.wadId&&textureUsageCount(texture)>0).map((texture)=>officialTextureSources.get(texture).wad))];
     const worldWads=[...new Set(["cstrike.wad","halflife.wad",...officialWads])].join(";");
     const world = ["{", '"classname" "worldspawn"', `"wad" "${worldWads}"`, '"message" "Created with Blockout"', ...(skyEnabled ? [`"skyname" "${environment.skyName}"`] : []), ...brushes, "}"].join("\n");
     const entities = state.entities.map((entity) => {
@@ -7632,6 +7669,7 @@
     }),
     getTextureCatalog: () => Object.keys(MATERIAL_INFO).map((texture)=>({texture,label:MATERIAL_INFO[texture],category:textureCategory(texture),uses:textureSurfaceUses(texture),official:officialTextureSources.get(texture)||null})),
     installOfficialTextureCatalog: (catalog) => installOfficialTextureCatalog(catalog),
+    installMapTextureCatalog: (catalog) => installMapTextureCatalog(catalog),
     generateMapText
   });
   requestAnimationFrame(animate);

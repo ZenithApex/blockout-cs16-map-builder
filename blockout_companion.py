@@ -29,7 +29,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 
-VERSION = "1.10.0"
+VERSION = "1.11.0"
 HOST = "127.0.0.1"
 PORT = 41716
 ONLINE_ORIGINS = {
@@ -112,6 +112,16 @@ OFFICIAL_MAPPING_WADS = (
 )
 OFFICIAL_WAD_CACHE = {}
 OFFICIAL_WAD_CACHE_LOCK = threading.Lock()
+BSP_TEXTURE_CACHE = {}
+BSP_TEXTURE_CACHE_LOCK = threading.Lock()
+OFFICIAL_CS_MAP_NAMES = {
+    "as_oilrig", "cs_747", "cs_assault", "cs_backalley", "cs_estate", "cs_havana",
+    "cs_italy", "cs_militia", "cs_office", "cs_siege", "de_airstrip", "de_aztec",
+    "de_cbble", "de_chateau", "de_dust", "de_dust2", "de_inferno", "de_nuke",
+    "de_piranesi", "de_prodigy", "de_storm", "de_survivor", "de_torn", "de_train",
+    "de_vertigo",
+}
+NON_BROWSE_MIPTEX = {"AAATRIGGER", "CLIP", "HINT", "NULL", "ORIGIN", "SKIP", "SKY"}
 TEXTURE_IMPORT_LOCK = threading.Lock()
 COMPILER_SETUP_LOCK = threading.Lock()
 BUILD_RUN_LOCK = threading.Lock()
@@ -418,6 +428,246 @@ def official_texture_png(game_path, wad_id, texture_name):
     if palette_count < 1 or len(palette) != palette_count * 3:
         raise BuildError("The official texture palette is incomplete.")
     return encode_indexed_png(width, height, pixels, palette, clean_name.startswith("{"))
+
+
+def installed_bsp_paths(game_path):
+    if not game_path:
+        return {}
+    maps_dir = game_path / "cstrike" / "maps"
+    if not maps_dir.is_dir():
+        return {}
+    try:
+        resolved_maps_dir = maps_dir.resolve()
+    except OSError:
+        return {}
+    result = {}
+    try:
+        candidates = sorted(maps_dir.glob("*.bsp"), key=lambda path: path.stem.lower())
+    except OSError:
+        return {}
+    for path in candidates[:2000]:
+        map_id = path.stem.lower()
+        try:
+            size = path.stat().st_size
+            resolved_path = path.resolve()
+        except OSError:
+            continue
+        if (
+            resolved_path.parent == resolved_maps_dir
+            and re.fullmatch(r"[a-z0-9_-]{1,64}", map_id)
+            and 124 <= size <= 128_000_000
+        ):
+            result[map_id] = path
+    return result
+
+
+def parse_bsp_texture_directory(path):
+    try:
+        stat = path.stat()
+        signature = (str(path.resolve()), stat.st_mtime_ns, stat.st_size)
+    except OSError as error:
+        raise BuildError("Could not inspect {}: {}".format(path.name, error))
+    with BSP_TEXTURE_CACHE_LOCK:
+        cached = BSP_TEXTURE_CACHE.get(signature)
+        if cached is not None:
+            return cached
+        for key in [key for key in BSP_TEXTURE_CACHE if key[0] == signature[0] and key != signature]:
+            BSP_TEXTURE_CACHE.pop(key, None)
+    entries = []
+    try:
+        with path.open("rb") as handle:
+            header = handle.read(124)
+            if len(header) != 124 or struct.unpack_from("<i", header, 0)[0] != 30:
+                raise BuildError("{} is not a supported GoldSrc BSP.".format(path.name))
+            texture_offset, texture_length = struct.unpack_from("<ii", header, 4 + 2 * 8)
+            if texture_offset < 124 or texture_length < 8 or texture_offset + texture_length > stat.st_size:
+                raise BuildError("{} has an invalid embedded texture section.".format(path.name))
+            handle.seek(texture_offset)
+            lump = handle.read(texture_length)
+    except OSError as error:
+        raise BuildError("Could not read {}: {}".format(path.name, error))
+    texture_count = struct.unpack_from("<i", lump, 0)[0]
+    if texture_count < 0 or texture_count > 100_000 or 4 + texture_count * 4 > len(lump):
+        raise BuildError("{} has an invalid embedded texture table.".format(path.name))
+    for index in range(texture_count):
+        mip_offset = struct.unpack_from("<i", lump, 4 + index * 4)[0]
+        if mip_offset < 0 or mip_offset + 40 > len(lump):
+            continue
+        raw_name, width, height, offset0, offset1, offset2, offset3 = struct.unpack_from(
+            "<16sII4I", lump, mip_offset
+        )
+        name = raw_name.split(b"\0", 1)[0].decode("latin-1", "ignore").strip().upper()
+        pixel_count = width * height
+        if (
+            not name or not all((offset0, offset1, offset2, offset3))
+            or width < 1 or height < 1 or width > 2048 or height > 2048
+            or pixel_count > 4_194_304 or offset0 < 40
+            or not (offset0 < offset1 < offset2 < offset3)
+        ):
+            continue
+        palette_offset = mip_offset + offset3 + pixel_count // 64
+        if palette_offset + 2 > len(lump):
+            continue
+        palette_count = struct.unpack_from("<H", lump, palette_offset)[0]
+        data_end = palette_offset + 2 + palette_count * 3
+        if palette_count < 1 or palette_count > 256 or data_end > len(lump):
+            continue
+        data_size = (data_end - mip_offset + 3) & ~3
+        if mip_offset + data_size > len(lump):
+            data_size = data_end - mip_offset
+        entries.append({
+            "name": name, "width": width, "height": height,
+            "filepos": texture_offset + mip_offset, "dataSize": data_size,
+        })
+    with BSP_TEXTURE_CACHE_LOCK:
+        BSP_TEXTURE_CACHE[signature] = entries
+    return entries
+
+
+def map_texture_catalog(game_path):
+    textures_by_name = {}
+    maps = []
+    paths = installed_bsp_paths(game_path)
+    ordered = sorted(paths.items(), key=lambda item: (item[0] not in OFFICIAL_CS_MAP_NAMES, item[0]))
+    for map_id, path in ordered:
+        try:
+            entries = parse_bsp_texture_directory(path)
+        except BuildError:
+            continue
+        visible = [entry for entry in entries if entry["name"] not in NON_BROWSE_MIPTEX]
+        if not visible:
+            continue
+        maps.append({
+            "id": map_id,
+            "name": path.name,
+            "label": map_id.replace("_", " ").title(),
+            "textures": len(visible),
+            "official": map_id in OFFICIAL_CS_MAP_NAMES,
+        })
+        for entry in visible:
+            existing = textures_by_name.get(entry["name"])
+            if existing:
+                existing["mapIds"].append(map_id)
+                continue
+            category, uses = classify_official_texture(entry["name"])
+            textures_by_name[entry["name"]] = {
+                "name": entry["name"],
+                "label": entry["name"].replace("_", " ").title(),
+                "category": category,
+                "uses": uses,
+                "source": "installed-map",
+                "mapId": map_id,
+                "map": path.name,
+                "mapIds": [map_id],
+                "width": entry["width"],
+                "height": entry["height"],
+            }
+    textures = list(textures_by_name.values())
+    return {
+        "pack": "Installed map textures",
+        "textures": textures,
+        "maps": maps,
+        "mapCount": len(maps),
+        "textureCount": len(textures),
+        "localOnly": True,
+    }
+
+
+def bsp_texture_bytes(game_path, map_id, texture_name):
+    path = installed_bsp_paths(game_path).get(str(map_id).lower())
+    if not path:
+        raise BuildError("That installed map is not available.")
+    clean_name = str(texture_name).upper()[:15]
+    entry = next((item for item in parse_bsp_texture_directory(path) if item["name"] == clean_name), None)
+    if not entry:
+        raise BuildError("That embedded texture is not present in the selected map.")
+    try:
+        with path.open("rb") as handle:
+            handle.seek(entry["filepos"])
+            value = handle.read(entry["dataSize"])
+    except OSError as error:
+        raise BuildError("Could not read the embedded map texture: {}".format(error))
+    if len(value) != entry["dataSize"] or len(value) < 40:
+        raise BuildError("The embedded map texture is incomplete.")
+    return value, entry
+
+
+def map_texture_png(game_path, map_id, texture_name):
+    lump, entry = bsp_texture_bytes(game_path, map_id, texture_name)
+    _, width, height, offset0, _, _, offset3 = struct.unpack_from("<16sII4I", lump, 0)
+    pixel_count = width * height
+    pixels = lump[offset0:offset0 + pixel_count]
+    palette_offset = offset3 + pixel_count // 64
+    if len(pixels) != pixel_count or palette_offset + 2 > len(lump):
+        raise BuildError("The embedded map texture mip data is incomplete.")
+    palette_count = struct.unpack_from("<H", lump, palette_offset)[0]
+    palette = lump[palette_offset + 2:palette_offset + 2 + palette_count * 3]
+    if palette_count < 1 or len(palette) != palette_count * 3:
+        raise BuildError("The embedded map texture palette is incomplete.")
+    return encode_indexed_png(width, height, pixels, palette, entry["name"].startswith("{"))
+
+
+def map_face_texture_names(map_text):
+    return {
+        match.group(1).upper()[:15]
+        for match in re.finditer(
+            r"^\s*\([^)]*\)\s*\([^)]*\)\s*\([^)]*\)\s+([^\s]+)",
+            map_text,
+            flags=re.MULTILINE,
+        )
+    }
+
+
+def build_embedded_map_texture_wad(game_path, map_text, target):
+    face_names = map_face_texture_names(map_text)
+    official_names = {
+        entry["name"]
+        for path in official_wad_paths(game_path).values()
+        for entry in parse_wad_directory(path)
+    }
+    needed = face_names - official_names - CUSTOM_TEXTURE_NAMES
+    source_index = {}
+    for map_id, path in sorted(
+        installed_bsp_paths(game_path).items(),
+        key=lambda item: (item[0] not in OFFICIAL_CS_MAP_NAMES, item[0]),
+    ):
+        for entry in parse_bsp_texture_directory(path):
+            if entry["name"] in needed:
+                source_index.setdefault(entry["name"], (map_id, entry))
+    selected = sorted(needed & source_index.keys())
+    if not selected:
+        if target.exists():
+            target.unlink()
+        return set()
+    lumps = []
+    for name in selected:
+        map_id, _ = source_index[name]
+        raw, _ = bsp_texture_bytes(game_path, map_id, name)
+        normalized = bytearray(raw)
+        normalized[:16] = name.encode("latin-1")[:15].ljust(16, b"\0")
+        while len(normalized) % 4:
+            normalized.append(0)
+        lumps.append((name, bytes(normalized)))
+    cursor = 12
+    positions = []
+    for _, lump in lumps:
+        positions.append(cursor)
+        cursor += len(lump)
+    directory_offset = cursor
+    directory = b"".join(
+        struct.pack(
+            "<iiiBBH16s", position, len(lump), len(lump), 67, 0, 0,
+            name.encode("latin-1")[:15].ljust(16, b"\0"),
+        )
+        for (name, lump), position in zip(lumps, positions)
+    )
+    target.write_bytes(
+        struct.pack("<4sii", b"WAD3", len(lumps), directory_offset)
+        + b"".join(lump for _, lump in lumps)
+        + directory
+    )
+    validate_custom_wad(target, require_power_of_two=False)
+    return set(selected)
 
 
 def node_runtime():
@@ -744,7 +994,7 @@ def current_status():
     }
 
 
-def replace_wad_paths(map_text, game_path, compiler_path=None):
+def replace_wad_paths(map_text, game_path, compiler_path=None, extra_wads=()):
     allowed = official_wad_paths(game_path)
     wad_paths = []
     for required in ("cstrike/cstrike.wad", "valve/halflife.wad"):
@@ -754,14 +1004,7 @@ def replace_wad_paths(map_text, game_path, compiler_path=None):
     for wad_id, path in allowed.items():
         for entry in parse_wad_directory(path):
             texture_to_wad.setdefault(entry["name"], wad_id)
-    face_names = {
-        match.group(1).upper()[:15]
-        for match in re.finditer(
-            r"^\s*\([^)]*\)\s*\([^)]*\)\s*\([^)]*\)\s+([^\s]+)",
-            map_text,
-            flags=re.MULTILINE,
-        )
-    }
+    face_names = map_face_texture_names(map_text)
     requested_wads = {
         Path(value).name.lower()
         for match in re.finditer(r'^"wad"\s+"([^"]*)"$', map_text, flags=re.MULTILINE)
@@ -774,6 +1017,7 @@ def replace_wad_paths(map_text, game_path, compiler_path=None):
             wad_paths.append(path)
     if compiler_path:
         wad_paths.append(compiler_path / "sdhlt.wad")
+    wad_paths.extend(Path(path) for path in extra_wads)
     custom_wad = ROOT / "sunburst.wad"
     if custom_wad.is_file() and custom_texture_names_in_map(map_text):
         wad_paths.append(custom_wad)
@@ -829,7 +1073,7 @@ def strip_embedded_wad_references(bsp_file, wad_names=("sunburst.wad", "sdhlt.wa
     bsp_file.write_bytes(data)
 
 
-def validate_custom_wad(wad_file):
+def validate_custom_wad(wad_file, require_power_of_two=True):
     """Reject malformed miptex records that compilers accept but GoldSrc cannot render."""
     data = wad_file.read_bytes()
     if len(data) < 12 or data[:4] != b"WAD3":
@@ -847,8 +1091,13 @@ def validate_custom_wad(wad_file):
         if file_offset < 12 or disk_size < 44 or file_offset + disk_size > directory_offset:
             raise BuildError("Custom texture {} points outside the WAD data section.".format(texture_name))
         width, height, mip0, mip1, mip2, mip3 = struct.unpack_from("<6I", data, file_offset + 16)
-        if width < 16 or height < 16 or width & (width - 1) or height & (height - 1):
-            raise BuildError("Custom texture {} must use power-of-two dimensions.".format(texture_name))
+        invalid_dimensions = (
+            width < 16 or height < 16 or width % 16 or height % 16
+            or (require_power_of_two and (width & (width - 1) or height & (height - 1)))
+        )
+        if invalid_dimensions:
+            requirement = "power-of-two" if require_power_of_two else "16-unit aligned"
+            raise BuildError("Custom texture {} must use {} dimensions.".format(texture_name, requirement))
         expected_offsets = (40, 40 + width * height, 40 + width * height * 5 // 4, 40 + width * height * 21 // 16)
         if (mip0, mip1, mip2, mip3) != expected_offsets:
             raise BuildError("Custom texture {} has invalid mipmap offsets.".format(texture_name))
@@ -1062,6 +1311,13 @@ def _compile_map(payload):
         raise BuildError("The build workspace could not be created: {}".format(error))
     map_file = build_dir / (map_name + ".map")
     base_file = build_dir / map_name
+    embedded_map_wad = build_dir / "blockout-map-textures.wad"
+    try:
+        embedded_map_textures = build_embedded_map_texture_wad(
+            game_path, map_text, embedded_map_wad
+        )
+    except OSError as error:
+        raise BuildError("The installed-map texture pack could not be prepared: {}".format(error))
     for extension in (".bsp", ".prt", ".pts", ".vis", ".lit", ".log", ".err", ".wa_", ".p0", ".p1", ".p2", ".p3"):
         stale_file = base_file.with_suffix(extension)
         if not stale_file.exists():
@@ -1075,7 +1331,10 @@ def _compile_map(payload):
             ) from error
     try:
         with map_file.open("w", encoding="utf-8", newline="\n") as stream:
-            stream.write(replace_wad_paths(map_text, game_path, Path(status["compilerPath"])))
+            stream.write(replace_wad_paths(
+                map_text, game_path, Path(status["compilerPath"]),
+                [embedded_map_wad] if embedded_map_textures else [],
+            ))
     except OSError as error:
         raise BuildError("The MAP source could not be written: {}".format(error))
 
@@ -1099,6 +1358,8 @@ def _compile_map(payload):
         custom_wad = ROOT / "sunburst.wad"
         if stage == "hlcsg" and custom_wad.is_file() and custom_textures_used:
             command.extend(["-wadinclude", str(custom_wad)])
+        if stage == "hlcsg" and embedded_map_textures:
+            command.extend(["-wadinclude", str(embedded_map_wad)])
         command.extend(profile.get(stage, []))
         command.append(str(base_file))
         try:
@@ -1146,7 +1407,11 @@ def _compile_map(payload):
         raise BuildError("The compilers finished without producing a BSP file.\n\n{}".format(full_log[-5000:]), full_log)
     if custom_wad.is_file() and custom_textures_used:
         validate_embedded_bsp_textures(bsp_file, custom_textures_used)
-    strip_embedded_wad_references(bsp_file)
+    if embedded_map_textures:
+        validate_embedded_bsp_textures(bsp_file, embedded_map_textures)
+    strip_embedded_wad_references(
+        bsp_file, ("sunburst.wad", "sdhlt.wad", "blockout-map-textures.wad")
+    )
 
     maps_dir = game_path / "cstrike" / "maps"
     maps_dir.mkdir(parents=True, exist_ok=True)
@@ -1332,6 +1597,32 @@ class BlockoutHandler(SimpleHTTPRequestHandler):
             game_path = detect_game_path(read_config())
             try:
                 self.send_binary(200, official_texture_png(game_path, wad_id, texture_name), "image/png")
+            except BuildError as error:
+                self.send_json(404, {"error": str(error)})
+            return
+        if path == "/api/map-textures":
+            if not self.is_paired():
+                self.send_pairing_required()
+                return
+            game_path = detect_game_path(read_config())
+            if not game_is_valid(game_path):
+                self.send_json(200, {"pack": "Installed map textures", "textures": [], "maps": [], "mapCount": 0, "textureCount": 0, "localOnly": True})
+                return
+            try:
+                self.send_json(200, map_texture_catalog(game_path))
+            except BuildError as error:
+                self.send_json(400, {"error": str(error)})
+            return
+        if path == "/api/map-textures/preview":
+            if not self.is_paired():
+                self.send_pairing_required()
+                return
+            query = parse_qs(urlparse(self.path).query)
+            map_id = query.get("map", [""])[0]
+            texture_name = query.get("texture", [""])[0]
+            game_path = detect_game_path(read_config())
+            try:
+                self.send_binary(200, map_texture_png(game_path, map_id, texture_name), "image/png")
             except BuildError as error:
                 self.send_json(404, {"error": str(error)})
             return

@@ -49,8 +49,8 @@ async function filesUnder(folder) {
     : [path.join(folder, entry.name)]))).flat();
 }
 const publicFiles = await filesUnder(path.join(root, "public"));
-if (publicFiles.some((file) => /\.wad$/i.test(file))) {
-  throw new Error("The public web build must not contain Valve or local WAD archives.");
+if (publicFiles.some((file) => /\.(wad|bsp)$/i.test(file))) {
+  throw new Error("The public web build must not contain Valve/community WAD or BSP files.");
 }
 
 const wad = await readFile(path.join(root, "assets", "sunburst-base.wad"));
