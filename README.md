@@ -30,6 +30,7 @@ The companion:
 - Cancels a running compiler process safely
 - Converts supported leak/error coordinates into clickable top-down plan markers
 - Copies the resulting BSP to `cstrike/maps`
+- Shortens imported blueprint titles to GoldSrc-safe map filenames before compiling and launching
 - Launches CS 1.6 on the map after an explicit **Build & Test** click
 
 The server only listens on the local computer. Build files stay under the `builds` folder.

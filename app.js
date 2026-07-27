@@ -6062,7 +6062,8 @@
   }
 
   function safeName(value) {
-    return (value || "my_first_map").trim().toLowerCase().replace(/[^a-z0-9_-]+/g, "_").replace(/^_+|_+$/g, "") || "my_first_map";
+    const normalized=(value||"my_first_map").trim().toLowerCase().replace(/[^a-z0-9_-]+/g,"_").replace(/^_+|_+$/g,"").slice(0,31).replace(/[_-]+$/g,"");
+    return normalized||"my_first_map";
   }
 
   function hexToRgb(value) {

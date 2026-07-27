@@ -29,9 +29,10 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 
-VERSION = "1.12.0"
+VERSION = "1.12.1"
 HOST = "127.0.0.1"
 PORT = 41716
+GOLDSRC_MAP_NAME_MAX = 31
 ONLINE_ORIGINS = {
     "https://blockout-cs16-map-builder-2026.zenithapex.chatgpt.site",
 }
@@ -1241,6 +1242,19 @@ def friendly_failure(log):
     return "A compiler stage failed. Review the final lines of the compile log."
 
 
+def safe_map_name(value):
+    """Return a conservative map slug accepted by the original GoldSrc client."""
+    normalized = re.sub(r"[^a-z0-9_-]+", "_", str(value or "").lower()).strip("_")
+    return normalized[:GOLDSRC_MAP_NAME_MAX].rstrip("_-")
+
+
+def preview_map_name(map_name, index):
+    """Keep lock-safe preview copies inside the same GoldSrc name budget."""
+    suffix = "_preview_{}".format(index)
+    prefix = safe_map_name(map_name)[:GOLDSRC_MAP_NAME_MAX - len(suffix)].rstrip("_-")
+    return (prefix or "map") + suffix
+
+
 def install_compiled_bsp(bsp_file, maps_dir, map_name):
     def is_locked(error):
         return isinstance(error, PermissionError) or getattr(error, "winerror", None) in (5, 32, 33) or getattr(error, "errno", None) in (13, 16, 32)
@@ -1253,7 +1267,8 @@ def install_compiled_bsp(bsp_file, maps_dir, map_name):
         if not is_locked(primary_error):
             raise
         for index in range(2, 1000):
-            candidate = maps_dir / ("{}_preview_{}.bsp".format(map_name, index))
+            candidate_name = preview_map_name(map_name, index)
+            candidate = maps_dir / (candidate_name + ".bsp")
             if candidate.exists():
                 continue
             try:
@@ -1275,8 +1290,7 @@ def _compile_map(payload):
         missing = ", ".join(status["missingTools"])
         raise BuildError("GoldSrc compiler tools are missing: {}.".format(missing))
 
-    raw_name = str(payload.get("mapName", ""))[:64].lower()
-    map_name = re.sub(r"[^a-z0-9_-]+", "_", raw_name).strip("_")
+    map_name = safe_map_name(payload.get("mapName", ""))
     map_text = payload.get("mapText")
     if not map_name:
         raise BuildError("Choose a valid map name.")

@@ -67,6 +67,14 @@ def write_bsp(path, textures):
 
 
 def main():
+    long_blueprint_name = "PixVerse_Image_Effect_prompt_Using_the_i"
+    safe_blueprint_name = COMPANION.safe_map_name(long_blueprint_name)
+    assert safe_blueprint_name == "pixverse_image_effect_prompt_us"
+    assert len(safe_blueprint_name) <= COMPANION.GOLDSRC_MAP_NAME_MAX
+    preview_name = COMPANION.preview_map_name(safe_blueprint_name, 27)
+    assert preview_name.endswith("_preview_27")
+    assert len(preview_name) <= COMPANION.GOLDSRC_MAP_NAME_MAX
+
     with tempfile.TemporaryDirectory(prefix="blockout-official-wad-test-") as folder:
         game = Path(folder)
         write_wad(game / "cstrike" / "cstrike.wad", [("CS_WALL", 1), ("SHARED", 2)])
@@ -127,7 +135,7 @@ def main():
         else:
             raise AssertionError("An arbitrary BSP path was accepted.")
 
-    print("Local game texture tests passed: WAD/BSP allowlists, dedupe, previews, classification, and compile embedding.")
+    print("Companion tests passed: GoldSrc-safe map names, WAD/BSP allowlists, dedupe, previews, classification, and compile embedding.")
 
 
 if __name__ == "__main__":

@@ -56,6 +56,7 @@ the archive and executable SHA-256 hashes before installation.
 - Confirm the hosted/public package contains no Valve WAD or extracted official texture image; official previews must come only from the paired local companion.
 - Save a project, reload the page, and confirm autosave recovery.
 - Export `.map`, run preflight, compile, install, and launch the BSP.
+- Import a blueprint with a title longer than 31 characters, build it, and confirm the shortened BSP launches instead of reporting `map not found`.
 - Try Draft, Playtest, and Final build profiles, then cancel one running build.
 - If a compiler error reports a coordinate, click its diagnostic to focus the top-down plan.
 - If Node.js is installed, import a 256×256 texture and compile a room using it.
