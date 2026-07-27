@@ -870,13 +870,15 @@
           <div class="texture-import-status hidden" id="textureImportStatus" role="status"></div>
         </section>
         <div class="build-dialog-heading"><div><span class="welcome-badge">MATERIAL LIBRARY</span><h2>Choose a texture</h2></div><button class="icon-button" id="closeTextureDialog" aria-label="Close">×</button></div>
-        <p class="analysis-intro" id="textureSummary">60 materials with visual miniatures · stock, Sunburst, and 43 CC0 surfaces</p>
+        <p class="analysis-intro" id="textureSummary">Included, imported, and locally detected official Steam materials with visual miniatures</p>
         <div class="library-filters texture-library-filters">
           <input id="textureSearch" placeholder="Search names or texture codes" />
           <select id="textureCategory"><option value="all">All categories</option><option value="architecture">Architecture</option><option value="concrete">Concrete</option><option value="brick">Brick</option><option value="stone">Stone &amp; gems</option><option value="ground">Ground</option><option value="nature">Nature</option><option value="organic">Organic patterns</option><option value="fabric">Fabric &amp; leather</option><option value="plaster">Plaster</option><option value="floor">Floors</option><option value="metal">Metal</option><option value="wood">Wood</option><option value="sunburst">Sunburst</option><option value="favorites">Favorites</option></select>
           <select id="textureUseFilter"><option value="recommended">Recommended here</option><option value="all">All surface uses</option><option value="wall">Walls</option><option value="floor">Floors</option><option value="tile">Tiles</option><option value="ground">Outdoor ground</option><option value="ceiling">Ceilings</option><option value="props">Props &amp; trim</option></select>
+          <select id="textureWadFilter"><option value="all">All texture packs</option><option value="included">Included &amp; imported</option></select>
           <select id="textureTarget"><option value="material">Selected material</option><option value="floor">Room floor</option><option value="ceiling">Room ceiling</option><option value="ground">Map-wide ground</option></select>
         </div>
+        <p class="official-texture-status" id="officialTextureStatus">Official Steam library: start or pair the Windows companion to browse textures from your legitimate CS 1.6 installation.</p>
         <div class="texture-grid" id="textureGrid"></div>
       </div>
     </dialog>

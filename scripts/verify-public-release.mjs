@@ -1,4 +1,4 @@
-import { access, readFile } from "node:fs/promises";
+import { access, readFile, readdir } from "node:fs/promises";
 import path from "node:path";
 
 const root = process.cwd();
@@ -40,6 +40,17 @@ for (const name of stock) {
   } catch (error) {
     if (error?.code !== "ENOENT") throw error;
   }
+}
+
+async function filesUnder(folder) {
+  const entries = await readdir(folder, { withFileTypes: true });
+  return (await Promise.all(entries.map((entry) => entry.isDirectory()
+    ? filesUnder(path.join(folder, entry.name))
+    : [path.join(folder, entry.name)]))).flat();
+}
+const publicFiles = await filesUnder(path.join(root, "public"));
+if (publicFiles.some((file) => /\.wad$/i.test(file))) {
+  throw new Error("The public web build must not contain Valve or local WAD archives.");
 }
 
 const wad = await readFile(path.join(root, "assets", "sunburst-base.wad"));

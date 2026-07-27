@@ -1,6 +1,6 @@
 {
   "name": "blockout-cs16-map-builder",
-  "version": "1.9.0",
+  "version": "1.10.0",
   "private": true,
   "license": "MIT",
   "type": "module",
@@ -10,7 +10,7 @@
     "prepare:manifest": "node scripts/prepare-public-manifest.mjs",
     "dev": "node scripts/prepare-public.mjs && vinext dev",
     "build": "node scripts/prepare-public.mjs && vinext build && node scripts/prepare-sites.mjs",
-    "check": "node --check app.js && node scripts/verify-public-release.mjs",
+    "check": "node --check app.js && python scripts/test_official_wad_catalog.py && node scripts/verify-public-release.mjs",
     "package:windows": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/package-windows.ps1",
     "start": "vinext start"
   },

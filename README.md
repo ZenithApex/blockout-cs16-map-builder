@@ -71,7 +71,7 @@ The hosted editor can securely pair with the Windows companion for **Build & Tes
 - Capture selections in Custom Prefab Studio with generated miniatures, categories, tags, pivot choice, rotation/mirroring, editing, and JSON import/export
 - Work from organized Start, Build, Game, Logic, and Assets toolspaces, switch between Beginner and All-tools modes, and recall recently used tools
 - Find any tool globally with the toolbox search or `Ctrl+K`, while advanced project actions stay grouped in the structured **More** menu
-- Browse 60 materials grouped into 13 categories, with real miniature previews, source badges, search, and locally saved favorites
+- Browse 60 included materials plus every mapping texture detected in 24 official CS 1.6/Half-Life Steam WADs (4,912 unique textures in a complete current install), with on-demand miniatures, categories, surface-use recommendations, WAD filters, search, and locally saved favorites
 - Drag in PNG, JPG, WebP, or GIF images to create new compile-ready GoldSrc materials, with local category and name suggestions
 - Analyze CT/T timings to bombsites and flag direct spawn-to-objective sightlines
 - Edit polygons by dragging numbered corners, with automatic GoldSrc convexity validation
@@ -221,6 +221,8 @@ Choose **Layouts** in the top bar to start from one of 6 editable blockouts. Sea
 ## Texture library
 
 Select a room or structure and choose **Browse texture library**. The browser recommends only textures suited to the current surface: walls, floors, tiles, outdoor ground, ceilings, or props and trim. You can switch the surface-use filter to another group or **All surface uses** when intentionally making an unusual choice. Material-family filters for architecture, concrete, brick, stone, nature, plaster, metal, wood, and Sunburst remain available, and every card shows its miniature, source, material family, and surface-use badges. The compact material dropdowns are contextual too—a selected wall lists wall textures, a floor lists floor textures, and terrain lists ground textures.
+
+When the Windows companion is running, Blockout also indexes the official mapping WADs already installed by Steam, including the Counter-Strike base library and map packs such as Dust, Aztec, Office, Havana, Piranesi, Storm, Chateau, and Vertigo. Choose a WAD in the texture-pack filter or search across the complete local catalog. Miniatures are decoded on demand from the local WAD; Valve images and archives are never copied into this repository or the hosted web edition. Compilation automatically resolves selected texture names to the required allowlisted Steam WAD paths.
 
 The library includes 43 downloaded seamless CC0 materials, 7 procedural
 placeholders for game-supplied material names, and the 10-texture original

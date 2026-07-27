@@ -23,12 +23,13 @@ import urllib.error
 import urllib.request
 import webbrowser
 import zipfile
+import zlib
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 
-VERSION = "1.9.0"
+VERSION = "1.10.0"
 HOST = "127.0.0.1"
 PORT = 41716
 ONLINE_ORIGINS = {
@@ -99,6 +100,18 @@ TEXTURE_CATEGORIES = {
     "organic", "fabric", "plaster", "floor", "metal", "wood",
 }
 TEXTURE_SURFACE_USES = {"wall", "floor", "tile", "ground", "ceiling", "props"}
+OFFICIAL_MAPPING_WADS = (
+    ("cstrike", "cstrike.wad"), ("cstrike", "ajawad.wad"), ("cstrike", "chateau.wad"),
+    ("cstrike", "cs_747.wad"), ("cstrike", "cs_assault.wad"), ("cstrike", "cs_bdog.wad"),
+    ("cstrike", "cs_cbble.wad"), ("cstrike", "cs_dust.wad"), ("cstrike", "cs_havana.wad"),
+    ("cstrike", "cs_office.wad"), ("cstrike", "cstraining.wad"), ("cstrike", "de_airstrip.wad"),
+    ("cstrike", "de_aztec.wad"), ("cstrike", "de_piranesi.wad"), ("cstrike", "de_storm.wad"),
+    ("cstrike", "de_vertigo.wad"), ("cstrike", "itsitaly.wad"), ("cstrike", "n0th1ng.wad"),
+    ("cstrike", "prodigy.wad"), ("cstrike", "torntextures.wad"), ("cstrike", "tswad.wad"),
+    ("valve", "halflife.wad"), ("valve", "liquids.wad"), ("valve", "xeno.wad"),
+)
+OFFICIAL_WAD_CACHE = {}
+OFFICIAL_WAD_CACHE_LOCK = threading.Lock()
 TEXTURE_IMPORT_LOCK = threading.Lock()
 COMPILER_SETUP_LOCK = threading.Lock()
 BUILD_RUN_LOCK = threading.Lock()
@@ -214,6 +227,197 @@ def texture_manifest():
         return value if isinstance(value, dict) and isinstance(value.get("textures"), list) else {"pack": "Blockout materials", "textures": []}
     except (OSError, ValueError):
         return {"pack": "Blockout materials", "textures": []}
+
+
+def official_wad_paths(game_path):
+    """Return the fixed, redistributable-by-reference Steam WAD allowlist."""
+    if not game_path:
+        return {}
+    result = {}
+    for game_dir, filename in OFFICIAL_MAPPING_WADS:
+        path = game_path / game_dir / filename
+        if path.is_file():
+            result["{}/{}".format(game_dir, filename)] = path
+    return result
+
+
+def classify_official_texture(name):
+    text = name.lower()
+    special = (
+        text.startswith(("!", "*")) or "sky" in text
+        or any(word in text for word in ("trigger", "clip", "origin", "hint", "skip", "null"))
+    )
+    if special:
+        return "architecture", ["props"]
+    if any(word in text for word in ("grass", "dirt", "sand", "gravel", "soil", "ground", "terrain")):
+        return "ground", ["ground", "floor"]
+    if any(word in text for word in ("floor", "tile", "pave", "road", "street", "cobble", "walkway")):
+        return "floor", ["floor", "tile", "ground"]
+    if any(word in text for word in ("ceiling", "ceil", "roof")):
+        return "architecture", ["ceiling", "wall"]
+    if any(word in text for word in ("brick", "block")):
+        return "brick", ["wall", "floor"]
+    if any(word in text for word in ("wood", "crate", "box", "door")):
+        return "wood", ["props", "wall", "floor"]
+    if any(word in text for word in ("metal", "steel", "rust", "pipe", "vent")):
+        return "metal", ["props", "wall", "floor", "ceiling"]
+    if any(word in text for word in ("rock", "stone", "marble")):
+        return "stone", ["wall", "floor", "ground"]
+    if any(word in text for word in ("concrete", "cement", "conc")):
+        return "concrete", ["wall", "floor", "ceiling"]
+    if any(word in text for word in ("plaster", "stucco")):
+        return "plaster", ["wall", "ceiling"]
+    if any(word in text for word in ("water", "slime", "lava", "tree", "leaf", "plant")):
+        return "nature", ["ground", "props"]
+    return "architecture", ["wall", "floor", "ceiling", "props"]
+
+
+def parse_wad_directory(path):
+    """Parse safe, uncompressed WAD3 miptex metadata without extracting assets."""
+    try:
+        stat = path.stat()
+        signature = (str(path.resolve()), stat.st_mtime_ns, stat.st_size)
+    except OSError as error:
+        raise BuildError("Could not inspect {}: {}".format(path.name, error))
+    with OFFICIAL_WAD_CACHE_LOCK:
+        cached = OFFICIAL_WAD_CACHE.get(signature)
+        if cached is not None:
+            return cached
+        for key in [key for key in OFFICIAL_WAD_CACHE if key[0] == signature[0] and key != signature]:
+            OFFICIAL_WAD_CACHE.pop(key, None)
+    entries = []
+    try:
+        with path.open("rb") as handle:
+            header = handle.read(12)
+            if len(header) != 12:
+                raise BuildError("{} has an incomplete WAD header.".format(path.name))
+            magic, count, directory_offset = struct.unpack("<4sii", header)
+            if magic != b"WAD3" or count < 0 or count > 100_000:
+                raise BuildError("{} is not a supported WAD3 texture library.".format(path.name))
+            if directory_offset < 12 or directory_offset + count * 32 > stat.st_size:
+                raise BuildError("{} has an invalid texture directory.".format(path.name))
+            handle.seek(directory_offset)
+            directory = handle.read(count * 32)
+            for index in range(count):
+                filepos, disksize, size, lump_type, compression, _, raw_name = struct.unpack_from(
+                    "<iiiBBH16s", directory, index * 32
+                )
+                name = raw_name.split(b"\0", 1)[0].decode("latin-1", "ignore").strip().upper()
+                if (
+                    lump_type != 67 or compression != 0 or not name
+                    or filepos < 0 or disksize < 40 or size < 40
+                    or filepos + disksize > stat.st_size
+                ):
+                    continue
+                handle.seek(filepos)
+                mip_header = handle.read(40)
+                if len(mip_header) != 40:
+                    continue
+                _, width, height, offset0, offset1, offset2, offset3 = struct.unpack("<16sII4I", mip_header)
+                pixel_count = width * height
+                if (
+                    width < 1 or height < 1 or width > 2048 or height > 2048
+                    or pixel_count > 4_194_304 or offset0 < 40
+                    or not (offset0 < offset1 < offset2 < offset3 < disksize)
+                ):
+                    continue
+                entries.append({
+                    "name": name, "width": width, "height": height,
+                    "filepos": filepos, "disksize": disksize,
+                })
+    except OSError as error:
+        raise BuildError("Could not read {}: {}".format(path.name, error))
+    with OFFICIAL_WAD_CACHE_LOCK:
+        OFFICIAL_WAD_CACHE[signature] = entries
+    return entries
+
+
+def official_texture_catalog(game_path):
+    wad_paths = official_wad_paths(game_path)
+    textures = []
+    wads = []
+    seen = set()
+    for wad_id, path in wad_paths.items():
+        entries = parse_wad_directory(path)
+        added = 0
+        for entry in entries:
+            if entry["name"] in seen:
+                continue
+            seen.add(entry["name"])
+            category, uses = classify_official_texture(entry["name"])
+            textures.append({
+                "name": entry["name"],
+                "label": entry["name"].replace("_", " ").title(),
+                "category": category,
+                "uses": uses,
+                "source": "official-steam",
+                "wadId": wad_id,
+                "wad": path.name,
+                "width": entry["width"],
+                "height": entry["height"],
+            })
+            added += 1
+        wads.append({"id": wad_id, "name": path.name, "textures": added})
+    return {
+        "pack": "Official Steam WADs",
+        "textures": textures,
+        "wads": wads,
+        "wadCount": len(wads),
+        "textureCount": len(textures),
+        "localOnly": True,
+    }
+
+
+def png_chunk(kind, data):
+    return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data) & 0xFFFFFFFF)
+
+
+def encode_indexed_png(width, height, pixels, palette, transparent=False):
+    rgba_rows = bytearray()
+    for y in range(height):
+        rgba_rows.append(0)
+        for value in pixels[y * width:(y + 1) * width]:
+            offset = value * 3
+            if offset + 2 < len(palette):
+                rgba_rows.extend(palette[offset:offset + 3])
+            else:
+                rgba_rows.extend((255, 0, 255))
+            rgba_rows.append(0 if transparent and value == 255 else 255)
+    header = struct.pack(">IIBBBBB", width, height, 8, 6, 0, 0, 0)
+    return (
+        b"\x89PNG\r\n\x1a\n"
+        + png_chunk(b"IHDR", header)
+        + png_chunk(b"IDAT", zlib.compress(bytes(rgba_rows), 6))
+        + png_chunk(b"IEND", b"")
+    )
+
+
+def official_texture_png(game_path, wad_id, texture_name):
+    path = official_wad_paths(game_path).get(wad_id)
+    if not path:
+        raise BuildError("That official WAD is not available in this Steam installation.")
+    clean_name = str(texture_name).upper()[:15]
+    entry = next((item for item in parse_wad_directory(path) if item["name"] == clean_name), None)
+    if not entry:
+        raise BuildError("That texture is not present in the selected official WAD.")
+    try:
+        with path.open("rb") as handle:
+            handle.seek(entry["filepos"])
+            lump = handle.read(entry["disksize"])
+    except OSError as error:
+        raise BuildError("Could not read the official texture: {}".format(error))
+    _, width, height, offset0, _, _, _ = struct.unpack_from("<16sII4I", lump, 0)
+    pixel_count = width * height
+    pixels = lump[offset0:offset0 + pixel_count]
+    palette_offset = offset0 + pixel_count + pixel_count // 4 + pixel_count // 16 + pixel_count // 64
+    if len(pixels) != pixel_count or palette_offset + 2 > len(lump):
+        raise BuildError("The official texture mip data is incomplete.")
+    palette_count = struct.unpack_from("<H", lump, palette_offset)[0]
+    palette_start = palette_offset + 2
+    palette = lump[palette_start:palette_start + palette_count * 3]
+    if palette_count < 1 or len(palette) != palette_count * 3:
+        raise BuildError("The official texture palette is incomplete.")
+    return encode_indexed_png(width, height, pixels, palette, clean_name.startswith("{"))
 
 
 def node_runtime():
@@ -517,6 +721,7 @@ def current_status():
     }
     maps_path = game_path / "cstrike" / "maps" if game_path else None
     install_parent = maps_path if maps_path and maps_path.is_dir() else (game_path / "cstrike" if game_path else None)
+    official_wads = official_wad_paths(game_path)
     return {
         "connected": True,
         "version": VERSION,
@@ -529,6 +734,7 @@ def current_status():
         "wads": {name: str(path) if path and path.is_file() else "" for name, path in stock_wads.items()},
         "stockWadsFound": all(path and path.is_file() for path in stock_wads.values()),
         "missingWads": ["{}.wad".format(name) for name, path in stock_wads.items() if not path or not path.is_file()],
+        "officialWadsFound": len(official_wads),
         "customWadFound": (ROOT / "sunburst.wad").is_file(),
         "textureImporterReady": node_runtime() is not None,
         "verifiedCompilerInstaller": True,
@@ -539,13 +745,46 @@ def current_status():
 
 
 def replace_wad_paths(map_text, game_path, compiler_path=None):
-    wad_paths = [game_path / "cstrike" / "cstrike.wad", game_path / "valve" / "halflife.wad"]
+    allowed = official_wad_paths(game_path)
+    wad_paths = []
+    for required in ("cstrike/cstrike.wad", "valve/halflife.wad"):
+        if required in allowed:
+            wad_paths.append(allowed[required])
+    texture_to_wad = {}
+    for wad_id, path in allowed.items():
+        for entry in parse_wad_directory(path):
+            texture_to_wad.setdefault(entry["name"], wad_id)
+    face_names = {
+        match.group(1).upper()[:15]
+        for match in re.finditer(
+            r"^\s*\([^)]*\)\s*\([^)]*\)\s*\([^)]*\)\s+([^\s]+)",
+            map_text,
+            flags=re.MULTILINE,
+        )
+    }
+    requested_wads = {
+        Path(value).name.lower()
+        for match in re.finditer(r'^"wad"\s+"([^"]*)"$', map_text, flags=re.MULTILINE)
+        for value in match.group(1).split(";")
+        if value.strip()
+    }
+    needed_wad_ids = {texture_to_wad[name] for name in face_names if name in texture_to_wad}
+    for wad_id, path in allowed.items():
+        if wad_id in needed_wad_ids or path.name.lower() in requested_wads:
+            wad_paths.append(path)
     if compiler_path:
         wad_paths.append(compiler_path / "sdhlt.wad")
     custom_wad = ROOT / "sunburst.wad"
     if custom_wad.is_file() and custom_texture_names_in_map(map_text):
         wad_paths.append(custom_wad)
-    value = ";".join(str(path) for path in wad_paths if path.is_file())
+    unique_paths = []
+    seen_paths = set()
+    for path in wad_paths:
+        resolved = str(path.resolve()).lower() if path.is_file() else ""
+        if resolved and resolved not in seen_paths:
+            seen_paths.add(resolved)
+            unique_paths.append(path)
+    value = ";".join(str(path) for path in unique_paths)
     if not value:
         return map_text
     line = '"wad" "{}"'.format(value)
@@ -1032,6 +1271,13 @@ class BlockoutHandler(SimpleHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(data)
 
+    def send_binary(self, status_code, data, content_type):
+        self.send_response(status_code)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
+
     def do_OPTIONS(self):
         if not self.is_known_origin():
             self.send_response(403)
@@ -1062,6 +1308,32 @@ class BlockoutHandler(SimpleHTTPRequestHandler):
                 self.send_pairing_required()
                 return
             self.send_json(200, {"textures": texture_manifest().get("textures", []), "importReady": node_runtime() is not None})
+            return
+        if path == "/api/official-textures":
+            if not self.is_paired():
+                self.send_pairing_required()
+                return
+            game_path = detect_game_path(read_config())
+            if not game_is_valid(game_path):
+                self.send_json(200, {"pack": "Official Steam WADs", "textures": [], "wads": [], "wadCount": 0, "textureCount": 0, "localOnly": True})
+                return
+            try:
+                self.send_json(200, official_texture_catalog(game_path))
+            except BuildError as error:
+                self.send_json(400, {"error": str(error)})
+            return
+        if path == "/api/official-textures/preview":
+            if not self.is_paired():
+                self.send_pairing_required()
+                return
+            query = parse_qs(urlparse(self.path).query)
+            wad_id = query.get("wad", [""])[0]
+            texture_name = query.get("texture", [""])[0]
+            game_path = detect_game_path(read_config())
+            try:
+                self.send_binary(200, official_texture_png(game_path, wad_id, texture_name), "image/png")
+            except BuildError as error:
+                self.send_json(404, {"error": str(error)})
             return
         if self.is_online_request() and path.startswith("/textures/previews/"):
             if not self.is_paired():

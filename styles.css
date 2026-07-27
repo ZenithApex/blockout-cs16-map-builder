@@ -298,7 +298,8 @@ dialog::backdrop { background: rgba(5,7,4,.8); backdrop-filter: blur(4px); }
 .library-dialog, .analysis-dialog { width: min(760px, 80vw); max-height: 82vh; overflow: hidden; }
 .library-card { padding: 22px; }
 .library-filters { display: grid; grid-template-columns: 1fr 150px 150px; gap: 8px; margin: 16px 0 12px; }
-.texture-library-filters { grid-template-columns: minmax(170px,1fr) repeat(3,135px); }
+.texture-library-filters { grid-template-columns: minmax(170px,1.4fr) repeat(2,minmax(120px,1fr)); }
+.official-texture-status { margin: -3px 0 10px; padding: 7px 9px; border: 1px solid #34402f; border-radius: 6px; color: #a9b8a0; background: #10150f; font-size: 7px; line-height: 1.45; }
 .library-filters input, .library-filters select { min-width: 0; padding: 9px; border: 1px solid var(--line); border-radius: 6px; outline: 0; background: #0f130e; color: var(--text); font-size: 9px; }
 .texture-grid { max-height: 52vh; overflow: auto; padding-right: 4px; }
 .texture-category-section { margin-bottom: 16px; }
@@ -312,6 +313,7 @@ dialog::backdrop { background: rgba(5,7,4,.8); backdrop-filter: blur(4px); }
 .texture-card strong { margin-top: 6px; font-size: 8px; }
 .texture-card small { margin-top: 2px; color: var(--faint); font: 7px ui-monospace; }
 .texture-source { position: absolute; z-index: 1; left: 10px; top: 10px; padding: 3px 5px; border-radius: 3px; color: #e7f1df; background: #0a0d09cc; font: 6px ui-monospace, monospace; letter-spacing: .06em; }
+.texture-source.official { color: #dff8ad; border: 1px solid #697d38; background: #18210ee8; }
 .texture-category-badge { display: inline-block; max-width: 100%; margin-top: 5px; padding: 3px 5px; border: 1px solid #34402f; border-radius: 999px; color: #9ead94; font-size: 6px; text-transform: uppercase; }
 .texture-use-badges { min-height: 18px; display: flex; flex-wrap: wrap; gap: 3px; margin-top: 4px; }
 .texture-use-badges span { padding: 2px 4px; border-radius: 3px; color: #b9d7d0; background: #18302d; font-size: 5px; font-weight: 850; letter-spacing: .04em; text-transform: uppercase; }

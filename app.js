@@ -14,7 +14,16 @@
     "C1A0_LABW3", "CSTRIKE_WR4RGH", "CSTRIKE_ME4METL",
     "CSTRIKE_CH3TILE", "CSTRIKE_FP2DARK", "BCRATE02", "C1A1_CRATE1"
   ]);
+  const officialTextureSources = new Map();
+  let officialTextureWads = [];
   const texturePreviewUrl = (texture, cacheBust = "") => {
+    const official = officialTextureSources.get(texture);
+    if (official) {
+      const parameters = new URLSearchParams({wad:official.wadId,texture});
+      if (cacheBust) parameters.set("v", cacheBust);
+      if (HOSTED_MODE && companionPairingCode) parameters.set("pair", companionPairingCode);
+      return `${COMPANION_API}/api/official-textures/preview?${parameters}`;
+    }
     const base = texture.startsWith("USR_") && COMPANION_API
       ? `${COMPANION_API}/textures/previews`
       : location.protocol === "file:" ? "textures/previews" : "/textures/previews";
@@ -209,22 +218,36 @@
     MATERIAL_INFO[texture]=label;
     if(category)CC0_TEXTURE_CATEGORIES[texture]=category;
     if(Array.isArray(uses)&&uses.length)MATERIAL_SURFACE_USES[texture]=[...new Set(uses.filter((use)=>TEXTURE_USE_INFO[use]))];
-    if(materialImages[texture]&&!cacheBust)return;
+    ensureMaterialImage(texture,cacheBust);
+  }
+
+  function ensureMaterialImage(texture,cacheBust="") {
+    if(!texture||materialImages[texture]&&!cacheBust)return materialImages[texture]||null;
     const image = new Image();
-    if (HOSTED_MODE && texture.startsWith("USR_")) image.crossOrigin = "anonymous";
+    if (HOSTED_MODE && (texture.startsWith("USR_")||officialTextureSources.has(texture))) image.crossOrigin = "anonymous";
     image.onload = () => {
       try{const canvas=document.createElement("canvas"),context=canvas.getContext("2d",{willReadFrequently:true});canvas.width=canvas.height=1;context.drawImage(image,0,0,1,1);const [red,green,blue]=context.getImageData(0,0,1,1).data;MATERIAL_COLORS[texture]=`rgb(${red},${green},${blue})`;}catch(_){}
       previewPatterns.clear(); drawPreview();
     };
     image.src = texturePreviewUrl(texture,cacheBust);
     materialImages[texture] = image;
+    return image;
+  }
+
+  function registerOfficialMaterial(item) {
+    const texture=String(item?.name||"").toUpperCase();
+    if(!texture||!item?.wadId)return;
+    MATERIAL_INFO[texture]=item.label||texture;
+    CC0_TEXTURE_CATEGORIES[texture]=item.category||"architecture";
+    if(Array.isArray(item.uses)&&item.uses.length)MATERIAL_SURFACE_USES[texture]=[...new Set(item.uses.filter((use)=>TEXTURE_USE_INFO[use]))];
+    officialTextureSources.set(texture,{wadId:item.wadId,wad:item.wad||item.wadId.split("/").pop(),width:item.width,height:item.height});
   }
   Object.keys(MATERIAL_COLORS).forEach((texture) => registerMaterial(texture));
 
   function populateMaterialSelect(id,usage,current="") {
     const select=$(`#${id}`);
     if(!select)return;
-    const suitable=Object.keys(MATERIAL_INFO).filter((texture)=>textureSurfaceUses(texture).includes(usage))
+    const suitable=Object.keys(MATERIAL_INFO).filter((texture)=>!officialTextureSources.has(texture)&&textureSurfaceUses(texture).includes(usage))
       .sort((a,b)=>MATERIAL_INFO[a].localeCompare(MATERIAL_INFO[b]));
     if(current&&MATERIAL_INFO[current]&&!suitable.includes(current))suitable.unshift(current);
     select.innerHTML="";
@@ -247,7 +270,7 @@
   installMaterialOptions();
 
   function previewPattern(texture, scale = .35, uv = null) {
-    const image = materialImages[texture];
+    const image = materialImages[texture]||ensureMaterialImage(texture);
     if (!image?.complete || !image.naturalWidth) return null;
     const transform = normalizedUv(uv);
     const key = `${texture}:${scale}:${transform.shiftX}:${transform.shiftY}:${transform.rotation}:${transform.scaleX}:${transform.scaleY}`;
@@ -354,14 +377,14 @@
     const storedPrefabs = JSON.parse(localStorage.getItem(CUSTOM_PREFAB_STORAGE_KEY) || "[]");
     customPrefabs = Array.isArray(storedPrefabs) ? storedPrefabs.filter(isValidCustomPrefab) : [];
   } catch (_) { customPrefabs = []; }
-  const MIN_COMPANION_VERSION = "1.6.0";
+  const MIN_COMPANION_VERSION = "1.10.0";
 
   function environmentFor(project = state) {
     project.environment = { ...DEFAULT_ENVIRONMENT, ...(project.environment || {}) };
     project.environment.groundSize = Math.max(16, Math.min(128, Number(project.environment.groundSize) || 32));
     project.environment.groundPadding = Math.max(2, Math.min(32, Number(project.environment.groundPadding) || 4));
     project.environment.groundElevation = Math.max(-8, Math.min(16, Number(project.environment.groundElevation) || 0));
-    if (!MATERIAL_INFO[project.environment.groundMaterial]) project.environment.groundMaterial = DEFAULT_ENVIRONMENT.groundMaterial;
+    if (!/^[^\s"]{1,15}$/.test(String(project.environment.groundMaterial||""))) project.environment.groundMaterial = DEFAULT_ENVIRONMENT.groundMaterial;
     if (!SKY_THEMES[project.environment.skyName]) project.environment.skyName = DEFAULT_ENVIRONMENT.skyName;
     ensureLayers(project);
     return project.environment;
@@ -3720,17 +3743,48 @@
   }
 
   async function refreshTextureCatalog() {
+    let customCatalog=null,officialCatalog=null;
     try {
-      const catalog=await companionRequest("/api/textures");
-      (catalog.textures||[]).forEach((item)=>registerMaterial(item.name,item.label||item.name,item.category||"architecture","",item.uses));
-      installMaterialOptions();
-      if($("#textureDialog")?.open)renderTextureBrowser();
-      return catalog;
-    } catch (_) { return null; }
+      customCatalog=await companionRequest("/api/textures");
+      (customCatalog.textures||[]).forEach((item)=>registerMaterial(item.name,item.label||item.name,item.category||"architecture","",item.uses));
+    } catch (_) {}
+    try {
+      officialCatalog=await companionRequest("/api/official-textures");
+      installOfficialTextureCatalog(officialCatalog);
+    } catch (_) {
+      officialCatalog=null;officialTextureWads=[];
+    }
+    installMaterialOptions();
+    populateTextureWadFilter();
+    const status=$("#officialTextureStatus");
+    if(status)status.textContent=officialCatalog
+      ? `Official Steam library: ${officialCatalog.textureCount.toLocaleString()} textures from ${officialCatalog.wadCount} local WADs. Valve assets stay on this computer.`
+      : "Official Steam library: start or pair the Windows companion to browse textures from your legitimate CS 1.6 installation.";
+    if($("#textureDialog")?.open)renderTextureBrowser();
+    return {custom:customCatalog,official:officialCatalog};
+  }
+
+  function installOfficialTextureCatalog(catalog) {
+    officialTextureSources.clear();
+    (catalog?.textures||[]).forEach(registerOfficialMaterial);
+    officialTextureWads=catalog?.wads||[];
+    populateTextureWadFilter();
+    refresh();
+    if($("#textureDialog")?.open)renderTextureBrowser();
+    return {textures:officialTextureSources.size,wads:officialTextureWads.length};
+  }
+
+  function populateTextureWadFilter() {
+    const select=$("#textureWadFilter");
+    if(!select)return;
+    const current=select.value||"all";
+    select.innerHTML='<option value="all">All texture packs</option><option value="included">Included & imported</option>'
+      +officialTextureWads.map((wad)=>`<option value="${html(wad.id)}">${html(wad.name)} (${wad.textures})</option>`).join("");
+    select.value=[...select.options].some((option)=>option.value===current)?current:"all";
   }
 
   function unregisterMaterial(texture) {
-    delete MATERIAL_INFO[texture];delete MATERIAL_COLORS[texture];delete CC0_TEXTURE_CATEGORIES[texture];delete MATERIAL_SURFACE_USES[texture];delete materialImages[texture];
+    delete MATERIAL_INFO[texture];delete MATERIAL_COLORS[texture];delete CC0_TEXTURE_CATEGORIES[texture];delete MATERIAL_SURFACE_USES[texture];delete materialImages[texture];officialTextureSources.delete(texture);
     previewPatterns.clear();textureFavorites.delete(texture);
     localStorage.setItem("blockout-texture-favorites",JSON.stringify([...textureFavorites]));
     ["materialSelect","floorMaterialSelect","ceilingMaterialSelect","doorMaterialSelect","environmentGroundMaterialSelect"].forEach((id)=>{
@@ -3967,22 +4021,25 @@
   }
 
   function renderTextureBrowser() {
-    const query = $("#textureSearch").value.trim().toLowerCase(), category = $("#textureCategory").value,usageFilter=$("#textureUseFilter").value;
+    const query = $("#textureSearch").value.trim().toLowerCase(), category = $("#textureCategory").value,usageFilter=$("#textureUseFilter").value,wadFilter=$("#textureWadFilter")?.value||"all";
     const contextualUsage=textureUsageForTarget(),resolvedUsage=usageFilter==="recommended"?contextualUsage:usageFilter;
     const selectedTexture = selectedTextureForTarget();
     const textures = Object.keys(MATERIAL_INFO).filter((texture) => {
       const matchesSearch = !query || texture.toLowerCase().includes(query) || MATERIAL_INFO[texture].toLowerCase().includes(query);
       const matchesCategory = category === "all" || (category === "favorites" ? textureFavorites.has(texture) : textureCategory(texture) === category);
       const matchesUsage=resolvedUsage==="all"||textureSurfaceUses(texture).includes(resolvedUsage);
-      return matchesSearch && matchesCategory&&matchesUsage;
+      const official=officialTextureSources.get(texture);
+      const matchesWad=wadFilter==="all"||(wadFilter==="included"?!official:official?.wadId===wadFilter);
+      return matchesSearch && matchesCategory&&matchesUsage&&matchesWad;
     }).sort((a,b)=>(a===selectedTexture?-2:b===selectedTexture?2:0)||(textureFavorites.has(a)?-1:textureFavorites.has(b)?1:0)||MATERIAL_INFO[a].localeCompare(MATERIAL_INFO[b]));
     const categoryLabels = {architecture:"Architecture",concrete:"Concrete",brick:"Brick",stone:"Stone & gems",ground:"Ground",nature:"Nature",organic:"Organic patterns",fabric:"Fabric & leather",plaster:"Plaster",floor:"Floors",metal:"Metal",wood:"Wood",sunburst:"Sunburst"};
     const categoryOrder = ["architecture","concrete","brick","stone","ground","nature","organic","fabric","plaster","floor","metal","wood","sunburst"];
-    const sourceLabel = (texture) => texture.startsWith("USR_") ? "IMPORTED" : texture.startsWith("BO_") ? "CC0" : texture.startsWith("SUN_") ? "ORIGINAL" : "STOCK WAD";
-    const card = (texture) => {const label=html(MATERIAL_INFO[texture]),uses=textureSurfaceUses(texture);return `<button class="texture-card ${texture === selectedTexture ? "selected" : ""}" data-texture="${texture}" type="button" title="Apply ${label}"><span class="texture-source">${sourceLabel(texture)}</span><img loading="lazy" src="${texturePreviewUrl(texture)}" alt="Miniature preview of ${label}"><strong>${label}</strong><small>${texture}</small><span class="texture-category-badge">${categoryLabels[textureCategory(texture)] || textureCategory(texture)}</span><span class="texture-use-badges">${uses.slice(0,3).map((use)=>`<span>${TEXTURE_USE_INFO[use]?.short||use}</span>`).join("")}${uses.length>3?`<span>+${uses.length-3}</span>`:""}</span><span class="favorite-texture ${textureFavorites.has(texture) ? "active" : ""}" data-favorite="${texture}">★</span>${texture.startsWith("USR_")?`<span class="delete-texture" data-delete-texture="${texture}" title="Delete imported texture">×</span>`:""}</button>`;};
-    const groups = categoryOrder.map((key) => [key,textures.filter((texture) => textureCategory(texture) === key)]).filter(([,items]) => items.length);
+    const sourceLabel = (texture) => officialTextureSources.has(texture) ? officialTextureSources.get(texture).wad : texture.startsWith("USR_") ? "IMPORTED" : texture.startsWith("BO_") ? "CC0" : texture.startsWith("SUN_") ? "ORIGINAL" : "INCLUDED";
+    const card = (texture) => {const safeTexture=html(texture),label=html(MATERIAL_INFO[texture]),uses=textureSurfaceUses(texture),source=officialTextureSources.get(texture);return `<button class="texture-card ${texture === selectedTexture ? "selected" : ""}" data-texture="${safeTexture}" type="button" title="Apply ${label}"><span class="texture-source ${source?"official":""}">${html(sourceLabel(texture))}</span><img loading="lazy" src="${texturePreviewUrl(texture)}" alt="Miniature preview of ${label}"><strong>${label}</strong><small>${safeTexture}${source?` · ${source.width}×${source.height}`:""}</small><span class="texture-category-badge">${categoryLabels[textureCategory(texture)] || textureCategory(texture)}</span><span class="texture-use-badges">${uses.slice(0,3).map((use)=>`<span>${TEXTURE_USE_INFO[use]?.short||use}</span>`).join("")}${uses.length>3?`<span>+${uses.length-3}</span>`:""}</span><span class="favorite-texture ${textureFavorites.has(texture) ? "active" : ""}" data-favorite="${safeTexture}">★</span>${texture.startsWith("USR_")?`<span class="delete-texture" data-delete-texture="${safeTexture}" title="Delete imported texture">×</span>`:""}</button>`;};
+    const visibleTextures=textures.slice(0,320);
+    const groups = categoryOrder.map((key) => [key,visibleTextures.filter((texture) => textureCategory(texture) === key)]).filter(([,items]) => items.length);
     const usageSummary=usageFilter==="recommended"?`recommended for ${TEXTURE_USE_INFO[contextualUsage]?.label.toLowerCase()||contextualUsage}`:resolvedUsage==="all"?"all surface uses":TEXTURE_USE_INFO[resolvedUsage]?.label.toLowerCase()||resolvedUsage;
-    $("#textureSummary").textContent = `Showing ${textures.length} of ${Object.keys(MATERIAL_INFO).length} materials · ${usageSummary}`;
+    $("#textureSummary").textContent = `Showing ${Math.min(textures.length,320)} of ${textures.length} matching materials (${Object.keys(MATERIAL_INFO).length.toLocaleString()} total) · ${usageSummary}${textures.length>320?" · narrow by search or WAD":""}`;
     $("#textureGrid").innerHTML = groups.map(([key,items]) => `<section class="texture-category-section"><h3>${categoryLabels[key] || key}<span>${items.length}</span></h3><div class="texture-category-grid">${items.map(card).join("")}</div></section>`).join("") || `<p class="analysis-intro">No textures match this filter.</p>`;
   }
 
@@ -4240,12 +4297,13 @@
   }
 
   function applyBrowserTexture(texture) {
+    ensureMaterialImage(texture);
     const item = selectedItem();
     const before = snapshot(), target = $("#textureTarget").value;
     if (target === "ground") environmentFor().groundMaterial = texture;
     else if (!item || !["room", "prop"].includes(selected.type)) return;
     else setSurfaceTexture(item,selected.type,texture,target==="material"?surfaceTarget:target);
-    commit(before); $("#textureDialog").close(); showToast(`${MATERIAL_INFO[texture]} applied`);
+    commit(before); installMaterialOptions(); $("#textureDialog").close(); showToast(`${MATERIAL_INFO[texture]} applied`);
   }
 
   function analysisLineClear(from, to, walls) {
@@ -5925,7 +5983,9 @@
     }
     state.props.forEach((prop) => brushes.push(...buildPropBrushes(prop)));
 
-    const world = ["{", '"classname" "worldspawn"', '"wad" "cstrike.wad;halflife.wad"', '"message" "Created with Blockout"', ...(skyEnabled ? [`"skyname" "${environment.skyName}"`] : []), ...brushes, "}"].join("\n");
+    const officialWads=[...new Set(Object.keys(MATERIAL_INFO).filter((texture)=>officialTextureSources.has(texture)&&textureUsageCount(texture)>0).map((texture)=>officialTextureSources.get(texture).wad))];
+    const worldWads=[...new Set(["cstrike.wad","halflife.wad",...officialWads])].join(";");
+    const world = ["{", '"classname" "worldspawn"', `"wad" "${worldWads}"`, '"message" "Created with Blockout"', ...(skyEnabled ? [`"skyname" "${environment.skyName}"`] : []), ...brushes, "}"].join("\n");
     const entities = state.entities.map((entity) => {
       const x = entity.x * GRID + GRID / 2;
       const y = entity.y * GRID + GRID / 2;
@@ -6960,6 +7020,7 @@
   $("#textureSearch").addEventListener("input", renderTextureBrowser);
   $("#textureCategory").addEventListener("change", renderTextureBrowser);
   $("#textureUseFilter").addEventListener("change", renderTextureBrowser);
+  $("#textureWadFilter").addEventListener("change", renderTextureBrowser);
   $("#textureTarget").addEventListener("change", renderTextureBrowser);
   $("#textureImportCategory").addEventListener("change",(event)=>suggestImportedTextureUses(event.target.value,$("#textureImportLabel").value));
   $("#textureDropZone").addEventListener("click", () => $("#textureFileInput").click());
@@ -7569,7 +7630,8 @@
         {kind:"weathered",code:textureFamilyCode($("#textureImportName")?.value||"","_W"),enabled:!!$("#textureVariantWorn")?.checked}
       ]
     }),
-    getTextureCatalog: () => Object.keys(MATERIAL_INFO).map((texture)=>({texture,label:MATERIAL_INFO[texture],category:textureCategory(texture),uses:textureSurfaceUses(texture)})),
+    getTextureCatalog: () => Object.keys(MATERIAL_INFO).map((texture)=>({texture,label:MATERIAL_INFO[texture],category:textureCategory(texture),uses:textureSurfaceUses(texture),official:officialTextureSources.get(texture)||null})),
+    installOfficialTextureCatalog: (catalog) => installOfficialTextureCatalog(catalog),
     generateMapText
   });
   requestAnimationFrame(animate);

@@ -87,7 +87,31 @@ const result=await evaluate(`(async()=>{
   document.querySelector("#textureUseFilter").dispatchEvent(new Event("change",{bubbles:true}));
   const wallCards=[...document.querySelectorAll("#textureGrid [data-texture]")].map((card)=>card.dataset.texture);
   assert(wallCards.length>0&&wallCards.every((texture)=>catalog.get(texture)?.uses.includes("wall")),"Wall browser filter contains another surface type");
-  return {category:seamless.category,uses:seamless.uses,edgeMismatch:seamless.edgeMismatch,rawMismatch:raw.edgeMismatch,outputBytes:seamless.imageDataBytes,codes:seamless.variants.map((item)=>item.code),floorChoices:floorCards.length,wallChoices:wallCards.length};
+
+  const officialTextures=Array.from({length:450},(_,index)=>({
+    name:"OF_"+String(index).padStart(4,"0"),
+    label:"Official "+index,
+    category:index%2?"brick":"floor",
+    uses:index%2?["wall"]:["floor","tile"],
+    wadId:index<300?"cstrike/cs_dust.wad":"cstrike/de_aztec.wad",
+    wad:index<300?"cs_dust.wad":"de_aztec.wad",
+    width:64,height:64
+  }));
+  const installed=Blockout.installOfficialTextureCatalog({textures:officialTextures,wads:[
+    {id:"cstrike/cs_dust.wad",name:"cs_dust.wad",textures:300},
+    {id:"cstrike/de_aztec.wad",name:"de_aztec.wad",textures:150}
+  ]});
+  assert(installed.textures===450&&installed.wads===2,"Official texture catalog was not registered");
+  const wadFilter=document.querySelector("#textureWadFilter");
+  assert([...wadFilter.options].some((option)=>option.value==="cstrike/cs_dust.wad"),"Official WAD filter is missing");
+  document.querySelector("#textureUseFilter").value="all";
+  wadFilter.value="cstrike/cs_dust.wad";wadFilter.dispatchEvent(new Event("change",{bubbles:true}));
+  const officialCards=[...document.querySelectorAll("#textureGrid [data-texture]")];
+  assert(officialCards.length===300,"WAD filter did not isolate the official pack");
+  assert(officialCards[0].querySelector("img").src.includes("/api/official-textures/preview"),"Official preview does not use the local companion");
+  wadFilter.value="all";wadFilter.dispatchEvent(new Event("change",{bubbles:true}));
+  assert(document.querySelectorAll("#textureGrid [data-texture]").length<=320,"Large official catalog was not render-limited");
+  return {category:seamless.category,uses:seamless.uses,edgeMismatch:seamless.edgeMismatch,rawMismatch:raw.edgeMismatch,outputBytes:seamless.imageDataBytes,codes:seamless.variants.map((item)=>item.code),floorChoices:floorCards.length,wallChoices:wallCards.length,official:installed};
 })()`);
 
 if(pageErrors.length)throw new Error(`Page errors: ${pageErrors.join("; ")}`);
