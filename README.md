@@ -58,6 +58,7 @@ The hosted editor can securely pair with the Windows companion for **Build & Tes
 ## Current features
 
 - Draw grid-snapped rooms in a top-down editor
+- Import plan images with main-map cropping, calibrated competitive scaling, open decomposition seams, and collision-safe 5v5 spawns
 - Draw custom convex polygon rooms point-by-point; press **Enter** or click the first corner to finish
 - Drag ready-made triangular and octagonal room presets
 - Draw walkable polygon platforms inside rooms

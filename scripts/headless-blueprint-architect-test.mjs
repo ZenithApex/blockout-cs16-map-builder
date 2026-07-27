@@ -1,6 +1,8 @@
 const port=Number(process.argv[2]||9233);
 const baseUrl=process.argv[3]||"http://127.0.0.1:41716/index.html";
 const samplePath=process.argv[4]||"";
+const sampleWidth=Number(process.argv[5]||0);
+const sampleLevels=process.argv[6]||"";
 const delay=(milliseconds)=>new Promise((resolve)=>setTimeout(resolve,milliseconds));
 
 async function targetForPort(){
@@ -48,6 +50,7 @@ const result=await evaluate(`(async()=>{
   document.querySelector("#blueprintTextures").checked=false;
   document.querySelector("#blueprintLevels").checked=true;
   document.querySelector("#blueprintWidthMeters").value="96";
+  document.querySelector("#blueprintPlayabilityScale").value="1.25";
   const source=document.createElement("canvas");source.width=960;source.height=600;
   const context=source.getContext("2d");
   context.fillStyle="#e9ece5";context.fillRect(0,0,960,600);
@@ -67,10 +70,12 @@ const result=await evaluate(`(async()=>{
   await new Promise((resolve)=>setTimeout(resolve,350));
   const analyzed=Blockout.getBlueprintState();
   assert(analyzed?.analysis,"Blueprint analysis did not finish");
-  assert(analyzed.analysis.gridWidth===60,"Metre calibration did not produce the expected GoldSrc grid width");
+  assert(analyzed.analysis.gridWidth===75,"Competitive playability scaling did not produce the expected GoldSrc grid width");
   assert(analyzed.analysis.rooms>=4&&analyzed.analysis.rooms<=112,"Unexpected room decomposition: "+analyzed.analysis.rooms);
   assert(analyzed.analysis.openings>0,"No editable connections were created");
   assert(analyzed.analysis.entities===12,"Expected ten spawns and two bomb objectives");
+  assert(analyzed.analysis.minimumSpawnSeparation>=40,"Generated team spawns are too close together");
+  assert(!analyzed.analysis.spawnWarning,"A normal competitive plan did not provide safe spawn rooms");
   assert(analyzed.analysis.zones===2,"Expected CT and T buy zones");
   assert(analyzed.analysis.materials.length===4,"The map-specific material kit is incomplete");
   assert(analyzed.analysis.materials.every((item)=>item.code.startsWith("USR_")&&item.code.length<=15&&item.imageBytes>1000),"A generated GoldSrc material is invalid");
@@ -85,6 +90,7 @@ const result=await evaluate(`(async()=>{
   assert(project.rooms.every((room)=>room.texture&&room.floorTexture&&room.ceilingTexture),"Generated rooms are missing categorized materials");
   assert(new Set(project.rooms.map((room)=>room.floorLevel||0)).size>=2,"Color-band elevation inference did not produce multiple levels");
   const preflight=Blockout.getPreflight();
+  assert(!preflight.issues.some((issue)=>/spawn/i.test(issue.title)&&issue.severity==="error"),"Generated blueprint contains an unsafe spawn");
   const structuralErrors=preflight.issues.filter((issue)=>issue.severity==="error"&&/overlap|outside playable|invalid|degenerate|opening/i.test(issue.title+" "+issue.detail));
   assert(!structuralErrors.length,"Generated blueprint contains structural preflight errors: "+structuralErrors.map((issue)=>issue.title).join(", "));
   return {analysis:analyzed.analysis,created,project:{rooms:project.rooms.length,doors:project.doors.length,props:project.props.length,entities:project.entities.length,zones:project.zones.length,stories:project.stories.length},preflight:{errors:preflight.errors,warnings:preflight.warnings}};
@@ -93,6 +99,8 @@ const result=await evaluate(`(async()=>{
 let sample=null;
 if(samplePath){
   const previousFileName=await evaluate("Blockout.getBlueprintState()?.fileName||''");
+  if(sampleWidth)await evaluate(`document.querySelector("#blueprintWidthMeters").value=${JSON.stringify(String(sampleWidth))}`);
+  if(sampleLevels)await evaluate(`document.querySelector("#blueprintLevels").checked=${sampleLevels==="levels"}`);
   await command("DOM.enable");
   const document=await command("DOM.getDocument",{depth:2}),input=await command("DOM.querySelector",{nodeId:document.root.nodeId,selector:"#blueprintFileInput"});
   await command("DOM.setFileInputFiles",{nodeId:input.nodeId,files:[samplePath]});
@@ -101,6 +109,12 @@ if(samplePath){
   await evaluate("document.querySelector('#blueprintFileInput').dispatchEvent(new Event('change',{bubbles:true}))");
   for(let attempt=0;attempt<80;attempt+=1){await delay(75);sample=await evaluate("Blockout.getBlueprintState()");if(sample?.analysis&&sample.fileName!==previousFileName)break;}
   if(!sample?.analysis||sample.analysis.rooms<3||sample.fileName===previousFileName)throw new Error(`Real blueprint sample did not produce a usable blockout: selected=${selectedSampleName} state=${JSON.stringify(sample)}`);
+  sample.created=await evaluate(`(async()=>{
+    const created=await Blockout.createMapFromBlueprint(),project=Blockout.getProject(),preflight=Blockout.getPreflight();
+    const spawns=project.entities.filter((item)=>item.kind==="ct"||item.kind==="t");
+    return {created,spawns:spawns.length,spawnErrors:preflight.issues.filter((issue)=>issue.severity==="error"&&/spawn/i.test(issue.title)).map((issue)=>issue.title),errors:preflight.errors,warnings:preflight.warnings};
+  })()`);
+  if(sample.created.spawns!==10||sample.created.spawnErrors.length)throw new Error(`Real blueprint sample generated unsafe spawns: ${JSON.stringify(sample.created)}`);
 }
 if(pageErrors.length)throw new Error(`Page errors:\n${pageErrors.join("\n")}`);
 console.log(JSON.stringify({...result,...(sample?{sample:{fileName:sample.fileName,...sample.analysis}}:{})},null,2));

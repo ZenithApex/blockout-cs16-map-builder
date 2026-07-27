@@ -631,9 +631,28 @@
     return rectangles;
   }
 
-  function blueprintRoomAverage(context,sourceWidth,sourceHeight,gridWidth,gridHeight,rectangle) {
-    const x1=Math.floor(rectangle.x/gridWidth*sourceWidth),x2=Math.max(x1+1,Math.ceil((rectangle.x+rectangle.w)/gridWidth*sourceWidth));
-    const y1=Math.floor(rectangle.y/gridHeight*sourceHeight),y2=Math.max(y1+1,Math.ceil((rectangle.y+rectangle.d)/gridHeight*sourceHeight));
+  function largestBlueprintWallBounds(mask,width,height) {
+    const visited=new Uint8Array(mask.length),queue=new Int32Array(mask.length);let best=null;
+    for(let seed=0;seed<mask.length;seed+=1){
+      if(!mask[seed]||visited[seed])continue;
+      let head=0,tail=0,count=0,minX=width,minY=height,maxX=0,maxY=0;visited[seed]=1;queue[tail++]=seed;
+      while(head<tail){
+        const index=queue[head++],x=index%width,y=Math.floor(index/width);count+=1;minX=Math.min(minX,x);maxX=Math.max(maxX,x);minY=Math.min(minY,y);maxY=Math.max(maxY,y);
+        for(let oy=-1;oy<=1;oy+=1)for(let ox=-1;ox<=1;ox+=1){
+          if(!ox&&!oy)continue;const nx=x+ox,ny=y+oy;if(nx<0||ny<0||nx>=width||ny>=height)continue;
+          const next=ny*width+nx;if(mask[next]&&!visited[next]){visited[next]=1;queue[tail++]=next;}
+        }
+      }
+      if(!best||count>best.count)best={x:minX,y:minY,w:maxX-minX+1,d:maxY-minY+1,count};
+    }
+    if(!best||best.count<Math.max(24,width*height*.00025))return {x:0,y:0,w:width,d:height,count:0};
+    const padding=Math.max(2,Math.round(Math.min(width,height)*.006)),x=Math.max(0,best.x-padding),y=Math.max(0,best.y-padding);
+    return {x,y,w:Math.min(width,best.x+best.w+padding)-x,d:Math.min(height,best.y+best.d+padding)-y,count:best.count};
+  }
+
+  function blueprintRoomAverage(context,sourceWidth,sourceHeight,sourceBounds,gridWidth,gridHeight,rectangle) {
+    const x1=Math.floor(sourceBounds.x+rectangle.x/gridWidth*sourceBounds.w),x2=Math.max(x1+1,Math.ceil(sourceBounds.x+(rectangle.x+rectangle.w)/gridWidth*sourceBounds.w));
+    const y1=Math.floor(sourceBounds.y+rectangle.y/gridHeight*sourceBounds.d),y2=Math.max(y1+1,Math.ceil(sourceBounds.y+(rectangle.y+rectangle.d)/gridHeight*sourceBounds.d));
     const center=context.getImageData(Math.min(sourceWidth-1,Math.floor((x1+x2)/2)),Math.min(sourceHeight-1,Math.floor((y1+y2)/2)),1,1).data,centerColor=[center[0],center[1],center[2]],centerInfo=blueprintColorInfo(centerColor);
     if(centerInfo.saturation>.2&&centerInfo.luma>.18&&centerInfo.luma<.95)return centerColor;
     const data=context.getImageData(x1,y1,Math.min(sourceWidth,x2)-x1,Math.min(sourceHeight,y2)-y1).data;let red=0,green=0,blue=0,count=0;
@@ -656,12 +675,12 @@
       const verticalBoundary=Math.abs(a.x+a.w-b.x)<epsilon?a.x+a.w:Math.abs(b.x+b.w-a.x)<epsilon?b.x+b.w:null;
       if(verticalBoundary!=null){
         const start=Math.max(a.y,b.y),end=Math.min(a.y+a.d,b.y+b.d),overlap=end-start;
-        if(overlap>=.5){const width=Math.max(.5,Math.min(2,overlap*.72));openings.push(layoutDoor("v",verticalBoundary,start+(overlap-width)/2,width));}
+        if(overlap>=.5)openings.push(layoutDoor("v",verticalBoundary,start,overlap));
       }
       const horizontalBoundary=Math.abs(a.y+a.d-b.y)<epsilon?a.y+a.d:Math.abs(b.y+b.d-a.y)<epsilon?b.y+b.d:null;
       if(horizontalBoundary!=null){
         const start=Math.max(a.x,b.x),end=Math.min(a.x+a.w,b.x+b.w),overlap=end-start;
-        if(overlap>=.5){const width=Math.max(.5,Math.min(2,overlap*.72));openings.push(layoutDoor("h",horizontalBoundary,start+(overlap-width)/2,width));}
+        if(overlap>=.5)openings.push(layoutDoor("h",horizontalBoundary,start,overlap));
       }
       if(openings.length>=180)return openings;
     }
@@ -687,30 +706,41 @@
   }
 
   function blueprintSpawnPoints(room,count=5) {
-    const points=[];
-    for(let y=Math.ceil(room.y+.35);y<room.y+room.d-.25&&points.length<count;y+=1)for(let x=Math.ceil(room.x+.35);x<room.x+room.w-.25&&points.length<count;x+=1)points.push({x,y});
-    if(!points.length)points.push({x:Math.floor(room.x+room.w/2),y:Math.floor(room.y+room.d/2)});
-    while(points.length<count){const source=points[points.length%Math.max(1,points.length)];points.push({x:source.x+(points.length%2)*.18,y:source.y+Math.floor(points.length/2)*.12});}
-    return points.slice(0,count);
+    const margin=.56,minimumSpacing=.68,usableWidth=room.w-margin*2,usableDepth=room.d-margin*2;
+    if(usableWidth<0||usableDepth<0)return [];
+    const columns=Math.max(1,Math.floor(usableWidth/minimumSpacing)+1),rows=Math.max(1,Math.floor(usableDepth/minimumSpacing)+1),candidates=[];
+    for(let row=0;row<rows;row+=1)for(let column=0;column<columns;column+=1){
+      const centerX=room.x+margin+(columns===1?usableWidth/2:usableWidth*column/(columns-1));
+      const centerY=room.y+margin+(rows===1?usableDepth/2:usableDepth*row/(rows-1));
+      candidates.push({x:centerX-.5,y:centerY-.5});
+    }
+    if(candidates.length<count)return [];
+    const chosen=[candidates.splice(candidates.reduce((best,item,index,array)=>Math.hypot(item.x+.5-(room.x+room.w/2),item.y+.5-(room.y+room.d/2))<Math.hypot(array[best].x+.5-(room.x+room.w/2),array[best].y+.5-(room.y+room.d/2))?index:best,0),1)[0]];
+    while(chosen.length<count){
+      let bestIndex=0,bestDistance=-1;candidates.forEach((candidate,index)=>{const distance=Math.min(...chosen.map((point)=>Math.hypot(candidate.x-point.x,candidate.y-point.y)));if(distance>bestDistance){bestDistance=distance;bestIndex=index;}});
+      chosen.push(candidates.splice(bestIndex,1)[0]);
+    }
+    return chosen;
   }
 
   function blueprintCompetitiveSetup(rooms) {
     if(rooms.length<2)return {entities:[],zones:[],spawnRooms:[],objectiveRooms:[]};
     const bounds=polygonBounds(rooms.flatMap((room)=>[[room.x,room.y],[room.x+room.w,room.y+room.d]])),center=(room)=>({x:room.x+room.w/2,y:room.y+room.d/2}),area=(room)=>room.w*room.d;
-    const edgeCandidates=rooms.filter((room)=>area(room)>=4&&((center(room).x-bounds.x)/Math.max(1,bounds.w)<.25||(center(room).x-bounds.x)/Math.max(1,bounds.w)>.75||(center(room).y-bounds.y)/Math.max(1,bounds.d)<.25||(center(room).y-bounds.y)/Math.max(1,bounds.d)>.75)).sort((a,b)=>area(b)-area(a)).slice(0,24);
-    const candidates=edgeCandidates.length>=2?edgeCandidates:rooms.slice().sort((a,b)=>area(b)-area(a)).slice(0,18);let pair=[candidates[0],candidates[1]],distance=-1;
+    const spawnCapable=rooms.filter((room)=>blueprintSpawnPoints(room,5).length===5),edgeCandidates=spawnCapable.filter((room)=>((center(room).x-bounds.x)/Math.max(1,bounds.w)<.25||(center(room).x-bounds.x)/Math.max(1,bounds.w)>.75||(center(room).y-bounds.y)/Math.max(1,bounds.d)<.25||(center(room).y-bounds.y)/Math.max(1,bounds.d)>.75)).sort((a,b)=>area(b)-area(a)).slice(0,24);
+    const candidates=edgeCandidates.length>=2?edgeCandidates:spawnCapable.slice().sort((a,b)=>area(b)-area(a)).slice(0,18);if(candidates.length<2)return {entities:[],zones:[],spawnRooms:[],objectiveRooms:[],spawnWarning:"The traced plan has fewer than two rooms large enough for safe 5v5 spawns."};let pair=[candidates[0],candidates[1]],distance=-1;
     for(let left=0;left<candidates.length;left+=1)for(let right=left+1;right<candidates.length;right+=1){const a=center(candidates[left]),b=center(candidates[right]),value=Math.hypot(a.x-b.x,a.y-b.y);if(value>distance){distance=value;pair=[candidates[left],candidates[right]];}}
     const first=center(pair[0]),second=center(pair[1]),tRoom=(first.x+first.y)<=second.x+second.y?pair[0]:pair[1],ctRoom=tRoom===pair[0]?pair[1]:pair[0],toward=(from,to)=>{const dx=center(to).x-center(from).x,dy=center(to).y-center(from).y;return Math.abs(dx)>=Math.abs(dy)?(dx>=0?0:180):(dy>=0?90:270);};
-    const entities=[
-      ...blueprintSpawnPoints(tRoom).map((point)=>({...layoutEntity("t",point.x,point.y,toward(tRoom,ctRoom)),floorLevel:tRoom.floorLevel||0})),
-      ...blueprintSpawnPoints(ctRoom).map((point)=>({...layoutEntity("ct",point.x,point.y,toward(ctRoom,tRoom)),floorLevel:ctRoom.floorLevel||0}))
+    const tPoints=blueprintSpawnPoints(tRoom),ctPoints=blueprintSpawnPoints(ctRoom),entities=[
+      ...tPoints.map((point)=>({...layoutEntity("t",point.x,point.y,toward(tRoom,ctRoom)),floorLevel:tRoom.floorLevel||0})),
+      ...ctPoints.map((point)=>({...layoutEntity("ct",point.x,point.y,toward(ctRoom,tRoom)),floorLevel:ctRoom.floorLevel||0}))
     ];
     const other=rooms.filter((room)=>room!==tRoom&&room!==ctRoom&&area(room)>=3),score=(room)=>Math.min(Math.hypot(center(room).x-first.x,center(room).y-first.y),Math.hypot(center(room).x-second.x,center(room).y-second.y))+Math.sqrt(area(room));
     const objectiveA=other.slice().sort((a,b)=>score(b)-score(a))[0]||rooms[Math.floor(rooms.length/2)],aCenter=center(objectiveA);
     const objectiveB=other.filter((room)=>room!==objectiveA).sort((a,b)=>Math.hypot(center(b).x-aCenter.x,center(b).y-aCenter.y)-Math.hypot(center(a).x-aCenter.x,center(a).y-aCenter.y))[0]||objectiveA;
     entities.push({...layoutEntity("bombA",Math.floor(aCenter.x),Math.floor(aCenter.y)),floorLevel:objectiveA.floorLevel||0},{...layoutEntity("bombB",Math.floor(center(objectiveB).x),Math.floor(center(objectiveB).y)),floorLevel:objectiveB.floorLevel||0});
     const zoneFor=(room,kind)=>({id:crypto.randomUUID(),kind,x:room.x+.25,y:room.y+.25,w:Math.max(.5,room.w-.5),d:Math.max(.5,room.d-.5),height:2,floorLevel:room.floorLevel||0});
-    return {entities,zones:[zoneFor(tRoom,"buyT"),zoneFor(ctRoom,"buyCt")],spawnRooms:[tRoom,ctRoom],objectiveRooms:[objectiveA,objectiveB]};
+    const minimumSpawnSeparation=Math.min(...[tPoints,ctPoints].flatMap((points)=>points.flatMap((point,index)=>points.slice(index+1).map((other)=>Math.hypot(point.x-other.x,point.y-other.y)))))*GRID;
+    return {entities,zones:[zoneFor(tRoom,"buyT"),zoneFor(ctRoom,"buyCt")],spawnRooms:[tRoom,ctRoom],objectiveRooms:[objectiveA,objectiveB],minimumSpawnSeparation};
   }
 
   function analyzeBlueprintImage() {
@@ -722,30 +752,27 @@
     for(let index=0;index<walls.length;index+=1){const offset=index*4,luma=pixels[offset]*.2126+pixels[offset+1]*.7152+pixels[offset+2]*.0722;walls[index]=pixels[offset+3]>90&&luma<threshold?1:0;}
     const dilation=detail<=40?2:1;
     for(let pass=0;pass<dilation;pass+=1){const next=new Uint8Array(walls);for(let y=1;y<height-1;y+=1)for(let x=1;x<width-1;x+=1){const index=y*width+x;if(walls[index])continue;if(walls[index-1]||walls[index+1]||walls[index-width]||walls[index+width])next[index]=1;}walls=next;}
-    const exterior=new Uint8Array(width*height),queue=new Int32Array(width*height);let head=0,tail=0;
+    const sourceBounds=largestBlueprintWallBounds(walls,width,height),exterior=new Uint8Array(width*height),queue=new Int32Array(width*height);let head=0,tail=0;
     const enqueue=(index)=>{if(index>=0&&index<exterior.length&&!walls[index]&&!exterior[index]){exterior[index]=1;queue[tail++]=index;}};
     for(let x=0;x<width;x+=1){enqueue(x);enqueue((height-1)*width+x);}for(let y=0;y<height;y+=1){enqueue(y*width);enqueue(y*width+width-1);}
     while(head<tail){const index=queue[head++],x=index%width;if(x>0)enqueue(index-1);if(x<width-1)enqueue(index+1);if(index>=width)enqueue(index-width);if(index<width*(height-1))enqueue(index+width);}
     let interior=new Uint8Array(width*height),interiorCount=0;
-    for(let index=0;index<interior.length;index+=1)if(!walls[index]&&!exterior[index]){interior[index]=1;interiorCount+=1;}
-    const ratio=interiorCount/interior.length;
+    for(let index=0;index<interior.length;index+=1){const x=index%width,y=Math.floor(index/width);if(x>=sourceBounds.x&&x<sourceBounds.x+sourceBounds.w&&y>=sourceBounds.y&&y<sourceBounds.y+sourceBounds.d&&!walls[index]&&!exterior[index]){interior[index]=1;interiorCount+=1;}}
+    const ratio=interiorCount/Math.max(1,sourceBounds.w*sourceBounds.d);
     if(ratio<.025||ratio>.88){
-      const rowDensity=new Uint16Array(height),columnDensity=new Uint16Array(width);for(let y=0;y<height;y+=1)for(let x=0;x<width;x+=1)if(walls[y*width+x]){rowDensity[y]+=1;columnDensity[x]+=1;}
-      const denseRows=[...rowDensity].map((count,index)=>({count,index})).filter((entry)=>entry.count>width*.08),denseColumns=[...columnDensity].map((count,index)=>({count,index})).filter((entry)=>entry.count>height*.08);
-      const minY=denseRows[0]?.index??1,maxY=denseRows.at(-1)?.index??height-2,minX=denseColumns[0]?.index??1,maxX=denseColumns.at(-1)?.index??width-2;
-      interior=new Uint8Array(width*height);interiorCount=0;for(let y=minY+1;y<maxY;y+=1)for(let x=minX+1;x<maxX;x+=1){const index=y*width+x;if(!walls[index]){interior[index]=1;interiorCount+=1;}}
+      interior=new Uint8Array(width*height);interiorCount=0;for(let y=sourceBounds.y+1;y<sourceBounds.y+sourceBounds.d-1;y+=1)for(let x=sourceBounds.x+1;x<sourceBounds.x+sourceBounds.w-1;x+=1){const index=y*width+x;if(!walls[index]){interior[index]=1;interiorCount+=1;}}
     }
-    const widthMeters=Math.max(20,Math.min(250,Number($("#blueprintWidthMeters").value)||80)),gridWidth=Math.max(20,Math.min(96,Math.round(widthMeters/1.6))),gridHeight=Math.max(14,Math.min(96,Math.round(gridWidth*height/width))),mask=new Uint8Array(gridWidth*gridHeight);
+    const widthMeters=Math.max(20,Math.min(250,Number($("#blueprintWidthMeters").value)||80)),playabilityScale=Math.max(1,Math.min(1.5,Number($("#blueprintPlayabilityScale").value)||1.25)),gridWidth=Math.max(20,Math.min(128,Math.round(widthMeters/1.6*playabilityScale))),gridHeight=Math.max(14,Math.min(128,Math.round(gridWidth*sourceBounds.d/sourceBounds.w))),mask=new Uint8Array(gridWidth*gridHeight);
     for(let gy=0;gy<gridHeight;gy+=1)for(let gx=0;gx<gridWidth;gx+=1){
-      const x1=Math.floor(gx/gridWidth*width),x2=Math.max(x1+1,Math.ceil((gx+1)/gridWidth*width)),y1=Math.floor(gy/gridHeight*height),y2=Math.max(y1+1,Math.ceil((gy+1)/gridHeight*height));let inside=0,total=0;
+      const x1=Math.floor(sourceBounds.x+gx/gridWidth*sourceBounds.w),x2=Math.max(x1+1,Math.ceil(sourceBounds.x+(gx+1)/gridWidth*sourceBounds.w)),y1=Math.floor(sourceBounds.y+gy/gridHeight*sourceBounds.d),y2=Math.max(y1+1,Math.ceil(sourceBounds.y+(gy+1)/gridHeight*sourceBounds.d));let inside=0,total=0;
       for(let y=y1;y<y2;y+=2)for(let x=x1;x<x2;x+=2){inside+=interior[y*width+x];total+=1;}
-      mask[gy*gridWidth+gx]=inside/Math.max(1,total)>.34?1:0;
+      mask[gy*gridWidth+gx]=inside/Math.max(1,total)>.28?1:0;
     }
     const cleanupPasses=detail<=40?2:detail>=72?0:1;
     for(let pass=0;pass<cleanupPasses;pass+=1){const next=new Uint8Array(mask);for(let y=1;y<gridHeight-1;y+=1)for(let x=1;x<gridWidth-1;x+=1){let neighbors=0;for(let oy=-1;oy<=1;oy+=1)for(let ox=-1;ox<=1;ox+=1)if(ox||oy)neighbors+=mask[(y+oy)*gridWidth+x+ox];const index=y*gridWidth+x;if(!mask[index]&&neighbors>=6)next[index]=1;if(mask[index]&&neighbors<=1)next[index]=0;}mask.set(next);}
     const rectangles=decomposeBlueprintMask(mask,gridWidth,gridHeight,detail<=40?64:detail>=72?112:88),inferLevels=$("#blueprintLevels").checked;
     const rooms=rectangles.map((rectangle,index)=>{
-      const color=blueprintRoomAverage(context,width,height,gridWidth,gridHeight,rectangle),floorLevel=inferLevels?blueprintLevelFromColor(color):0;
+      const color=blueprintRoomAverage(context,width,height,sourceBounds,gridWidth,gridHeight,rectangle),floorLevel=inferLevels?blueprintLevelFromColor(color):0;
       return {...rectangle,id:crypto.randomUUID(),kind:"room",label:`TRACED SPACE ${index+1}`,height:floorLevel?5:4,floorLevel,color,sourceArea:rectangle.area,blueprintConnector:false};
     });
     const connectors=blueprintConnectNearbyRooms(rooms).map((connector,index)=>({...connector,id:crypto.randomUUID(),kind:"room",label:`AUTO CONNECTOR ${index+1}`,height:4,color:[114,200,192],sourceArea:connector.w*connector.d,blueprintConnector:true}));
@@ -759,7 +786,7 @@
     }
     const palette=blueprintPaletteFromPixels(context,width,height,interior),materials=blueprintMaterialKit(palette,pendingBlueprint.fileName),coverage=mask.reduce((sum,value)=>sum+value,0)/Math.max(1,mask.length),levelCount=new Set(rooms.map((room)=>room.floorLevel||0)).size;
     let confidence=86;if(coverage<.08||coverage>.82)confidence-=24;if(rectangles.length>78)confidence-=14;if(rectangles.length<3)confidence-=25;if(connectors.length>20)confidence-=10;confidence=Math.max(28,Math.min(94,confidence));
-    pendingBlueprint.analysis={source,sourceWidth:width,sourceHeight:height,gridWidth,gridHeight,widthMeters,rooms,openings,props,entities:gameplay.entities,zones:gameplay.zones,palette,materials,confidence,coverage,levelCount,connectorCount:connectors.length};
+    pendingBlueprint.analysis={source,sourceWidth:width,sourceHeight:height,sourceBounds,gridWidth,gridHeight,widthMeters,playabilityScale,rooms,openings,props,entities:gameplay.entities,zones:gameplay.zones,palette,materials,confidence,coverage,levelCount,connectorCount:connectors.length,minimumSpawnSeparation:gameplay.minimumSpawnSeparation||0,spawnWarning:gameplay.spawnWarning||""};
     renderBlueprintAnalysis();
     return pendingBlueprint.analysis;
   }
@@ -768,15 +795,16 @@
     const analysis=pendingBlueprint?.analysis;if(!analysis)return;
     const canvas=$("#blueprintCanvas"),context=canvas.getContext("2d"),maxWidth=760,maxHeight=500,scale=Math.min(maxWidth/analysis.sourceWidth,maxHeight/analysis.sourceHeight);canvas.width=Math.round(analysis.sourceWidth*scale);canvas.height=Math.round(analysis.sourceHeight*scale);
     context.drawImage(analysis.source,0,0,canvas.width,canvas.height);context.fillStyle="rgba(4,8,5,.18)";context.fillRect(0,0,canvas.width,canvas.height);
-    const sx=canvas.width/analysis.gridWidth,sy=canvas.height/analysis.gridHeight;
-    analysis.rooms.forEach((room)=>{context.fillStyle=room.blueprintConnector?"rgba(114,200,192,.3)":room.floorLevel>0?"rgba(240,164,90,.25)":room.floorLevel<0?"rgba(114,184,255,.24)":"rgba(215,244,90,.18)";context.strokeStyle=room.blueprintConnector?"#72c8c0":"#d7f45a";context.lineWidth=Math.max(1,scale);context.fillRect(room.x*sx,room.y*sy,room.w*sx,room.d*sy);context.strokeRect(room.x*sx+.5,room.y*sy+.5,Math.max(1,room.w*sx-1),Math.max(1,room.d*sy-1));});
-    analysis.entities.forEach((entity)=>{const color=entity.kind==="ct"?"#62a9ff":entity.kind==="t"?"#f0a45a":"#d7f45a";context.fillStyle=color;context.beginPath();context.arc((entity.x+.5)*sx,(entity.y+.5)*sy,Math.max(3,Math.min(sx,sy)*.28),0,Math.PI*2);context.fill();});
+    const bounds=analysis.sourceBounds||{x:0,y:0,w:analysis.sourceWidth,d:analysis.sourceHeight},offsetX=bounds.x/analysis.sourceWidth*canvas.width,offsetY=bounds.y/analysis.sourceHeight*canvas.height,sx=bounds.w/analysis.sourceWidth*canvas.width/analysis.gridWidth,sy=bounds.d/analysis.sourceHeight*canvas.height/analysis.gridHeight;
+    analysis.rooms.forEach((room)=>{context.fillStyle=room.blueprintConnector?"rgba(114,200,192,.3)":room.floorLevel>0?"rgba(240,164,90,.25)":room.floorLevel<0?"rgba(114,184,255,.24)":"rgba(215,244,90,.18)";context.strokeStyle=room.blueprintConnector?"#72c8c0":"#d7f45a";context.lineWidth=Math.max(1,scale);context.fillRect(offsetX+room.x*sx,offsetY+room.y*sy,room.w*sx,room.d*sy);context.strokeRect(offsetX+room.x*sx+.5,offsetY+room.y*sy+.5,Math.max(1,room.w*sx-1),Math.max(1,room.d*sy-1));});
+    analysis.entities.forEach((entity)=>{const color=entity.kind==="ct"?"#62a9ff":entity.kind==="t"?"#f0a45a":"#d7f45a";context.fillStyle=color;context.beginPath();context.arc(offsetX+(entity.x+.5)*sx,offsetY+(entity.y+.5)*sy,Math.max(3,Math.min(sx,sy)*.28),0,Math.PI*2);context.fill();});
     $("#blueprintImageSize").textContent=`${pendingBlueprint.image.naturalWidth}×${pendingBlueprint.image.naturalHeight} px · ${analysis.gridWidth}×${analysis.gridHeight} editable grid`;
     const confidence=$("#blueprintConfidence");confidence.textContent=`${analysis.confidence}% CONFIDENCE`;confidence.classList.toggle("low",analysis.confidence<65);
     const values=[analysis.rooms.length,analysis.openings.length,analysis.levelCount,`${analysis.confidence}%`];$("#blueprintMetrics").querySelectorAll("strong").forEach((element,index)=>{element.textContent=values[index];});
     $("#blueprintPalette").innerHTML=analysis.materials.map((material)=>`<div class="blueprint-swatch" title="${html(material.label)}"><img src="${material.imageData}" alt="${html(material.label)} texture preview"><span>${html(material.role)}</span></div>`).join("");
     const textureNote=$("#blueprintTextures").checked?(companionStatus?.connected?"The matching texture kit will be installed into your local Blockout WAD.":"The map will use matching built-in materials unless the Windows companion is paired before creation."):"Existing categorized Blockout materials will be used.";
-    $("#blueprintStatus").className=`blueprint-status${analysis.confidence<65?" warning":""}`;$("#blueprintStatus").textContent=`Detected ${analysis.rooms.length-analysis.connectorCount} spaces, ${analysis.connectorCount} short connections, ${analysis.openings.length} openings, and ${analysis.levelCount} level${analysis.levelCount===1?"":"s"}. ${textureNote} Review and edit the result after creation.`;
+    const calibrationNote=pendingBlueprint.widthDetected?"":` Plan width was not detected from the filename; verify the ${analysis.widthMeters} m value against the dimension printed on the plan.`;
+    $("#blueprintStatus").className=`blueprint-status${analysis.confidence<65||analysis.spawnWarning||!pendingBlueprint.widthDetected?" warning":""}`;$("#blueprintStatus").textContent=`Detected ${analysis.rooms.length-analysis.connectorCount} spaces, ${analysis.connectorCount} short connections, ${analysis.openings.length} openings, and ${analysis.levelCount} level${analysis.levelCount===1?"":"s"}. Result: ${Math.round(analysis.gridWidth*GRID)} × ${Math.round(analysis.gridHeight*GRID)} units at ${analysis.playabilityScale.toFixed(2)}× playability scale.${calibrationNote} ${analysis.spawnWarning||textureNote} Review and edit the result after creation.`;
     $("#reanalyzeBlueprint").classList.remove("hidden");$("#createBlueprintMap").classList.remove("hidden");$("#replaceBlueprintImage").classList.remove("hidden");
   }
 
@@ -798,8 +826,8 @@
     const image=new Image(),objectUrl=URL.createObjectURL(file);
     try{image.src=objectUrl;await image.decode();}catch(_){URL.revokeObjectURL(objectUrl);showToast("That blueprint image could not be decoded");return false;}
     if(pendingBlueprint?.objectUrl)URL.revokeObjectURL(pendingBlueprint.objectUrl);
-    pendingBlueprint={fileName:file.name,image,objectUrl,analysis:null};
-    const widthText=String(file.name).match(/(?:^|[^0-9])(\d{2,3})\s*m(?:[^a-z]|$)/i);if(widthText)$("#blueprintWidthMeters").value=Math.max(20,Math.min(250,Number(widthText[1])));
+    const widthText=String(file.name).match(/(?:^|[^0-9])(\d{2,3})\s*m(?:[^a-z]|$)/i);pendingBlueprint={fileName:file.name,image,objectUrl,analysis:null,widthDetected:Boolean(widthText)};
+    if(widthText)$("#blueprintWidthMeters").value=Math.max(20,Math.min(250,Number(widthText[1])));
     $("#blueprintFileName").textContent=file.name;$("#blueprintDropZone").classList.add("hidden");$("#blueprintWorkspace").classList.remove("hidden");$("#replaceBlueprintImage").classList.remove("hidden");$("#blueprintStatus").className="blueprint-status";$("#blueprintStatus").textContent="Tracing enclosed areas and reading the plan palette locally…";scheduleBlueprintAnalysis(20);return true;
   }
 
@@ -831,7 +859,7 @@
     project.stories=[...new Set(project.rooms.map((room)=>room.floorLevel||0))].sort((a,b)=>a-b).map((elevation,index)=>({id:crypto.randomUUID(),name:elevation===0?"Ground floor":elevation>0?`Upper level +${Math.round(elevation*GRID)}`:`Lower level ${Math.round(elevation*GRID)}`,elevation}));
     project.environment={...DEFAULT_ENVIRONMENT,groundEnabled:false,openSkyDefault:openSky,groundSize:Math.max(32,Math.min(128,analysis.gridWidth+8))};
     const sourcePreview=document.createElement("canvas"),previewContext=sourcePreview.getContext("2d");sourcePreview.width=Math.min(480,analysis.sourceWidth);sourcePreview.height=Math.round(sourcePreview.width*analysis.sourceHeight/analysis.sourceWidth);previewContext.drawImage(analysis.source,0,0,sourcePreview.width,sourcePreview.height);
-    project.blueprint={version:1,fileName:pendingBlueprint.fileName,widthMeters:analysis.widthMeters,gridWidth:analysis.gridWidth,gridHeight:analysis.gridHeight,confidence:analysis.confidence,generatedAt:new Date().toISOString(),textureKit:analysis.materials.map((material)=>({role:material.role,name:materials[material.role],label:material.label})),sourcePreview:sourcePreview.toDataURL("image/jpeg",.68)};
+    project.blueprint={version:2,fileName:pendingBlueprint.fileName,widthMeters:analysis.widthMeters,playabilityScale:analysis.playabilityScale,gridWidth:analysis.gridWidth,gridHeight:analysis.gridHeight,sourceBounds:analysis.sourceBounds,confidence:analysis.confidence,generatedAt:new Date().toISOString(),textureKit:analysis.materials.map((material)=>({role:material.role,name:materials[material.role],label:material.label})),sourcePreview:sourcePreview.toDataURL("image/jpeg",.68)};
     state=project;selected=null;selection=[];planLevel=null;previewLevelOnly=false;analysisOverlay=null;commit(before);saveProjectNow({announce:false});$("#blueprintDialog").close();requestAnimationFrame(fitView);
     button.disabled=false;button.textContent="Create editable map";$("#blueprintCommitNote").textContent="The current map will stay untouched until you choose Create editable map.";
     showToast(materials.installed?`Blueprint map created with ${analysis.materials.length} custom textures`:`Blueprint map created with categorized built-in materials${materials.error?" — pair the companion to install its texture kit":""}`);
@@ -2992,7 +3020,7 @@
     let hostRoom = null;
     if (spawn && !overlapsStructure(spawn.x + .5, spawn.y + .5)) {
       start = { x: spawn.x + .5, y: spawn.y + .5 };
-      hostRoom = state.rooms.find((room) => pointInRoom(spawn.x, spawn.y, room)) || null;
+      hostRoom = state.rooms.find((room) => Math.abs(roomFloor(room)-Number(spawn.floorLevel||0))<.13&&pointInRoom(start.x, start.y, room)) || null;
     }
     if (!start && state.rooms.length) {
       const roomsWithStructures = state.rooms.filter((room) => state.props.some((prop) =>
@@ -4916,6 +4944,20 @@
     state.props.filter((prop)=>prop.kind==="elevator").forEach((prop)=>{const top=(Number(prop.floorLevel)||0)+(Number(prop.travel)||2),center={x:prop.x+prop.w/2,y:prop.y+prop.d/2};if(!hasLandingNear(center,top,Math.max(prop.w,prop.d)/2+.35))add("error","Elevator has no destination landing",`Add a room floor or platform beside the elevator at Z ${Math.round(top*GRID)}.`,{type:"prop",id:prop.id});});
     [...state.doors.map((item)=>({type:"door",item})),...state.windows.map((item)=>({type:"window",item}))].forEach(({type,item})=>{if(!doorIsConnected(item))add("error","Disconnected opening","The opening no longer has playable space on both sides.",{type,id:item.id});const segment=openingSegment(item);if(Math.hypot(segment[1][0]-segment[0][0],segment[1][1]-segment[0][1])<.5)add("error","Opening is too narrow","Use at least 32 GoldSrc units of width.",{type,id:item.id});});
     state.entities.forEach((entity)=>{if(!isPointInSpace(entity.x+.5,entity.y+.5))add("error","Entity outside playable space",`${entity.kind} is outside every floor.`,{type:"entity",id:entity.id});if(entity.kind==="ambient"&&!/\.wav$/i.test(entity.sound||""))add("warning","Ambient sound is not a WAV","GoldSrc ambient_generic expects an installed .wav path.",{type:"entity",id:entity.id});});
+    const playerSpawns=state.entities.filter((entity)=>["ct","t"].includes(entity.kind)),spawnSolids=state.props.filter((prop)=>["crate","wall","wallPolygon","cylinder","arch","breakable"].includes(prop.kind));
+    playerSpawns.forEach((entity)=>{
+      const center={x:entity.x+.5,y:entity.y+.5},level=Number(entity.floorLevel??floorLevelAt(center.x,center.y)),room=state.rooms.find((candidate)=>Math.abs(roomFloor(candidate)-level)<.13&&pointInRoom(center.x,center.y,candidate));
+      if(room&&!room.points?.length){
+        const clearance=Math.min(center.x-room.x,room.x+room.w-center.x,center.y-room.y,room.y+room.d-center.y);
+        if(clearance<.49)add("error","Spawn intersects a wall",`${entity.kind.toUpperCase()} spawn has only ${Math.round(clearance*GRID)} units of wall clearance. Move it toward the room center.`,{type:"entity",id:entity.id});
+      }
+      const blocking=spawnSolids.find((prop)=>Math.abs((Number(prop.floorLevel)||0)-level)<.13&&center.x>=prop.x-.28&&center.x<=prop.x+(prop.w||1)+.28&&center.y>=prop.y-.28&&center.y<=prop.y+(prop.d||1)+.28);
+      if(blocking)add("error","Spawn blocked by solid cover",`${entity.kind.toUpperCase()} spawn overlaps ${blocking.label||blocking.kind}. Move the spawn or the structure.`,{type:"entity",id:entity.id});
+    });
+    for(let first=0;first<playerSpawns.length;first+=1)for(let second=first+1;second<playerSpawns.length;second+=1){
+      const a=playerSpawns[first],b=playerSpawns[second];if(Math.abs(Number(a.floorLevel||0)-Number(b.floorLevel||0))>.13)continue;
+      if(Math.hypot(a.x-b.x,a.y-b.y)<.55)add("error","Player spawns overlap",`${a.kind.toUpperCase()} and ${b.kind.toUpperCase()} starts are closer than 35 units. Spread them apart.`,{type:"entity",id:b.id});
+    }
     state.zones.forEach((zone)=>{if(!rectIsInsideSpace(zone))add("error","Trigger outside playable space",`${zone.kind} extends beyond the floor.`,{type:"zone",id:zone.id});if(zone.kind==="teleport"&&!state.entities.some((entity)=>entity.kind==="teleDest"&&entity.target===(zone.target||"tele_dest_1")))add("error","Teleporter target is missing",`No destination named ${zone.target||"tele_dest_1"}.`,{type:"zone",id:zone.id});});
     const namedTargetList=[
       ...state.props.map((item)=>item.targetName).filter(Boolean),
@@ -7502,7 +7544,7 @@
   ["dragenter","dragover"].forEach((type)=>$("#blueprintDropZone").addEventListener(type,(event)=>{event.preventDefault();event.stopPropagation();$("#blueprintDropZone").classList.add("drag-over");if(event.dataTransfer)event.dataTransfer.dropEffect="copy";}));
   ["dragleave","drop"].forEach((type)=>$("#blueprintDropZone").addEventListener(type,(event)=>{event.preventDefault();event.stopPropagation();$("#blueprintDropZone").classList.remove("drag-over");}));
   $("#blueprintDropZone").addEventListener("drop",(event)=>prepareBlueprintImport(event.dataTransfer?.files?.[0]));
-  ["blueprintWidthMeters","blueprintDetail","blueprintWallSensitivity","blueprintGameplay","blueprintCover","blueprintLevels","blueprintOpenSky","blueprintTextures"].forEach((id)=>{
+  ["blueprintWidthMeters","blueprintPlayabilityScale","blueprintDetail","blueprintWallSensitivity","blueprintGameplay","blueprintCover","blueprintLevels","blueprintOpenSky","blueprintTextures"].forEach((id)=>{
     const input=$(`#${id}`);input.addEventListener(id==="blueprintWallSensitivity"?"input":"change",()=>scheduleBlueprintAnalysis());
   });
   $("#reanalyzeBlueprint").addEventListener("click",()=>scheduleBlueprintAnalysis(10));
@@ -8000,12 +8042,12 @@
     prepareBlueprintImage: (file) => prepareBlueprintImport(file),
     analyzeBlueprint: () => {analyzeBlueprintImage();return window.Blockout.getBlueprintState();},
     getBlueprintState: () => pendingBlueprint ? {
-      fileName:pendingBlueprint.fileName,
+      fileName:pendingBlueprint.fileName,widthDetected:pendingBlueprint.widthDetected,
       imageWidth:pendingBlueprint.image?.naturalWidth||0,
       imageHeight:pendingBlueprint.image?.naturalHeight||0,
       analysis:pendingBlueprint.analysis ? {
         gridWidth:pendingBlueprint.analysis.gridWidth,gridHeight:pendingBlueprint.analysis.gridHeight,
-        widthMeters:pendingBlueprint.analysis.widthMeters,rooms:pendingBlueprint.analysis.rooms.length,
+        widthMeters:pendingBlueprint.analysis.widthMeters,playabilityScale:pendingBlueprint.analysis.playabilityScale,sourceBounds:pendingBlueprint.analysis.sourceBounds,minimumSpawnSeparation:pendingBlueprint.analysis.minimumSpawnSeparation,spawnWarning:pendingBlueprint.analysis.spawnWarning,rooms:pendingBlueprint.analysis.rooms.length,
         connectors:pendingBlueprint.analysis.connectorCount,openings:pendingBlueprint.analysis.openings.length,
         props:pendingBlueprint.analysis.props.length,entities:pendingBlueprint.analysis.entities.length,
         zones:pendingBlueprint.analysis.zones.length,levels:pendingBlueprint.analysis.levelCount,
