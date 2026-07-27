@@ -387,6 +387,8 @@
   let lastRouteSampleAt = 0;
   let projectSnapshots = [];
   let pendingTextureImport = null;
+  let pendingBlueprint = null;
+  let blueprintAnalyzeTimer = null;
   let toolWorkspace = ["start","build","gameplay","logic","assets"].includes(localStorage.getItem("blockout-tool-workspace")) ? localStorage.getItem("blockout-tool-workspace") : "start";
   let beginnerToolMode = localStorage.getItem("blockout-tool-mode") !== "advanced";
   let recentToolIds = [];
@@ -506,6 +508,334 @@
     commit(before);
     requestAnimationFrame(fitView);
     showToast(`${state.name} loaded - every room and brush remains editable`);
+  }
+
+  function blueprintColorInfo(color) {
+    const [red,green,blue]=color.map((value)=>Math.max(0,Math.min(255,Number(value)||0))),max=Math.max(red,green,blue),min=Math.min(red,green,blue),delta=max-min;
+    let hue=0;
+    if(delta){
+      if(max===red)hue=60*(((green-blue)/delta)%6);
+      else if(max===green)hue=60*((blue-red)/delta+2);
+      else hue=60*((red-green)/delta+4);
+    }
+    if(hue<0)hue+=360;
+    return {color:[Math.round(red),Math.round(green),Math.round(blue)],hue,saturation:max?delta/max:0,brightness:max/255,luma:(red*.2126+green*.7152+blue*.0722)/255};
+  }
+
+  function blueprintMix(color,amount,target=amount<0?0:255) {
+    const ratio=Math.min(1,Math.abs(amount));
+    return color.map((value)=>Math.round(value*(1-ratio)+target*ratio));
+  }
+
+  function blueprintColorCss(color,alpha=1) {
+    return `rgba(${color[0]},${color[1]},${color[2]},${alpha})`;
+  }
+
+  function blueprintPaletteFromPixels(context,width,height,interior) {
+    const samples=[];
+    for(let y=0;y<height;y+=4)for(let x=0;x<width;x+=4){
+      const index=y*width+x;if(interior&&!interior[index])continue;
+      const pixel=context.getImageData(x,y,1,1).data,info=blueprintColorInfo([pixel[0],pixel[1],pixel[2]]);
+      if(info.luma<.12||info.luma>.96)continue;
+      samples.push(info.color);
+    }
+    if(!samples.length)return [[126,137,118],[192,180,136],[80,104,111],[199,121,72]];
+    const seeds=[0,.27,.57,.83].map((position)=>samples[Math.min(samples.length-1,Math.floor(position*(samples.length-1)))]);
+    let centers=seeds.map((color)=>[...color]);
+    for(let pass=0;pass<7;pass+=1){
+      const sums=centers.map(()=>[0,0,0,0]);
+      samples.forEach((color)=>{
+        let best=0,bestDistance=Infinity;
+        centers.forEach((center,index)=>{const distance=(color[0]-center[0])**2+(color[1]-center[1])**2+(color[2]-center[2])**2;if(distance<bestDistance){best=index;bestDistance=distance;}});
+        sums[best][0]+=color[0];sums[best][1]+=color[1];sums[best][2]+=color[2];sums[best][3]+=1;
+      });
+      centers=centers.map((center,index)=>sums[index][3]?sums[index].slice(0,3).map((sum)=>Math.round(sum/sums[index][3])):center);
+    }
+    const unique=[];
+    centers.sort((a,b)=>blueprintColorInfo(a).luma-blueprintColorInfo(b).luma).forEach((color)=>{
+      if(!unique.some((other)=>Math.hypot(color[0]-other[0],color[1]-other[1],color[2]-other[2])<28))unique.push(color);
+    });
+    const fallbacks=[[92,101,91],[177,166,132],[72,108,119],[203,125,68]];
+    while(unique.length<4)unique.push(fallbacks[unique.length]);
+    return unique.slice(0,4);
+  }
+
+  function blueprintTextureData(color,role,seed=1) {
+    const canvas=document.createElement("canvas"),context=canvas.getContext("2d",{willReadFrequently:true});canvas.width=canvas.height=256;
+    const dark=blueprintMix(color,-.28),light=blueprintMix(color,.24),random=(()=>{let value=seed>>>0;return()=>{value=(value*1664525+1013904223)>>>0;return value/4294967296;};})();
+    context.fillStyle=blueprintColorCss(color);context.fillRect(0,0,256,256);
+    if(role==="wall"){
+      context.strokeStyle=blueprintColorCss(dark,.72);context.lineWidth=4;
+      for(let y=0;y<=256;y+=64){context.beginPath();context.moveTo(0,y);context.lineTo(256,y);context.stroke();}
+      for(let row=0;row<4;row+=1)for(let x=(row%2)*32;x<=256;x+=64){context.beginPath();context.moveTo(x,row*64);context.lineTo(x,(row+1)*64);context.stroke();}
+      context.strokeStyle=blueprintColorCss(light,.22);context.lineWidth=1;for(let y=3;y<256;y+=64){context.beginPath();context.moveTo(0,y);context.lineTo(256,y);context.stroke();}
+    }else if(role==="floor"){
+      context.strokeStyle=blueprintColorCss(dark,.42);context.lineWidth=3;
+      for(let point=0;point<=256;point+=64){context.beginPath();context.moveTo(point,0);context.lineTo(point,256);context.moveTo(0,point);context.lineTo(256,point);context.stroke();}
+      context.strokeStyle=blueprintColorCss(light,.2);context.lineWidth=1;for(let point=4;point<256;point+=64){context.beginPath();context.moveTo(point,0);context.lineTo(point,256);context.moveTo(0,point);context.lineTo(256,point);context.stroke();}
+    }else if(role==="trim"){
+      const gradient=context.createLinearGradient(0,0,256,256);gradient.addColorStop(0,blueprintColorCss(dark));gradient.addColorStop(.48,blueprintColorCss(color));gradient.addColorStop(.52,blueprintColorCss(light));gradient.addColorStop(1,blueprintColorCss(dark));context.fillStyle=gradient;context.fillRect(0,0,256,256);
+      context.strokeStyle=blueprintColorCss(dark,.75);context.lineWidth=3;for(let point=0;point<=256;point+=64){context.strokeRect(point+2,2,60,252);}
+      context.fillStyle=blueprintColorCss(light,.65);for(let x=14;x<256;x+=64)for(let y=16;y<256;y+=64){context.beginPath();context.arc(x,y,3,0,Math.PI*2);context.fill();}
+    }else{
+      const gradient=context.createRadialGradient(128,128,15,128,128,180);gradient.addColorStop(0,blueprintColorCss(light));gradient.addColorStop(1,blueprintColorCss(dark));context.fillStyle=gradient;context.fillRect(0,0,256,256);
+      context.strokeStyle=blueprintColorCss(light,.22);context.lineWidth=9;for(let offset=-256;offset<256;offset+=48){context.beginPath();context.moveTo(offset,0);context.lineTo(offset+256,256);context.stroke();}
+    }
+    const image=context.getImageData(0,0,256,256),data=image.data;
+    for(let index=0;index<data.length;index+=4){
+      const noise=(random()-.5)*14;data[index]=Math.max(0,Math.min(255,data[index]+noise));data[index+1]=Math.max(0,Math.min(255,data[index+1]+noise));data[index+2]=Math.max(0,Math.min(255,data[index+2]+noise));data[index+3]=255;
+    }
+    context.putImageData(quantizeGoldSrcImage(image),0,0);
+    return canvas.toDataURL("image/png");
+  }
+
+  function blueprintMaterialKit(palette,fileName) {
+    const base=String(fileName||"BLUEPRINT").replace(/\.[^.]+$/,"").replace(/[^a-z0-9]+/gi," ").trim().split(/\s+/).slice(0,2).join(" ")||"Blueprint";
+    const roles=[
+      {role:"wall",label:`${base} wall`,category:"architecture",uses:["wall","ceiling"],color:blueprintMix(palette[0],-.08)},
+      {role:"floor",label:`${base} floor`,category:"floor",uses:["floor","tile","ground"],color:palette[1]},
+      {role:"trim",label:`${base} metal trim`,category:"metal",uses:["wall","ceiling","props"],color:palette[2]},
+      {role:"accent",label:`${base} accent`,category:"architecture",uses:["wall","floor","props"],color:palette[3]}
+    ];
+    return roles.map((item,index)=>({...item,code:importedTextureCode(`BP ${item.role} ${base}`),imageData:blueprintTextureData(item.color,item.role,(index+1)*7919)}));
+  }
+
+  function largestBlueprintRectangle(mask,width,height) {
+    const heights=new Int16Array(width);let best=null;
+    for(let y=0;y<height;y+=1){
+      for(let x=0;x<width;x+=1)heights[x]=mask[y*width+x]?heights[x]+1:0;
+      const stack=[];
+      for(let x=0;x<=width;x+=1){
+        const current=x<width?heights[x]:0;let start=x;
+        while(stack.length&&stack.at(-1).height>current){
+          const entry=stack.pop(),area=entry.height*(x-entry.start);
+          if(!best||area>best.area)best={x:entry.start,y:y-entry.height+1,w:x-entry.start,d:entry.height,area};
+          start=entry.start;
+        }
+        if(!stack.length||stack.at(-1).height<current)stack.push({start,height:current});
+      }
+    }
+    return best;
+  }
+
+  function decomposeBlueprintMask(source,width,height,maxRooms=96) {
+    const mask=new Uint8Array(source),rectangles=[];let remaining=mask.reduce((sum,value)=>sum+value,0);
+    while(remaining&&rectangles.length<maxRooms){
+      const rectangle=largestBlueprintRectangle(mask,width,height);if(!rectangle||rectangle.area<2)break;
+      rectangles.push(rectangle);
+      for(let y=rectangle.y;y<rectangle.y+rectangle.d;y+=1)for(let x=rectangle.x;x<rectangle.x+rectangle.w;x+=1){const index=y*width+x;if(mask[index]){mask[index]=0;remaining-=1;}}
+    }
+    if(rectangles.length<maxRooms){
+      for(let y=0;y<height&&rectangles.length<maxRooms;y+=1)for(let x=0;x<width&&rectangles.length<maxRooms;x+=1){const index=y*width+x;if(mask[index]){rectangles.push({x,y,w:1,d:1,area:1});mask[index]=0;}}
+    }
+    return rectangles;
+  }
+
+  function blueprintRoomAverage(context,sourceWidth,sourceHeight,gridWidth,gridHeight,rectangle) {
+    const x1=Math.floor(rectangle.x/gridWidth*sourceWidth),x2=Math.max(x1+1,Math.ceil((rectangle.x+rectangle.w)/gridWidth*sourceWidth));
+    const y1=Math.floor(rectangle.y/gridHeight*sourceHeight),y2=Math.max(y1+1,Math.ceil((rectangle.y+rectangle.d)/gridHeight*sourceHeight));
+    const center=context.getImageData(Math.min(sourceWidth-1,Math.floor((x1+x2)/2)),Math.min(sourceHeight-1,Math.floor((y1+y2)/2)),1,1).data,centerColor=[center[0],center[1],center[2]],centerInfo=blueprintColorInfo(centerColor);
+    if(centerInfo.saturation>.2&&centerInfo.luma>.18&&centerInfo.luma<.95)return centerColor;
+    const data=context.getImageData(x1,y1,Math.min(sourceWidth,x2)-x1,Math.min(sourceHeight,y2)-y1).data;let red=0,green=0,blue=0,count=0;
+    for(let index=0;index<data.length;index+=16){const info=blueprintColorInfo([data[index],data[index+1],data[index+2]]);if(info.luma<.16||info.luma>.97)continue;red+=data[index];green+=data[index+1];blue+=data[index+2];count+=1;}
+    return count?[Math.round(red/count),Math.round(green/count),Math.round(blue/count)]:[150,154,143];
+  }
+
+  function blueprintLevelFromColor(color) {
+    const info=blueprintColorInfo(color);
+    if(info.saturation<.24||info.brightness<.28||info.brightness>.94)return 0;
+    if(info.hue>=18&&info.hue<=72)return 1;
+    if(info.hue>=175&&info.hue<=255&&info.brightness<.78)return -1;
+    return 0;
+  }
+
+  function blueprintOpenings(rooms) {
+    const openings=[],epsilon=.02;
+    for(let left=0;left<rooms.length;left+=1)for(let right=left+1;right<rooms.length;right+=1){
+      const a=rooms[left],b=rooms[right];if(Math.abs((a.floorLevel||0)-(b.floorLevel||0))>.01)continue;
+      const verticalBoundary=Math.abs(a.x+a.w-b.x)<epsilon?a.x+a.w:Math.abs(b.x+b.w-a.x)<epsilon?b.x+b.w:null;
+      if(verticalBoundary!=null){
+        const start=Math.max(a.y,b.y),end=Math.min(a.y+a.d,b.y+b.d),overlap=end-start;
+        if(overlap>=.5){const width=Math.max(.5,Math.min(2,overlap*.72));openings.push(layoutDoor("v",verticalBoundary,start+(overlap-width)/2,width));}
+      }
+      const horizontalBoundary=Math.abs(a.y+a.d-b.y)<epsilon?a.y+a.d:Math.abs(b.y+b.d-a.y)<epsilon?b.y+b.d:null;
+      if(horizontalBoundary!=null){
+        const start=Math.max(a.x,b.x),end=Math.min(a.x+a.w,b.x+b.w),overlap=end-start;
+        if(overlap>=.5){const width=Math.max(.5,Math.min(2,overlap*.72));openings.push(layoutDoor("h",horizontalBoundary,start+(overlap-width)/2,width));}
+      }
+      if(openings.length>=180)return openings;
+    }
+    return openings;
+  }
+
+  function blueprintConnectNearbyRooms(rooms) {
+    const connectors=[],occupied=(x,y)=>rooms.some((room)=>x>room.x+.01&&x<room.x+room.w-.01&&y>room.y+.01&&y<room.y+room.d-.01);
+    for(let left=0;left<rooms.length&&connectors.length<28;left+=1)for(let right=left+1;right<rooms.length&&connectors.length<28;right+=1){
+      const a=rooms[left],b=rooms[right];if(Math.abs((a.floorLevel||0)-(b.floorLevel||0))>.01)continue;
+      const gapEast=b.x-(a.x+a.w),gapWest=a.x-(b.x+b.w),overlapY=Math.min(a.y+a.d,b.y+b.d)-Math.max(a.y,b.y);
+      if(overlapY>=1&&((gapEast>.01&&gapEast<=2.1)||(gapWest>.01&&gapWest<=2.1))){
+        const west=gapEast>0?a:b,east=gapEast>0?b:a,start=Math.max(a.y,b.y),depth=Math.min(2,overlapY),y=start+(overlapY-depth)/2,x=west.x+west.w,width=east.x-x;
+        if(!occupied(x+width/2,y+depth/2))connectors.push({x,y,w:width,d:depth,floorLevel:a.floorLevel||0});
+      }
+      const gapSouth=b.y-(a.y+a.d),gapNorth=a.y-(b.y+b.d),overlapX=Math.min(a.x+a.w,b.x+b.w)-Math.max(a.x,b.x);
+      if(overlapX>=1&&((gapSouth>.01&&gapSouth<=2.1)||(gapNorth>.01&&gapNorth<=2.1))){
+        const north=gapSouth>0?a:b,south=gapSouth>0?b:a,start=Math.max(a.x,b.x),width=Math.min(2,overlapX),x=start+(overlapX-width)/2,y=north.y+north.d,depth=south.y-y;
+        if(!occupied(x+width/2,y+depth/2))connectors.push({x,y,w:width,d:depth,floorLevel:a.floorLevel||0});
+      }
+    }
+    return connectors.filter((connector,index)=>!connectors.slice(0,index).some((other)=>Math.abs(other.x-connector.x)<.05&&Math.abs(other.y-connector.y)<.05&&Math.abs(other.w-connector.w)<.05&&Math.abs(other.d-connector.d)<.05));
+  }
+
+  function blueprintSpawnPoints(room,count=5) {
+    const points=[];
+    for(let y=Math.ceil(room.y+.35);y<room.y+room.d-.25&&points.length<count;y+=1)for(let x=Math.ceil(room.x+.35);x<room.x+room.w-.25&&points.length<count;x+=1)points.push({x,y});
+    if(!points.length)points.push({x:Math.floor(room.x+room.w/2),y:Math.floor(room.y+room.d/2)});
+    while(points.length<count){const source=points[points.length%Math.max(1,points.length)];points.push({x:source.x+(points.length%2)*.18,y:source.y+Math.floor(points.length/2)*.12});}
+    return points.slice(0,count);
+  }
+
+  function blueprintCompetitiveSetup(rooms) {
+    if(rooms.length<2)return {entities:[],zones:[],spawnRooms:[],objectiveRooms:[]};
+    const bounds=polygonBounds(rooms.flatMap((room)=>[[room.x,room.y],[room.x+room.w,room.y+room.d]])),center=(room)=>({x:room.x+room.w/2,y:room.y+room.d/2}),area=(room)=>room.w*room.d;
+    const edgeCandidates=rooms.filter((room)=>area(room)>=4&&((center(room).x-bounds.x)/Math.max(1,bounds.w)<.25||(center(room).x-bounds.x)/Math.max(1,bounds.w)>.75||(center(room).y-bounds.y)/Math.max(1,bounds.d)<.25||(center(room).y-bounds.y)/Math.max(1,bounds.d)>.75)).sort((a,b)=>area(b)-area(a)).slice(0,24);
+    const candidates=edgeCandidates.length>=2?edgeCandidates:rooms.slice().sort((a,b)=>area(b)-area(a)).slice(0,18);let pair=[candidates[0],candidates[1]],distance=-1;
+    for(let left=0;left<candidates.length;left+=1)for(let right=left+1;right<candidates.length;right+=1){const a=center(candidates[left]),b=center(candidates[right]),value=Math.hypot(a.x-b.x,a.y-b.y);if(value>distance){distance=value;pair=[candidates[left],candidates[right]];}}
+    const first=center(pair[0]),second=center(pair[1]),tRoom=(first.x+first.y)<=second.x+second.y?pair[0]:pair[1],ctRoom=tRoom===pair[0]?pair[1]:pair[0],toward=(from,to)=>{const dx=center(to).x-center(from).x,dy=center(to).y-center(from).y;return Math.abs(dx)>=Math.abs(dy)?(dx>=0?0:180):(dy>=0?90:270);};
+    const entities=[
+      ...blueprintSpawnPoints(tRoom).map((point)=>({...layoutEntity("t",point.x,point.y,toward(tRoom,ctRoom)),floorLevel:tRoom.floorLevel||0})),
+      ...blueprintSpawnPoints(ctRoom).map((point)=>({...layoutEntity("ct",point.x,point.y,toward(ctRoom,tRoom)),floorLevel:ctRoom.floorLevel||0}))
+    ];
+    const other=rooms.filter((room)=>room!==tRoom&&room!==ctRoom&&area(room)>=3),score=(room)=>Math.min(Math.hypot(center(room).x-first.x,center(room).y-first.y),Math.hypot(center(room).x-second.x,center(room).y-second.y))+Math.sqrt(area(room));
+    const objectiveA=other.slice().sort((a,b)=>score(b)-score(a))[0]||rooms[Math.floor(rooms.length/2)],aCenter=center(objectiveA);
+    const objectiveB=other.filter((room)=>room!==objectiveA).sort((a,b)=>Math.hypot(center(b).x-aCenter.x,center(b).y-aCenter.y)-Math.hypot(center(a).x-aCenter.x,center(a).y-aCenter.y))[0]||objectiveA;
+    entities.push({...layoutEntity("bombA",Math.floor(aCenter.x),Math.floor(aCenter.y)),floorLevel:objectiveA.floorLevel||0},{...layoutEntity("bombB",Math.floor(center(objectiveB).x),Math.floor(center(objectiveB).y)),floorLevel:objectiveB.floorLevel||0});
+    const zoneFor=(room,kind)=>({id:crypto.randomUUID(),kind,x:room.x+.25,y:room.y+.25,w:Math.max(.5,room.w-.5),d:Math.max(.5,room.d-.5),height:2,floorLevel:room.floorLevel||0});
+    return {entities,zones:[zoneFor(tRoom,"buyT"),zoneFor(ctRoom,"buyCt")],spawnRooms:[tRoom,ctRoom],objectiveRooms:[objectiveA,objectiveB]};
+  }
+
+  function analyzeBlueprintImage() {
+    if(!pendingBlueprint?.image)return null;
+    const image=pendingBlueprint.image,source=document.createElement("canvas"),context=source.getContext("2d",{willReadFrequently:true}),scale=Math.min(1,720/(image.naturalWidth||image.width),520/(image.naturalHeight||image.height));
+    source.width=Math.max(80,Math.round((image.naturalWidth||image.width)*scale));source.height=Math.max(60,Math.round((image.naturalHeight||image.height)*scale));context.drawImage(image,0,0,source.width,source.height);
+    const width=source.width,height=source.height,pixels=context.getImageData(0,0,width,height).data,threshold=Number($("#blueprintWallSensitivity").value)||105,detail=Number($("#blueprintDetail").value)||56;
+    let walls=new Uint8Array(width*height);
+    for(let index=0;index<walls.length;index+=1){const offset=index*4,luma=pixels[offset]*.2126+pixels[offset+1]*.7152+pixels[offset+2]*.0722;walls[index]=pixels[offset+3]>90&&luma<threshold?1:0;}
+    const dilation=detail<=40?2:1;
+    for(let pass=0;pass<dilation;pass+=1){const next=new Uint8Array(walls);for(let y=1;y<height-1;y+=1)for(let x=1;x<width-1;x+=1){const index=y*width+x;if(walls[index])continue;if(walls[index-1]||walls[index+1]||walls[index-width]||walls[index+width])next[index]=1;}walls=next;}
+    const exterior=new Uint8Array(width*height),queue=new Int32Array(width*height);let head=0,tail=0;
+    const enqueue=(index)=>{if(index>=0&&index<exterior.length&&!walls[index]&&!exterior[index]){exterior[index]=1;queue[tail++]=index;}};
+    for(let x=0;x<width;x+=1){enqueue(x);enqueue((height-1)*width+x);}for(let y=0;y<height;y+=1){enqueue(y*width);enqueue(y*width+width-1);}
+    while(head<tail){const index=queue[head++],x=index%width;if(x>0)enqueue(index-1);if(x<width-1)enqueue(index+1);if(index>=width)enqueue(index-width);if(index<width*(height-1))enqueue(index+width);}
+    let interior=new Uint8Array(width*height),interiorCount=0;
+    for(let index=0;index<interior.length;index+=1)if(!walls[index]&&!exterior[index]){interior[index]=1;interiorCount+=1;}
+    const ratio=interiorCount/interior.length;
+    if(ratio<.025||ratio>.88){
+      const rowDensity=new Uint16Array(height),columnDensity=new Uint16Array(width);for(let y=0;y<height;y+=1)for(let x=0;x<width;x+=1)if(walls[y*width+x]){rowDensity[y]+=1;columnDensity[x]+=1;}
+      const denseRows=[...rowDensity].map((count,index)=>({count,index})).filter((entry)=>entry.count>width*.08),denseColumns=[...columnDensity].map((count,index)=>({count,index})).filter((entry)=>entry.count>height*.08);
+      const minY=denseRows[0]?.index??1,maxY=denseRows.at(-1)?.index??height-2,minX=denseColumns[0]?.index??1,maxX=denseColumns.at(-1)?.index??width-2;
+      interior=new Uint8Array(width*height);interiorCount=0;for(let y=minY+1;y<maxY;y+=1)for(let x=minX+1;x<maxX;x+=1){const index=y*width+x;if(!walls[index]){interior[index]=1;interiorCount+=1;}}
+    }
+    const widthMeters=Math.max(20,Math.min(250,Number($("#blueprintWidthMeters").value)||80)),gridWidth=Math.max(20,Math.min(96,Math.round(widthMeters/1.6))),gridHeight=Math.max(14,Math.min(96,Math.round(gridWidth*height/width))),mask=new Uint8Array(gridWidth*gridHeight);
+    for(let gy=0;gy<gridHeight;gy+=1)for(let gx=0;gx<gridWidth;gx+=1){
+      const x1=Math.floor(gx/gridWidth*width),x2=Math.max(x1+1,Math.ceil((gx+1)/gridWidth*width)),y1=Math.floor(gy/gridHeight*height),y2=Math.max(y1+1,Math.ceil((gy+1)/gridHeight*height));let inside=0,total=0;
+      for(let y=y1;y<y2;y+=2)for(let x=x1;x<x2;x+=2){inside+=interior[y*width+x];total+=1;}
+      mask[gy*gridWidth+gx]=inside/Math.max(1,total)>.34?1:0;
+    }
+    const cleanupPasses=detail<=40?2:detail>=72?0:1;
+    for(let pass=0;pass<cleanupPasses;pass+=1){const next=new Uint8Array(mask);for(let y=1;y<gridHeight-1;y+=1)for(let x=1;x<gridWidth-1;x+=1){let neighbors=0;for(let oy=-1;oy<=1;oy+=1)for(let ox=-1;ox<=1;ox+=1)if(ox||oy)neighbors+=mask[(y+oy)*gridWidth+x+ox];const index=y*gridWidth+x;if(!mask[index]&&neighbors>=6)next[index]=1;if(mask[index]&&neighbors<=1)next[index]=0;}mask.set(next);}
+    const rectangles=decomposeBlueprintMask(mask,gridWidth,gridHeight,detail<=40?64:detail>=72?112:88),inferLevels=$("#blueprintLevels").checked;
+    const rooms=rectangles.map((rectangle,index)=>{
+      const color=blueprintRoomAverage(context,width,height,gridWidth,gridHeight,rectangle),floorLevel=inferLevels?blueprintLevelFromColor(color):0;
+      return {...rectangle,id:crypto.randomUUID(),kind:"room",label:`TRACED SPACE ${index+1}`,height:floorLevel?5:4,floorLevel,color,sourceArea:rectangle.area,blueprintConnector:false};
+    });
+    const connectors=blueprintConnectNearbyRooms(rooms).map((connector,index)=>({...connector,id:crypto.randomUUID(),kind:"room",label:`AUTO CONNECTOR ${index+1}`,height:4,color:[114,200,192],sourceArea:connector.w*connector.d,blueprintConnector:true}));
+    rooms.push(...connectors);
+    const openings=blueprintOpenings(rooms),gameplay=$("#blueprintGameplay").checked?blueprintCompetitiveSetup(rooms.filter((room)=>!room.blueprintConnector)):{entities:[],zones:[],spawnRooms:[],objectiveRooms:[]},props=[];
+    if($("#blueprintCover").checked){
+      const excluded=new Set([...(gameplay.spawnRooms||[]),...(gameplay.objectiveRooms||[])].map((room)=>room.id));
+      rooms.filter((room)=>!room.blueprintConnector&&!excluded.has(room.id)&&room.w*room.d>=24).sort((a,b)=>b.w*b.d-a.w*a.d).slice(0,14).forEach((room,index)=>{
+        props.push(prefabProp(index%3?"crate":"wall",Math.floor(room.x+room.w/2),Math.floor(room.y+room.d/2),index%3?1:Math.min(2,Math.max(1,room.w/3)),1,index%3?1:.75,room.floorLevel||0,"BO_RUSTIRON",{label:"AUTO COVER"}));
+      });
+    }
+    const palette=blueprintPaletteFromPixels(context,width,height,interior),materials=blueprintMaterialKit(palette,pendingBlueprint.fileName),coverage=mask.reduce((sum,value)=>sum+value,0)/Math.max(1,mask.length),levelCount=new Set(rooms.map((room)=>room.floorLevel||0)).size;
+    let confidence=86;if(coverage<.08||coverage>.82)confidence-=24;if(rectangles.length>78)confidence-=14;if(rectangles.length<3)confidence-=25;if(connectors.length>20)confidence-=10;confidence=Math.max(28,Math.min(94,confidence));
+    pendingBlueprint.analysis={source,sourceWidth:width,sourceHeight:height,gridWidth,gridHeight,widthMeters,rooms,openings,props,entities:gameplay.entities,zones:gameplay.zones,palette,materials,confidence,coverage,levelCount,connectorCount:connectors.length};
+    renderBlueprintAnalysis();
+    return pendingBlueprint.analysis;
+  }
+
+  function renderBlueprintAnalysis() {
+    const analysis=pendingBlueprint?.analysis;if(!analysis)return;
+    const canvas=$("#blueprintCanvas"),context=canvas.getContext("2d"),maxWidth=760,maxHeight=500,scale=Math.min(maxWidth/analysis.sourceWidth,maxHeight/analysis.sourceHeight);canvas.width=Math.round(analysis.sourceWidth*scale);canvas.height=Math.round(analysis.sourceHeight*scale);
+    context.drawImage(analysis.source,0,0,canvas.width,canvas.height);context.fillStyle="rgba(4,8,5,.18)";context.fillRect(0,0,canvas.width,canvas.height);
+    const sx=canvas.width/analysis.gridWidth,sy=canvas.height/analysis.gridHeight;
+    analysis.rooms.forEach((room)=>{context.fillStyle=room.blueprintConnector?"rgba(114,200,192,.3)":room.floorLevel>0?"rgba(240,164,90,.25)":room.floorLevel<0?"rgba(114,184,255,.24)":"rgba(215,244,90,.18)";context.strokeStyle=room.blueprintConnector?"#72c8c0":"#d7f45a";context.lineWidth=Math.max(1,scale);context.fillRect(room.x*sx,room.y*sy,room.w*sx,room.d*sy);context.strokeRect(room.x*sx+.5,room.y*sy+.5,Math.max(1,room.w*sx-1),Math.max(1,room.d*sy-1));});
+    analysis.entities.forEach((entity)=>{const color=entity.kind==="ct"?"#62a9ff":entity.kind==="t"?"#f0a45a":"#d7f45a";context.fillStyle=color;context.beginPath();context.arc((entity.x+.5)*sx,(entity.y+.5)*sy,Math.max(3,Math.min(sx,sy)*.28),0,Math.PI*2);context.fill();});
+    $("#blueprintImageSize").textContent=`${pendingBlueprint.image.naturalWidth}×${pendingBlueprint.image.naturalHeight} px · ${analysis.gridWidth}×${analysis.gridHeight} editable grid`;
+    const confidence=$("#blueprintConfidence");confidence.textContent=`${analysis.confidence}% CONFIDENCE`;confidence.classList.toggle("low",analysis.confidence<65);
+    const values=[analysis.rooms.length,analysis.openings.length,analysis.levelCount,`${analysis.confidence}%`];$("#blueprintMetrics").querySelectorAll("strong").forEach((element,index)=>{element.textContent=values[index];});
+    $("#blueprintPalette").innerHTML=analysis.materials.map((material)=>`<div class="blueprint-swatch" title="${html(material.label)}"><img src="${material.imageData}" alt="${html(material.label)} texture preview"><span>${html(material.role)}</span></div>`).join("");
+    const textureNote=$("#blueprintTextures").checked?(companionStatus?.connected?"The matching texture kit will be installed into your local Blockout WAD.":"The map will use matching built-in materials unless the Windows companion is paired before creation."):"Existing categorized Blockout materials will be used.";
+    $("#blueprintStatus").className=`blueprint-status${analysis.confidence<65?" warning":""}`;$("#blueprintStatus").textContent=`Detected ${analysis.rooms.length-analysis.connectorCount} spaces, ${analysis.connectorCount} short connections, ${analysis.openings.length} openings, and ${analysis.levelCount} level${analysis.levelCount===1?"":"s"}. ${textureNote} Review and edit the result after creation.`;
+    $("#reanalyzeBlueprint").classList.remove("hidden");$("#createBlueprintMap").classList.remove("hidden");$("#replaceBlueprintImage").classList.remove("hidden");
+  }
+
+  function scheduleBlueprintAnalysis(delay=180) {
+    clearTimeout(blueprintAnalyzeTimer);$("#blueprintWallOutput").textContent=$("#blueprintWallSensitivity").value;
+    if(!pendingBlueprint?.image)return;
+    $("#blueprintConfidence").textContent="ANALYZING";blueprintAnalyzeTimer=setTimeout(()=>{try{analyzeBlueprintImage();}catch(error){$("#blueprintStatus").className="blueprint-status error";$("#blueprintStatus").textContent=`Analysis stopped: ${error.message}`;}},delay);
+  }
+
+  function resetBlueprintImport() {
+    clearTimeout(blueprintAnalyzeTimer);
+    if(pendingBlueprint?.objectUrl)URL.revokeObjectURL(pendingBlueprint.objectUrl);
+    pendingBlueprint=null;$("#blueprintFileInput").value="";$("#blueprintDropZone").classList.remove("hidden","drag-over");$("#blueprintWorkspace").classList.add("hidden");$("#replaceBlueprintImage").classList.add("hidden");$("#reanalyzeBlueprint").classList.add("hidden");$("#createBlueprintMap").classList.add("hidden");$("#blueprintCommitNote").textContent="The current map will stay untouched until you choose Create editable map.";
+  }
+
+  async function prepareBlueprintImport(file) {
+    if(!file||!/^image\/(png|jpeg|webp)$/.test(file.type)){showToast("Choose a PNG, JPG, or WebP map plan");return false;}
+    if(file.size>20_000_000){showToast("Choose a blueprint smaller than 20 MB");return false;}
+    const image=new Image(),objectUrl=URL.createObjectURL(file);
+    try{image.src=objectUrl;await image.decode();}catch(_){URL.revokeObjectURL(objectUrl);showToast("That blueprint image could not be decoded");return false;}
+    if(pendingBlueprint?.objectUrl)URL.revokeObjectURL(pendingBlueprint.objectUrl);
+    pendingBlueprint={fileName:file.name,image,objectUrl,analysis:null};
+    const widthText=String(file.name).match(/(?:^|[^0-9])(\d{2,3})\s*m(?:[^a-z]|$)/i);if(widthText)$("#blueprintWidthMeters").value=Math.max(20,Math.min(250,Number(widthText[1])));
+    $("#blueprintFileName").textContent=file.name;$("#blueprintDropZone").classList.add("hidden");$("#blueprintWorkspace").classList.remove("hidden");$("#replaceBlueprintImage").classList.remove("hidden");$("#blueprintStatus").className="blueprint-status";$("#blueprintStatus").textContent="Tracing enclosed areas and reading the plan palette locally…";scheduleBlueprintAnalysis(20);return true;
+  }
+
+  async function installBlueprintMaterialKit(analysis) {
+    const fallback={wall:"BO_CONCRETE",floor:"BO_FLOORTILE",trim:"BO_RUSTIRON",accent:"BO_STUCCO2",installed:false};
+    if(!$("#blueprintTextures").checked)return fallback;
+    try{
+      const payload={family:analysis.materials[0].code,textures:analysis.materials.map((material)=>({name:material.code,label:material.label,category:material.category,uses:material.uses,imageData:material.imageData,variant:material.role}))};
+      const result=await companionRequest("/api/textures/alchemize",{method:"POST",body:JSON.stringify(payload)}),items=result.textures||[];
+      items.forEach((item)=>registerMaterial(item.name,item.label,item.category,Date.now(),item.uses));installMaterialOptions();
+      const byRole={};analysis.materials.forEach((material,index)=>{byRole[material.role]=items[index]?.name||material.code;});return {...fallback,...byRole,installed:true};
+    }catch(error){
+      return {...fallback,error:error.message};
+    }
+  }
+
+  async function createMapFromBlueprint() {
+    const analysis=pendingBlueprint?.analysis;if(!analysis)return;
+    if(state.rooms.length&&!confirm("Replace the current map with this generated blueprint blockout? The current map remains available through Undo and autosave."))return;
+    const button=$("#createBlueprintMap");button.disabled=true;button.textContent="Building editable map…";$("#blueprintCommitNote").textContent="Preparing map geometry and material kit…";
+    const materials=await installBlueprintMaterialKit(analysis),before=snapshot(),openSky=$("#blueprintOpenSky").checked,cleanName=String(pendingBlueprint.fileName||"Blueprint map").replace(/\.[^.]+$/,"").replace(/[_-]+/g," ").trim().slice(0,40)||"Blueprint map";
+    const project=freshProject();project.name=cleanName;project.rooms=analysis.rooms.map((source,index)=>{
+      const info=blueprintColorInfo(source.color),accent=info.saturation>.34&&index%3===0;
+      return {...source,id:crypto.randomUUID(),texture:accent?materials.accent:materials.wall,floorTexture:accent?materials.accent:materials.floor,ceilingTexture:materials.trim,ceilingMode:openSky?"sky":"ceiling",wallThickness:.25};
+    });
+    project.doors=analysis.openings.map((opening)=>({...structuredClone(opening),id:crypto.randomUUID(),texture:materials.trim}));
+    project.props=analysis.props.map((prop,index)=>({...structuredClone(prop),id:crypto.randomUUID(),texture:index%3?materials.accent:materials.trim}));
+    project.entities=analysis.entities.map((entity)=>({...structuredClone(entity),id:crypto.randomUUID()}));project.zones=analysis.zones.map((zone)=>({...structuredClone(zone),id:crypto.randomUUID()}));
+    project.stories=[...new Set(project.rooms.map((room)=>room.floorLevel||0))].sort((a,b)=>a-b).map((elevation,index)=>({id:crypto.randomUUID(),name:elevation===0?"Ground floor":elevation>0?`Upper level +${Math.round(elevation*GRID)}`:`Lower level ${Math.round(elevation*GRID)}`,elevation}));
+    project.environment={...DEFAULT_ENVIRONMENT,groundEnabled:false,openSkyDefault:openSky,groundSize:Math.max(32,Math.min(128,analysis.gridWidth+8))};
+    const sourcePreview=document.createElement("canvas"),previewContext=sourcePreview.getContext("2d");sourcePreview.width=Math.min(480,analysis.sourceWidth);sourcePreview.height=Math.round(sourcePreview.width*analysis.sourceHeight/analysis.sourceWidth);previewContext.drawImage(analysis.source,0,0,sourcePreview.width,sourcePreview.height);
+    project.blueprint={version:1,fileName:pendingBlueprint.fileName,widthMeters:analysis.widthMeters,gridWidth:analysis.gridWidth,gridHeight:analysis.gridHeight,confidence:analysis.confidence,generatedAt:new Date().toISOString(),textureKit:analysis.materials.map((material)=>({role:material.role,name:materials[material.role],label:material.label})),sourcePreview:sourcePreview.toDataURL("image/jpeg",.68)};
+    state=project;selected=null;selection=[];planLevel=null;previewLevelOnly=false;analysisOverlay=null;commit(before);saveProjectNow({announce:false});$("#blueprintDialog").close();requestAnimationFrame(fitView);
+    button.disabled=false;button.textContent="Create editable map";$("#blueprintCommitNote").textContent="The current map will stay untouched until you choose Create editable map.";
+    showToast(materials.installed?`Blueprint map created with ${analysis.materials.length} custom textures`:`Blueprint map created with categorized built-in materials${materials.error?" — pair the companion to install its texture kit":""}`);
+    return {rooms:project.rooms.length,openings:project.doors.length,textures:materials.installed?analysis.materials.length:0};
   }
 
   function structureRun(prop) {
@@ -7161,6 +7491,21 @@
     state.rooms.forEach((room) => { room.ceilingMode = "sky"; });
     commit(before); syncEnvironmentDialog(); showToast("Every room now opens to the selected sky");
   });
+  $("#blueprintButton").addEventListener("click",()=>{$("#blueprintDialog").showModal();});
+  $("#closeBlueprintDialog").addEventListener("click",()=>$("#blueprintDialog").close());
+  $("#chooseBlueprintImage").addEventListener("click",(event)=>{event.stopPropagation();$("#blueprintFileInput").click();});
+  $("#replaceBlueprintImage").addEventListener("click",()=>$("#blueprintFileInput").click());
+  $("#blueprintDropZone").addEventListener("click",(event)=>{if(!event.target.closest("button"))$("#blueprintFileInput").click();});
+  $("#blueprintDropZone").addEventListener("keydown",(event)=>{if(["Enter"," "].includes(event.key)){event.preventDefault();$("#blueprintFileInput").click();}});
+  $("#blueprintFileInput").addEventListener("change",async(event)=>{await prepareBlueprintImport(event.target.files?.[0]);event.target.value="";});
+  ["dragenter","dragover"].forEach((type)=>$("#blueprintDropZone").addEventListener(type,(event)=>{event.preventDefault();event.stopPropagation();$("#blueprintDropZone").classList.add("drag-over");if(event.dataTransfer)event.dataTransfer.dropEffect="copy";}));
+  ["dragleave","drop"].forEach((type)=>$("#blueprintDropZone").addEventListener(type,(event)=>{event.preventDefault();event.stopPropagation();$("#blueprintDropZone").classList.remove("drag-over");}));
+  $("#blueprintDropZone").addEventListener("drop",(event)=>prepareBlueprintImport(event.dataTransfer?.files?.[0]));
+  ["blueprintWidthMeters","blueprintDetail","blueprintWallSensitivity","blueprintGameplay","blueprintCover","blueprintLevels","blueprintOpenSky","blueprintTextures"].forEach((id)=>{
+    const input=$(`#${id}`);input.addEventListener(id==="blueprintWallSensitivity"?"input":"change",()=>scheduleBlueprintAnalysis());
+  });
+  $("#reanalyzeBlueprint").addEventListener("click",()=>scheduleBlueprintAnalysis(10));
+  $("#createBlueprintMap").addEventListener("click",createMapFromBlueprint);
   $("#layoutsButton").addEventListener("click", () => {
     $("#layoutSearch").value = ""; $("#layoutCategory").value = "all"; renderLayoutLibrary(); $("#layoutDialog").showModal();
   });
@@ -7651,6 +7996,23 @@
     getBrokenWalkWindows: () => [...brokenWalkWindows],
     getCustomPrefabs: () => structuredClone(customPrefabs),
     getPrefabPlacement: () => ({activePrefabId,rotation:customPrefabRotation,mirrored:customPrefabMirrored}),
+    prepareBlueprintImage: (file) => prepareBlueprintImport(file),
+    analyzeBlueprint: () => {analyzeBlueprintImage();return window.Blockout.getBlueprintState();},
+    getBlueprintState: () => pendingBlueprint ? {
+      fileName:pendingBlueprint.fileName,
+      imageWidth:pendingBlueprint.image?.naturalWidth||0,
+      imageHeight:pendingBlueprint.image?.naturalHeight||0,
+      analysis:pendingBlueprint.analysis ? {
+        gridWidth:pendingBlueprint.analysis.gridWidth,gridHeight:pendingBlueprint.analysis.gridHeight,
+        widthMeters:pendingBlueprint.analysis.widthMeters,rooms:pendingBlueprint.analysis.rooms.length,
+        connectors:pendingBlueprint.analysis.connectorCount,openings:pendingBlueprint.analysis.openings.length,
+        props:pendingBlueprint.analysis.props.length,entities:pendingBlueprint.analysis.entities.length,
+        zones:pendingBlueprint.analysis.zones.length,levels:pendingBlueprint.analysis.levelCount,
+        confidence:pendingBlueprint.analysis.confidence,coverage:pendingBlueprint.analysis.coverage,
+        materials:pendingBlueprint.analysis.materials.map((material)=>({role:material.role,code:material.code,label:material.label,category:material.category,uses:[...material.uses],imageBytes:material.imageData.length}))
+      } : null
+    } : null,
+    createMapFromBlueprint: () => createMapFromBlueprint(),
     prepareTextureImage: (file) => prepareTextureImport(file),
     getTextureAlchemyState: () => ({
       active:!!pendingTextureImport,

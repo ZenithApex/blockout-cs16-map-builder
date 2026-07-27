@@ -26,6 +26,10 @@ the archive and executable SHA-256 hashes before installation.
 
 ## Suggested test pass
 
+- Open **More > Import map blueprint**, drop a plan with dark walls and colored areas, calibrate its measured width, and confirm the overlay appears before the current map changes.
+- Toggle wall sensitivity and trace detail; confirm room/opening counts and confidence refresh. Enable color-band levels only on a plan that clearly encodes elevation.
+- Create the blueprint map and verify five CT spawns, five T spawns, two buy zones, A/B objectives, editable connectors, and categorized wall/floor/ceiling materials.
+- With the companion connected, enable the blueprint texture kit and confirm four `USR_` materials are installed, previewed, assigned, embedded during compilation, and retained in exported project metadata.
 - Create, resize, rotate, duplicate, and delete rectangular and polygon rooms.
 - Drag a room between grid lines four squares apart and confirm its displayed width is exactly 256 units.
 - Enable **Adaptive**, zoom in, and confirm the visible/active snap refines to 32 or 16 units and the placement footprint matches the created object.

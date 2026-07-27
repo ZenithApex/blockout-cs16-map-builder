@@ -52,6 +52,7 @@
             <div class="top-more-popover">
               <span>PROJECT</span>
               <button class="menu-action" id="newButton"><b>New map</b><small>Start with a clean project</small></button>
+              <button class="menu-action" id="blueprintButton"><b>Import map blueprint</b><small>Turn a plan image into an editable blockout</small></button>
               <button class="menu-action" id="layoutsButton"><b>Layout library</b><small>Competitive starting layouts</small></button>
               <span>WORLD</span>
               <button class="menu-action" id="environmentButton"><b>Environment</b><small>Ground, sky, and outdoor defaults</small></button>
@@ -749,6 +750,75 @@
           <span class="build-help"><label class="build-launch-option"><input id="launchAfterBuild" type="checkbox" checked /> Launch CS 1.6 after compiling</label><span id="buildHelp">Start the companion to enable compilation.</span></span>
           <button class="button danger hidden" id="cancelBuildButton" type="button">Cancel build</button>
           <button class="button primary" id="runBuildButton" disabled>Build &amp; launch CS 1.6</button>
+        </div>
+      </div>
+    </dialog>
+
+    <dialog id="blueprintDialog" class="blueprint-dialog">
+      <div class="library-card blueprint-card">
+        <div class="build-dialog-heading">
+          <div><span class="welcome-badge">BLUEPRINT ARCHITECT</span><h2>Turn a plan image into an editable map</h2></div>
+          <button class="icon-button" id="closeBlueprintDialog" type="button" aria-label="Close">×</button>
+        </div>
+        <p class="analysis-intro">Drop a top-down plan. Blockout traces enclosed playable space, rebuilds it as safe room brushes, connects the pieces, infers a first competitive setup, and can create a matching four-material GoldSrc texture kit.</p>
+
+        <div class="blueprint-drop-zone" id="blueprintDropZone" tabindex="0" role="button" aria-label="Choose or drop a blueprint image">
+          <span class="blueprint-drop-icon">⌗</span>
+          <strong>Drop your map plan here</strong>
+          <small>PNG, JPG, or WebP · clear dark walls and colored zones work best</small>
+          <button class="button primary" id="chooseBlueprintImage" type="button">Choose image</button>
+          <input class="visually-hidden" id="blueprintFileInput" type="file" accept="image/png,image/jpeg,image/webp" />
+        </div>
+
+        <div class="blueprint-workspace hidden" id="blueprintWorkspace">
+          <section class="blueprint-visual">
+            <div class="blueprint-canvas-heading">
+              <span><strong id="blueprintFileName">Blueprint</strong><small id="blueprintImageSize">Waiting for analysis</small></span>
+              <span class="blueprint-confidence" id="blueprintConfidence">ANALYZING</span>
+            </div>
+            <div class="blueprint-canvas-wrap"><canvas id="blueprintCanvas" width="760" height="480" aria-label="Blueprint detection preview"></canvas></div>
+            <div class="blueprint-legend"><span><i class="walkable"></i>Generated rooms</span><span><i class="connector"></i>Auto connections</span><span><i class="spawn"></i>Gameplay setup</span></div>
+          </section>
+
+          <aside class="blueprint-controls">
+            <div class="blueprint-settings">
+              <label>Plan width
+                <span class="blueprint-number"><input id="blueprintWidthMeters" type="number" min="20" max="250" step="1" value="80" /><em>metres</em></span>
+              </label>
+              <label>Trace detail
+                <select id="blueprintDetail">
+                  <option value="40">Fast · fewer brushes</option>
+                  <option value="56" selected>Balanced</option>
+                  <option value="72">Detailed</option>
+                </select>
+              </label>
+              <label>Wall detection <output id="blueprintWallOutput">105</output>
+                <input id="blueprintWallSensitivity" type="range" min="55" max="165" step="5" value="105" />
+              </label>
+            </div>
+            <div class="blueprint-options">
+              <label><input id="blueprintGameplay" type="checkbox" checked /> Add 5v5 spawns, buy zones, A and B sites</label>
+              <label><input id="blueprintCover" type="checkbox" checked /> Add conservative cover to large spaces</label>
+              <label><input id="blueprintLevels" type="checkbox" /> Infer upper/lower levels from color bands</label>
+              <label><input id="blueprintOpenSky" type="checkbox" checked /> Use open sky above generated rooms</label>
+              <label><input id="blueprintTextures" type="checkbox" checked /> Create and apply a map-specific texture kit</label>
+            </div>
+            <div class="blueprint-metrics" id="blueprintMetrics">
+              <div><strong>0</strong><small>ROOMS</small></div><div><strong>0</strong><small>OPENINGS</small></div><div><strong>0</strong><small>LEVELS</small></div><div><strong>0</strong><small>CONFIDENCE</small></div>
+            </div>
+            <div class="blueprint-palette">
+              <span>GENERATED MATERIAL KIT</span>
+              <div id="blueprintPalette"></div>
+            </div>
+            <p class="blueprint-status" id="blueprintStatus">Analyzing the plan locally in your browser…</p>
+          </aside>
+        </div>
+
+        <div class="blueprint-footer">
+          <button class="button secondary hidden" id="replaceBlueprintImage" type="button">Choose another image</button>
+          <span id="blueprintCommitNote">The current map will stay untouched until you choose Create editable map.</span>
+          <button class="button secondary hidden" id="reanalyzeBlueprint" type="button">Analyze again</button>
+          <button class="button primary hidden" id="createBlueprintMap" type="button">Create editable map</button>
         </div>
       </div>
     </dialog>
