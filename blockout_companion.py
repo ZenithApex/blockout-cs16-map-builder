@@ -28,7 +28,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 
-VERSION = "1.8.0"
+VERSION = "1.9.0"
 HOST = "127.0.0.1"
 PORT = 41716
 ONLINE_ORIGINS = {
@@ -98,6 +98,7 @@ TEXTURE_CATEGORIES = {
     "architecture", "concrete", "brick", "stone", "ground", "nature",
     "organic", "fabric", "plaster", "floor", "metal", "wood",
 }
+TEXTURE_SURFACE_USES = {"wall", "floor", "tile", "ground", "ceiling", "props"}
 TEXTURE_IMPORT_LOCK = threading.Lock()
 COMPILER_SETUP_LOCK = threading.Lock()
 BUILD_RUN_LOCK = threading.Lock()
@@ -258,6 +259,18 @@ def normalize_texture_import(payload, family=""):
     category = str(payload.get("category", "architecture")).lower()
     if category not in TEXTURE_CATEGORIES:
         raise BuildError("Choose a supported material category.")
+    raw_uses = payload.get("uses", [])
+    if not isinstance(raw_uses, list):
+        raise BuildError("Texture surface uses must be a list.")
+    uses = []
+    for value in raw_uses:
+        use = str(value).lower()
+        if use not in TEXTURE_SURFACE_USES:
+            raise BuildError("Choose only supported texture surface uses.")
+        if use not in uses:
+            uses.append(use)
+    if not uses:
+        raise BuildError("Choose at least one surface use for this texture.")
     image_value = str(payload.get("imageData", ""))
     if not image_value.startswith("data:image/png;base64,"):
         raise BuildError("The imported texture must be normalized to PNG first.")
@@ -272,7 +285,7 @@ def normalize_texture_import(payload, family=""):
         raise BuildError("GoldSrc imports must be normalized to exactly 256 by 256 pixels.")
     variant = re.sub(r"[^a-z]+", "", str(payload.get("variant", "base")).lower())[:16] or "base"
     item = {
-        "name": clean_name, "label": label, "category": category,
+        "name": clean_name, "label": label, "category": category, "uses": uses,
         "file": clean_name + ".png", "author": "User import",
         "license": "User supplied", "source": "user",
         "createdAt": int(time.time()),

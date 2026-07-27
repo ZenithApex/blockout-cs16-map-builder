@@ -220,7 +220,7 @@ Choose **Layouts** in the top bar to start from one of 6 editable blockouts. Sea
 
 ## Texture library
 
-Select a room or structure and choose **Browse texture library**. Search by friendly name or WAD code, browse sticky category groups for architecture, concrete, brick, stone, ground, nature, organic, fabric, plaster, floor, metal, wood, and Sunburst materials, and mark favorites with the star. Each card displays the real texture miniature plus its stock, original, or CC0 source badge. For rooms, the target menu applies the chosen texture to walls, floor, or ceiling.
+Select a room or structure and choose **Browse texture library**. The browser recommends only textures suited to the current surface: walls, floors, tiles, outdoor ground, ceilings, or props and trim. You can switch the surface-use filter to another group or **All surface uses** when intentionally making an unusual choice. Material-family filters for architecture, concrete, brick, stone, nature, plaster, metal, wood, and Sunburst remain available, and every card shows its miniature, source, material family, and surface-use badges. The compact material dropdowns are contextual too—a selected wall lists wall textures, a floor lists floor textures, and terrain lists ground textures.
 
 The library includes 43 downloaded seamless CC0 materials, 7 procedural
 placeholders for game-supplied material names, and the 10-texture original
@@ -231,7 +231,7 @@ license are recorded in `textures/asset-manifest.base.json` and summarized in
 
 ### Texture Alchemist
 
-Open **Browse texture library**, then drop a PNG, JPG, WebP, or GIF photograph into **Texture Alchemist**. The visual studio provides cover/fit/stretch cropping, 90-degree rotation, zoom and crop positioning, brightness, contrast, and saturation correction. **Blend opposite edges** turns the photograph into a continuous surface, while the live 3×3 preview makes remaining seams visible before installation. The optional palette preview simulates the fixed 256-color palette used by Blockout's GoldSrc WAD builder.
+Open **Browse texture library**, then drop a PNG, JPG, WebP, or GIF photograph into **Texture Alchemist**. The visual studio provides cover/fit/stretch cropping, 90-degree rotation, zoom and crop positioning, brightness, contrast, and saturation correction. **Blend opposite edges** turns the photograph into a continuous surface, while the live 3×3 preview makes remaining seams visible before installation. The optional palette preview simulates the fixed 256-color palette used by Blockout's GoldSrc WAD builder. Before installation, choose one or more persistent **Use this texture on** categories so the new material appears in the correct contextual wall, floor, tile, ground, ceiling, or prop choices after restarting Blockout.
 
 ### Save, move, and export projects
 
@@ -278,7 +278,7 @@ Blockout can also use another trusted GoldSrc VHLT/ZHLT tool package. Either:
 
 Standard filenames and `_x64`/`_x86` variants are supported. Build & Test now reports five independent readiness checks: CS 1.6, all four compilers, `cstrike.wad` plus `halflife.wad`, the writable `cstrike/maps` destination, and editor preflight. Choose whether to launch CS 1.6 after compilation or compile and install without launching it.
 
-Companion 1.8 clears stale compiler outputs before each build so an older BSP cannot be mistaken for a successful result. It provides a verified in-app SDHLT installer, Draft/Playtest/Final profiles, live stage and elapsed-time status, safe cancellation, clickable coordinate diagnostics, origin-locked hosted pairing, guarded Texture Alchemist family import/deletion, and atomic WAD rebuilds while remaining loopback-only. Missing stock/custom WADs, locked build artifacts, invalid custom mipmaps, incomplete compiler folders, and unwritable destinations stop early with specific recovery instructions. The complete compiler log is retained in the Build panel after a failed stage. If CS 1.6 is holding the requested BSP open, Blockout automatically installs the new build as the next available `_preview_N` map instead.
+Companion 1.9 clears stale compiler outputs before each build so an older BSP cannot be mistaken for a successful result. It provides a verified in-app SDHLT installer, Draft/Playtest/Final profiles, live stage and elapsed-time status, safe cancellation, clickable coordinate diagnostics, origin-locked hosted pairing, guarded Texture Alchemist family import/deletion, persistent surface-use metadata, and atomic WAD rebuilds while remaining loopback-only. Missing stock/custom WADs, locked build artifacts, invalid custom mipmaps, incomplete compiler folders, and unwritable destinations stop early with specific recovery instructions. The complete compiler log is retained in the Build panel after a failed stage. If CS 1.6 is holding the requested BSP open, Blockout automatically installs the new build as the next available `_preview_N` map instead.
 
 ## Verified real compiles
 

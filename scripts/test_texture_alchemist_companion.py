@@ -61,15 +61,16 @@ with tempfile.TemporaryDirectory(prefix="blockout-alchemist-") as temporary:
     payload = {
         "family": "USR_STONE",
         "textures": [
-            {"name": "USR_STONE", "label": "Stone", "category": "stone", "variant": "base", "imageData": encoded_png(120, 110, 100)},
-            {"name": "USR_STONE_D", "label": "Stone Dark", "category": "stone", "variant": "dark", "imageData": encoded_png(75, 68, 62)},
-            {"name": "USR_STONE_L", "label": "Stone Light", "category": "stone", "variant": "light", "imageData": encoded_png(170, 160, 150)},
-            {"name": "USR_STONE_W", "label": "Stone Weathered", "category": "stone", "variant": "weathered", "imageData": encoded_png(105, 95, 82)},
+            {"name": "USR_STONE", "label": "Stone", "category": "stone", "uses": ["wall", "floor", "tile"], "variant": "base", "imageData": encoded_png(120, 110, 100)},
+            {"name": "USR_STONE_D", "label": "Stone Dark", "category": "stone", "uses": ["wall", "floor", "tile"], "variant": "dark", "imageData": encoded_png(75, 68, 62)},
+            {"name": "USR_STONE_L", "label": "Stone Light", "category": "stone", "uses": ["wall", "floor", "tile"], "variant": "light", "imageData": encoded_png(170, 160, 150)},
+            {"name": "USR_STONE_W", "label": "Stone Weathered", "category": "stone", "uses": ["wall", "floor", "tile"], "variant": "weathered", "imageData": encoded_png(105, 95, 82)},
         ],
     }
     result = COMPANION.alchemize_textures(payload)
     assert len(result["textures"]) == 4
     assert all(item["alchemistFamily"] == "USR_STONE" for item in result["textures"])
+    assert all(item["uses"] == ["wall", "floor", "tile"] for item in result["textures"])
     assert all((root / "textures" / "sources" / f"{item['name']}.png").is_file() for item in result["textures"])
     assert all((root / "textures" / "previews" / f"{item['name']}.png").is_file() for item in result["textures"])
 
@@ -86,7 +87,7 @@ with tempfile.TemporaryDirectory(prefix="blockout-alchemist-") as temporary:
     COMPANION.rebuild_texture_wad = lambda: (_ for _ in ()).throw(COMPANION.BuildError("Synthetic failure"))
     failing = {
         "family": "USR_FAIL",
-        "textures": [{"name": "USR_FAIL", "label": "Failure", "category": "metal", "variant": "base", "imageData": encoded_png(90, 95, 100)}],
+        "textures": [{"name": "USR_FAIL", "label": "Failure", "category": "metal", "uses": ["props"], "variant": "base", "imageData": encoded_png(90, 95, 100)}],
     }
     try:
         COMPANION.alchemize_textures(failing)

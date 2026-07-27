@@ -55,6 +55,7 @@ const result=await evaluate(`(async()=>{
   const seamless=Blockout.getTextureAlchemyState();
   assert(seamless.active&&seamless.imageDataBytes>1000,"No processed 256px PNG was produced");
   assert(seamless.category==="brick","Local classifier did not identify the brick filename");
+  assert(seamless.uses.includes("wall")&&seamless.uses.includes("tile"),"Texture Alchemist did not suggest wall/tile surface uses");
   assert(seamless.edgeMismatch<=1,"Seamless edge blend left a visible boundary: "+seamless.edgeMismatch);
   assert(seamless.variants.length===4&&new Set(seamless.variants.map((item)=>item.code)).size===4,"Texture family codes are not unique");
   assert(seamless.variants.every((item)=>item.code.length<=15),"A GoldSrc code exceeds 15 characters");
@@ -69,7 +70,24 @@ const result=await evaluate(`(async()=>{
   const after=pixels();assert(before!==after,"Color correction did not update the output pixels");
   const tile=document.querySelector("#textureTileCanvas").getContext("2d").getImageData(0,0,256,256).data;
   assert(tile.some((value,index)=>index%4!==3&&value>0),"The 3 by 3 tile preview is blank");
-  return {category:seamless.category,edgeMismatch:seamless.edgeMismatch,rawMismatch:raw.edgeMismatch,outputBytes:seamless.imageDataBytes,codes:seamless.variants.map((item)=>item.code)};
+  const catalog=new Map(Blockout.getTextureCatalog().map((item)=>[item.texture,item]));
+  const choices=(id)=>[...document.querySelector(id).options].map((option)=>option.value);
+  assert(choices("#materialSelect").every((texture)=>catalog.get(texture)?.uses.includes("wall")),"Wall material dropdown contains a non-wall texture");
+  assert(choices("#floorMaterialSelect").every((texture)=>catalog.get(texture)?.uses.includes("floor")),"Floor material dropdown contains a non-floor texture");
+  assert(choices("#ceilingMaterialSelect").every((texture)=>catalog.get(texture)?.uses.includes("ceiling")),"Ceiling material dropdown contains a non-ceiling texture");
+  assert(choices("#environmentGroundMaterialSelect").every((texture)=>catalog.get(texture)?.uses.includes("ground")),"Ground material dropdown contains a non-ground texture");
+
+  document.querySelector("#textureImportEditor").classList.add("hidden");
+  document.querySelector("#textureTarget").value="floor";
+  document.querySelector("#textureUseFilter").value="recommended";
+  document.querySelector("#textureUseFilter").dispatchEvent(new Event("change",{bubbles:true}));
+  const floorCards=[...document.querySelectorAll("#textureGrid [data-texture]")].map((card)=>card.dataset.texture);
+  assert(floorCards.length>0&&floorCards.every((texture)=>catalog.get(texture)?.uses.includes("floor")),"Recommended floor browser contains another surface type");
+  document.querySelector("#textureUseFilter").value="wall";
+  document.querySelector("#textureUseFilter").dispatchEvent(new Event("change",{bubbles:true}));
+  const wallCards=[...document.querySelectorAll("#textureGrid [data-texture]")].map((card)=>card.dataset.texture);
+  assert(wallCards.length>0&&wallCards.every((texture)=>catalog.get(texture)?.uses.includes("wall")),"Wall browser filter contains another surface type");
+  return {category:seamless.category,uses:seamless.uses,edgeMismatch:seamless.edgeMismatch,rawMismatch:raw.edgeMismatch,outputBytes:seamless.imageDataBytes,codes:seamless.variants.map((item)=>item.code),floorChoices:floorCards.length,wallChoices:wallCards.length};
 })()`);
 
 if(pageErrors.length)throw new Error(`Page errors: ${pageErrors.join("; ")}`);

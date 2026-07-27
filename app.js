@@ -131,6 +131,15 @@
     BO_FOAM:"plaster", BO_TOPAZ:"stone", BO_TURQUOISE:"stone", BO_MARBLE:"stone", BO_YELLOWGEM:"stone",
     BO_CONC1K1:"concrete", BO_PEBBLE1K:"ground", BO_CONC1K2:"concrete", BO_ROCK:"stone", BO_FLOORTILE:"floor", BO_GRASS1:"nature", BO_GRASS2:"nature"
   };
+  const MATERIAL_SURFACE_USES = {};
+  const TEXTURE_USE_INFO = {
+    wall:{label:"Walls",short:"Wall"},
+    floor:{label:"Floors",short:"Floor"},
+    tile:{label:"Tiles",short:"Tile"},
+    ground:{label:"Outdoor ground",short:"Ground"},
+    ceiling:{label:"Ceilings",short:"Ceiling"},
+    props:{label:"Props & trim",short:"Props"}
+  };
   const DEFAULT_ENVIRONMENT = { groundEnabled:true, groundSize:32, groundPadding:4, groundElevation:0, groundMaterial:"BO_GRASS1", openSkyDefault:true, skyName:"desert" };
   const SKY_THEMES = {
     desert:{label:"Desert daylight",colors:["#263d54","#8da4ad","#d1bd82"],light:"255 244 214 400",angles:"0 215 0"},
@@ -196,9 +205,10 @@
   const previewPatterns = new Map();
   $("#textureSummary").after($("#textureImporter"));
 
-  function registerMaterial(texture,label=MATERIAL_INFO[texture]||texture,category=null,cacheBust="") {
+  function registerMaterial(texture,label=MATERIAL_INFO[texture]||texture,category=null,cacheBust="",uses=null) {
     MATERIAL_INFO[texture]=label;
     if(category)CC0_TEXTURE_CATEGORIES[texture]=category;
+    if(Array.isArray(uses)&&uses.length)MATERIAL_SURFACE_USES[texture]=[...new Set(uses.filter((use)=>TEXTURE_USE_INFO[use]))];
     if(materialImages[texture]&&!cacheBust)return;
     const image = new Image();
     if (HOSTED_MODE && texture.startsWith("USR_")) image.crossOrigin = "anonymous";
@@ -211,19 +221,28 @@
   }
   Object.keys(MATERIAL_COLORS).forEach((texture) => registerMaterial(texture));
 
-  function installMaterialOptions() {
-    ["materialSelect", "floorMaterialSelect", "ceilingMaterialSelect", "doorMaterialSelect", "environmentGroundMaterialSelect"].forEach((id) => {
-      const select = $(`#${id}`);
-      if (!select) return;
-      const installed = new Set([...select.options].map((option) => option.value));
-      Object.entries(MATERIAL_INFO).forEach(([texture, label]) => {
-        if (installed.has(texture)) return;
-        const option = document.createElement("option");
-        option.value = texture;
-        option.textContent = label;
-        select.append(option);
-      });
+  function populateMaterialSelect(id,usage,current="") {
+    const select=$(`#${id}`);
+    if(!select)return;
+    const suitable=Object.keys(MATERIAL_INFO).filter((texture)=>textureSurfaceUses(texture).includes(usage))
+      .sort((a,b)=>MATERIAL_INFO[a].localeCompare(MATERIAL_INFO[b]));
+    if(current&&MATERIAL_INFO[current]&&!suitable.includes(current))suitable.unshift(current);
+    select.innerHTML="";
+    suitable.forEach((texture)=>{
+      const option=document.createElement("option");
+      option.value=texture;option.textContent=MATERIAL_INFO[texture];
+      if(texture===current&&!textureSurfaceUses(texture).includes(usage))option.textContent+=` · current (outside ${TEXTURE_USE_INFO[usage]?.label.toLowerCase()||usage})`;
+      select.append(option);
     });
+    if(current&&suitable.includes(current))select.value=current;
+  }
+
+  function installMaterialOptions() {
+    populateMaterialSelect("materialSelect","wall",$("#materialSelect")?.value||"C1A0_LABW3");
+    populateMaterialSelect("floorMaterialSelect","floor",$("#floorMaterialSelect")?.value||"CSTRIKE_FP2DARK");
+    populateMaterialSelect("ceilingMaterialSelect","ceiling",$("#ceilingMaterialSelect")?.value||"C1A0_LABW3");
+    populateMaterialSelect("doorMaterialSelect","props",$("#doorMaterialSelect")?.value||"CSTRIKE_ME4METL");
+    populateMaterialSelect("environmentGroundMaterialSelect","ground",$("#environmentGroundMaterialSelect")?.value||DEFAULT_ENVIRONMENT.groundMaterial);
   }
   installMaterialOptions();
 
@@ -3423,6 +3442,7 @@
       $("#doorHeight").value=item.height;
       $("#doorModeSelect").value = item.mode;
       $("#doorSpeed").value = item.speed;
+      populateMaterialSelect("doorMaterialSelect","props",item.texture);
       $("#doorMaterialSelect").value = item.texture;
       $("#doorSpeedRow").classList.toggle("hidden", item.mode !== "sliding");
       $("#doorMaterialRow").classList.toggle("hidden", item.mode !== "sliding");
@@ -3539,6 +3559,7 @@
       });
       const texture = surfaceTextureFor(item, selected.type);
       if (!isZone) {
+        populateMaterialSelect("materialSelect",textureUsageForSelection(item,selected.type,surfaceTarget),texture);
         $("#materialSelect").value = texture;
         updateSurfaceMiniature("wallMaterialMiniature", texture);
         updateMaterialPreview(texture);
@@ -3589,9 +3610,11 @@
         item.floorTexture ||= "CSTRIKE_FP2DARK";
         item.ceilingTexture ||= "C1A0_LABW3";
         item.ceilingMode ||= "ceiling";
+        populateMaterialSelect("floorMaterialSelect","floor",item.floorTexture);
         $("#floorMaterialSelect").value = item.floorTexture;
         updateSurfaceMiniature("floorMaterialMiniature", item.floorTexture);
         $("#roomFloorElevation").value = roomFloor(item);
+        populateMaterialSelect("ceilingMaterialSelect","ceiling",item.ceilingTexture);
         $("#ceilingMaterialSelect").value = item.ceilingTexture;
         updateSurfaceMiniature("ceilingMaterialMiniature", item.ceilingTexture);
         $("#ceilingModeSelect").value = item.ceilingMode;
@@ -3628,10 +3651,78 @@
     return "architecture";
   }
 
+  function inferredTextureUses(category,text="") {
+    const uses=new Set(),value=String(text||"").toLowerCase();
+    const add=(...items)=>items.forEach((item)=>uses.add(item));
+    if(category==="architecture")add("wall","ceiling","props");
+    if(category==="concrete")add("wall","floor","ceiling","props");
+    if(category==="brick")add("wall","tile");
+    if(category==="stone")add("wall","floor","tile","ground","props");
+    if(category==="ground")add("ground","floor");
+    if(category==="nature")add("ground","props");
+    if(category==="organic")add("wall","props");
+    if(category==="fabric")add("wall","floor","ceiling","props");
+    if(category==="plaster")add("wall","ceiling");
+    if(category==="floor")add("floor","tile");
+    if(category==="metal")add("wall","floor","ceiling","props");
+    if(category==="wood")add("wall","floor","ceiling","props");
+    if(category==="sunburst")add("wall","floor","props");
+    if(/\b(tile|tiles|cobble|marble|parquet)\b/.test(value))add("tile","floor");
+    if(/\b(grass|sand|gravel|ground|soil|dirt|pavement|asphalt)\b/.test(value))add("ground");
+    if(/\b(crate|supply|trim|door|panel)\b/.test(value))add("props");
+    if(/\b(ceiling|roof|plaster)\b/.test(value))add("ceiling");
+    if(/\b(wall|brick|stucco)\b/.test(value))add("wall");
+    if(/\b(floor)\b/.test(value))add("floor");
+    if(!uses.size)add("wall");
+    return [...uses];
+  }
+
+  function textureSurfaceUses(texture) {
+    const stored=MATERIAL_SURFACE_USES[texture];
+    if(stored?.length)return [...stored];
+    const category=textureCategory(texture),text=`${texture} ${MATERIAL_INFO[texture]||""}`;
+    if(texture==="SUN_WALL")return ["wall"];
+    if(texture==="SUN_METAL")return ["wall","ceiling","props"];
+    if(texture==="SUN_TILE")return ["floor","tile","wall"];
+    if(texture==="SUN_FLOOR")return ["floor"];
+    if(["SUN_CRATE","SUN_SUPPLY","BCRATE02","C1A1_CRATE1"].includes(texture))return ["props"];
+    return inferredTextureUses(category,text);
+  }
+
+  function textureUsageForSelection(item=selectedItem(),type=selected?.type,target=surfaceTarget) {
+    if(type==="room")return target==="floor"?"floor":target==="ceiling"?"ceiling":"wall";
+    if(type==="door"||type==="window")return "props";
+    if(type!=="prop"||!item)return "wall";
+    if(["floor","floorPolygon","platform","platformPolygon","stairs","ramp","wedge"].includes(item.kind))return "floor";
+    if(["wall","wallPolygon","diagonal","cylinder","arch","slopeRoof"].includes(item.kind))return "wall";
+    return "props";
+  }
+
+  function textureUsageForTarget() {
+    const target=$("#textureTarget")?.value||"material";
+    if(target==="ground")return "ground";
+    if(target==="floor")return "floor";
+    if(target==="ceiling")return "ceiling";
+    return textureUsageForSelection();
+  }
+
+  function selectedImportedTextureUses() {
+    return $$(".texture-use-picker input:checked").map((input)=>input.value).filter((use)=>TEXTURE_USE_INFO[use]);
+  }
+
+  function setImportedTextureUses(uses) {
+    const selected=new Set(uses);
+    $$(".texture-use-picker input").forEach((input)=>{input.checked=selected.has(input.value);});
+  }
+
+  function suggestImportedTextureUses(category,text="") {
+    setImportedTextureUses(inferredTextureUses(category,text));
+  }
+
   async function refreshTextureCatalog() {
     try {
       const catalog=await companionRequest("/api/textures");
-      (catalog.textures||[]).forEach((item)=>registerMaterial(item.name,item.label||item.name,item.category||"architecture"));
+      (catalog.textures||[]).forEach((item)=>registerMaterial(item.name,item.label||item.name,item.category||"architecture","",item.uses));
       installMaterialOptions();
       if($("#textureDialog")?.open)renderTextureBrowser();
       return catalog;
@@ -3639,7 +3730,7 @@
   }
 
   function unregisterMaterial(texture) {
-    delete MATERIAL_INFO[texture];delete MATERIAL_COLORS[texture];delete CC0_TEXTURE_CATEGORIES[texture];delete materialImages[texture];
+    delete MATERIAL_INFO[texture];delete MATERIAL_COLORS[texture];delete CC0_TEXTURE_CATEGORIES[texture];delete MATERIAL_SURFACE_USES[texture];delete materialImages[texture];
     previewPatterns.clear();textureFavorites.delete(texture);
     localStorage.setItem("blockout-texture-favorites",JSON.stringify([...textureFavorites]));
     ["materialSelect","floorMaterialSelect","ceilingMaterialSelect","doorMaterialSelect","environmentGroundMaterialSelect"].forEach((id)=>{
@@ -3846,20 +3937,22 @@
     pendingTextureImport={fileName:file.name,image,objectUrl:url,analysis:null,imageData:""};resetTextureAlchemyControls(false);
     drawTextureAlchemySource();const analysis=analyzeImportedTexture(file.name,$("#textureImportSourceCanvas").getContext("2d",{willReadFrequently:true}));pendingTextureImport.analysis=analysis;
     $("#textureImportLabel").value=analysis.label;$("#textureImportName").value=analysis.code;$("#textureImportCategory").value=analysis.category;$("#textureImportAnalysis").textContent=analysis.summary;
+    suggestImportedTextureUses(analysis.category,`${analysis.label} ${file.name}`);
     renderTextureAlchemy();$("#textureDropZone").classList.add("hidden");$("#textureImportEditor").classList.remove("hidden");$("#textureImportStatus").classList.add("hidden");
   }
 
   async function installImportedTexture() {
     if(!pendingTextureImport)return;
-    const button=$("#installTextureImport"),status=$("#textureImportStatus"),name=$("#textureImportName").value.toUpperCase().replace(/[^A-Z0-9_]+/g,"_").slice(0,15),label=$("#textureImportLabel").value.trim()||name,category=$("#textureImportCategory").value;
-    const textures=[{name,label,category,imageData:pendingTextureImport.imageData,variant:"base"}];
-    if($("#textureVariantDark").checked)textures.push({name:textureFamilyCode(name,"_D"),label:`${label} — Dark`,category,imageData:textureVariantData("dark"),variant:"dark"});
-    if($("#textureVariantLight").checked)textures.push({name:textureFamilyCode(name,"_L"),label:`${label} — Light`,category,imageData:textureVariantData("light"),variant:"light"});
-    if($("#textureVariantWorn").checked)textures.push({name:textureFamilyCode(name,"_W"),label:`${label} — Weathered`,category,imageData:textureVariantData("worn"),variant:"weathered"});
+    const button=$("#installTextureImport"),status=$("#textureImportStatus"),name=$("#textureImportName").value.toUpperCase().replace(/[^A-Z0-9_]+/g,"_").slice(0,15),label=$("#textureImportLabel").value.trim()||name,category=$("#textureImportCategory").value,uses=selectedImportedTextureUses();
+    if(!uses.length){showToast("Choose at least one surface use for this texture");return;}
+    const textures=[{name,label,category,uses,imageData:pendingTextureImport.imageData,variant:"base"}];
+    if($("#textureVariantDark").checked)textures.push({name:textureFamilyCode(name,"_D"),label:`${label} — Dark`,category,uses,imageData:textureVariantData("dark"),variant:"dark"});
+    if($("#textureVariantLight").checked)textures.push({name:textureFamilyCode(name,"_L"),label:`${label} — Light`,category,uses,imageData:textureVariantData("light"),variant:"light"});
+    if($("#textureVariantWorn").checked)textures.push({name:textureFamilyCode(name,"_W"),label:`${label} — Weathered`,category,uses,imageData:textureVariantData("worn"),variant:"weathered"});
     button.disabled=true;button.textContent="Building texture family…";status.classList.remove("hidden","error");status.textContent=`Creating ${textures.length} GoldSrc textures, mipmaps, previews, and one atomic WAD update…`;
     try{
       const result=await companionRequest("/api/textures/alchemize",{method:"POST",body:JSON.stringify({textures,family:name})}),items=result.textures||[];
-      items.forEach((item)=>registerMaterial(item.name,item.label,item.category,Date.now()));installMaterialOptions();$("#textureSearch").value=items[0]?.name||name;$("#textureCategory").value="all";resetTextureImport();renderTextureBrowser();status.classList.remove("hidden","error");status.textContent=`Installed ${items.length} matching material${items.length===1?"":"s"} as one safe WAD update. Click a card below to apply it.`;showToast(`${items.length} Texture Alchemist material${items.length===1?"":"s"} installed`);
+      items.forEach((item)=>registerMaterial(item.name,item.label,item.category,Date.now(),item.uses));installMaterialOptions();$("#textureSearch").value=items[0]?.name||name;$("#textureCategory").value="all";$("#textureUseFilter").value="all";resetTextureImport();renderTextureBrowser();status.classList.remove("hidden","error");status.textContent=`Installed ${items.length} matching material${items.length===1?"":"s"} for ${uses.map((use)=>TEXTURE_USE_INFO[use].label.toLowerCase()).join(", ")}. Click a card below to apply it.`;showToast(`${items.length} Texture Alchemist material${items.length===1?"":"s"} installed`);
     }catch(error){status.classList.remove("hidden");status.classList.add("error");status.textContent=`Import stopped: ${error.message}`;}
     finally{button.disabled=false;button.textContent="Install texture family";}
   }
@@ -3874,19 +3967,22 @@
   }
 
   function renderTextureBrowser() {
-    const query = $("#textureSearch").value.trim().toLowerCase(), category = $("#textureCategory").value;
+    const query = $("#textureSearch").value.trim().toLowerCase(), category = $("#textureCategory").value,usageFilter=$("#textureUseFilter").value;
+    const contextualUsage=textureUsageForTarget(),resolvedUsage=usageFilter==="recommended"?contextualUsage:usageFilter;
     const selectedTexture = selectedTextureForTarget();
     const textures = Object.keys(MATERIAL_INFO).filter((texture) => {
       const matchesSearch = !query || texture.toLowerCase().includes(query) || MATERIAL_INFO[texture].toLowerCase().includes(query);
       const matchesCategory = category === "all" || (category === "favorites" ? textureFavorites.has(texture) : textureCategory(texture) === category);
-      return matchesSearch && matchesCategory;
-    });
+      const matchesUsage=resolvedUsage==="all"||textureSurfaceUses(texture).includes(resolvedUsage);
+      return matchesSearch && matchesCategory&&matchesUsage;
+    }).sort((a,b)=>(a===selectedTexture?-2:b===selectedTexture?2:0)||(textureFavorites.has(a)?-1:textureFavorites.has(b)?1:0)||MATERIAL_INFO[a].localeCompare(MATERIAL_INFO[b]));
     const categoryLabels = {architecture:"Architecture",concrete:"Concrete",brick:"Brick",stone:"Stone & gems",ground:"Ground",nature:"Nature",organic:"Organic patterns",fabric:"Fabric & leather",plaster:"Plaster",floor:"Floors",metal:"Metal",wood:"Wood",sunburst:"Sunburst"};
     const categoryOrder = ["architecture","concrete","brick","stone","ground","nature","organic","fabric","plaster","floor","metal","wood","sunburst"];
     const sourceLabel = (texture) => texture.startsWith("USR_") ? "IMPORTED" : texture.startsWith("BO_") ? "CC0" : texture.startsWith("SUN_") ? "ORIGINAL" : "STOCK WAD";
-    const card = (texture) => {const label=html(MATERIAL_INFO[texture]);return `<button class="texture-card ${texture === selectedTexture ? "selected" : ""}" data-texture="${texture}" type="button" title="Apply ${label}"><span class="texture-source">${sourceLabel(texture)}</span><img loading="lazy" src="${texturePreviewUrl(texture)}" alt="Miniature preview of ${label}"><strong>${label}</strong><small>${texture}</small><span class="texture-category-badge">${categoryLabels[textureCategory(texture)] || textureCategory(texture)}</span><span class="favorite-texture ${textureFavorites.has(texture) ? "active" : ""}" data-favorite="${texture}">★</span>${texture.startsWith("USR_")?`<span class="delete-texture" data-delete-texture="${texture}" title="Delete imported texture">×</span>`:""}</button>`;};
+    const card = (texture) => {const label=html(MATERIAL_INFO[texture]),uses=textureSurfaceUses(texture);return `<button class="texture-card ${texture === selectedTexture ? "selected" : ""}" data-texture="${texture}" type="button" title="Apply ${label}"><span class="texture-source">${sourceLabel(texture)}</span><img loading="lazy" src="${texturePreviewUrl(texture)}" alt="Miniature preview of ${label}"><strong>${label}</strong><small>${texture}</small><span class="texture-category-badge">${categoryLabels[textureCategory(texture)] || textureCategory(texture)}</span><span class="texture-use-badges">${uses.slice(0,3).map((use)=>`<span>${TEXTURE_USE_INFO[use]?.short||use}</span>`).join("")}${uses.length>3?`<span>+${uses.length-3}</span>`:""}</span><span class="favorite-texture ${textureFavorites.has(texture) ? "active" : ""}" data-favorite="${texture}">★</span>${texture.startsWith("USR_")?`<span class="delete-texture" data-delete-texture="${texture}" title="Delete imported texture">×</span>`:""}</button>`;};
     const groups = categoryOrder.map((key) => [key,textures.filter((texture) => textureCategory(texture) === key)]).filter(([,items]) => items.length);
-    $("#textureSummary").textContent = `Showing ${textures.length} of ${Object.keys(MATERIAL_INFO).length} materials · every card has a real preview miniature`;
+    const usageSummary=usageFilter==="recommended"?`recommended for ${TEXTURE_USE_INFO[contextualUsage]?.label.toLowerCase()||contextualUsage}`:resolvedUsage==="all"?"all surface uses":TEXTURE_USE_INFO[resolvedUsage]?.label.toLowerCase()||resolvedUsage;
+    $("#textureSummary").textContent = `Showing ${textures.length} of ${Object.keys(MATERIAL_INFO).length} materials · ${usageSummary}`;
     $("#textureGrid").innerHTML = groups.map(([key,items]) => `<section class="texture-category-section"><h3>${categoryLabels[key] || key}<span>${items.length}</span></h3><div class="texture-category-grid">${items.map(card).join("")}</div></section>`).join("") || `<p class="analysis-intro">No textures match this filter.</p>`;
   }
 
@@ -4051,6 +4147,7 @@
     $("#groundEnabled").checked = environment.groundEnabled;
     $("#groundSize").value = environment.groundSize;
     $("#groundPadding").value = environment.groundPadding;
+    populateMaterialSelect("environmentGroundMaterialSelect","ground",environment.groundMaterial);
     $("#environmentGroundMaterialSelect").value = environment.groundMaterial;
     $("#openSkyDefault").checked = environment.openSkyDefault;
     $("#skyNameSelect").value = environment.skyName;
@@ -4071,7 +4168,7 @@
     const roomSelected = selected?.type === "room";
     $("#textureTarget").value = target;
     [...$("#textureTarget").options].forEach((option) => { if (["floor","ceiling"].includes(option.value)) option.disabled = !roomSelected; });
-    $("#textureSearch").value = ""; $("#textureCategory").value = "all"; renderTextureBrowser(); $("#textureDialog").showModal();
+    $("#textureSearch").value = ""; $("#textureCategory").value = "all";$("#textureUseFilter").value="recommended"; renderTextureBrowser(); $("#textureDialog").showModal();
     refreshTextureCatalog();
   }
 
@@ -6862,7 +6959,9 @@
   $("#closeTextureDialog").addEventListener("click", () => $("#textureDialog").close());
   $("#textureSearch").addEventListener("input", renderTextureBrowser);
   $("#textureCategory").addEventListener("change", renderTextureBrowser);
+  $("#textureUseFilter").addEventListener("change", renderTextureBrowser);
   $("#textureTarget").addEventListener("change", renderTextureBrowser);
+  $("#textureImportCategory").addEventListener("change",(event)=>suggestImportedTextureUses(event.target.value,$("#textureImportLabel").value));
   $("#textureDropZone").addEventListener("click", () => $("#textureFileInput").click());
   $("#textureFileInput").addEventListener("change", (event) => prepareTextureImport(event.target.files?.[0]));
   ["dragenter", "dragover"].forEach((type) => $("#textureDropZone").addEventListener(type, (event) => {
@@ -7461,6 +7560,7 @@
       edgeMismatch:pendingTextureImport?.edgeMismatch??null,
       imageDataBytes:pendingTextureImport?.imageData?.length||0,
       category:$("#textureImportCategory")?.value||"",
+      uses:selectedImportedTextureUses(),
       code:$("#textureImportName")?.value||"",
       variants:[
         {kind:"base",code:$("#textureImportName")?.value||"",enabled:!!pendingTextureImport},
@@ -7469,6 +7569,7 @@
         {kind:"weathered",code:textureFamilyCode($("#textureImportName")?.value||"","_W"),enabled:!!$("#textureVariantWorn")?.checked}
       ]
     }),
+    getTextureCatalog: () => Object.keys(MATERIAL_INFO).map((texture)=>({texture,label:MATERIAL_INFO[texture],category:textureCategory(texture),uses:textureSurfaceUses(texture)})),
     generateMapText
   });
   requestAnimationFrame(animate);

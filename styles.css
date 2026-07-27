@@ -298,6 +298,7 @@ dialog::backdrop { background: rgba(5,7,4,.8); backdrop-filter: blur(4px); }
 .library-dialog, .analysis-dialog { width: min(760px, 80vw); max-height: 82vh; overflow: hidden; }
 .library-card { padding: 22px; }
 .library-filters { display: grid; grid-template-columns: 1fr 150px 150px; gap: 8px; margin: 16px 0 12px; }
+.texture-library-filters { grid-template-columns: minmax(170px,1fr) repeat(3,135px); }
 .library-filters input, .library-filters select { min-width: 0; padding: 9px; border: 1px solid var(--line); border-radius: 6px; outline: 0; background: #0f130e; color: var(--text); font-size: 9px; }
 .texture-grid { max-height: 52vh; overflow: auto; padding-right: 4px; }
 .texture-category-section { margin-bottom: 16px; }
@@ -312,6 +313,8 @@ dialog::backdrop { background: rgba(5,7,4,.8); backdrop-filter: blur(4px); }
 .texture-card small { margin-top: 2px; color: var(--faint); font: 7px ui-monospace; }
 .texture-source { position: absolute; z-index: 1; left: 10px; top: 10px; padding: 3px 5px; border-radius: 3px; color: #e7f1df; background: #0a0d09cc; font: 6px ui-monospace, monospace; letter-spacing: .06em; }
 .texture-category-badge { display: inline-block; max-width: 100%; margin-top: 5px; padding: 3px 5px; border: 1px solid #34402f; border-radius: 999px; color: #9ead94; font-size: 6px; text-transform: uppercase; }
+.texture-use-badges { min-height: 18px; display: flex; flex-wrap: wrap; gap: 3px; margin-top: 4px; }
+.texture-use-badges span { padding: 2px 4px; border-radius: 3px; color: #b9d7d0; background: #18302d; font-size: 5px; font-weight: 850; letter-spacing: .04em; text-transform: uppercase; }
 .favorite-texture { position: absolute; top: 9px; right: 9px; width: 23px; height: 23px; border: 0; border-radius: 50%; color: #d9dfd4; background: #0a0d09cc; cursor: pointer; }
 .favorite-texture.active { color: #ffd25e; }
 .delete-texture { position: absolute; z-index: 1; top: 37px; right: 9px; width: 23px; height: 23px; display: grid; place-items: center; border: 1px solid #6b3f39; border-radius: 50%; color: #ffaaa2; background: #160d0ccc; font: 14px/1 system-ui; cursor: pointer; }
@@ -459,10 +462,11 @@ dialog::backdrop { background: rgba(5,7,4,.8); backdrop-filter: blur(4px); }
 .texture-alchemist-controls input[type="range"] { height: 18px; margin-top: 2px; padding: 0; border: 0; accent-color: var(--accent); background: transparent; }
 .texture-alchemist-switches { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 6px; }
 .texture-alchemist-switches label { width: auto; padding: 6px 8px; color: var(--text); }
-.texture-alchemist-switches input, .texture-variant-picker input { width: auto; margin: 0 5px 0 0; padding: 0; accent-color: var(--accent); }
+.texture-alchemist-switches input, .texture-variant-picker input, .texture-use-picker input { width: auto; margin: 0 5px 0 0; padding: 0; accent-color: var(--accent); }
+.texture-use-picker,
 .texture-variant-picker { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 7px 14px; margin: 0; padding: 8px 9px; border: 1px solid var(--line-soft); border-radius: 6px; }
-.texture-variant-picker legend { padding: 0 5px; color: var(--accent); font-size: 8px; font-weight: 900; }
-.texture-variant-picker label { color: var(--text); }
+.texture-use-picker legend, .texture-variant-picker legend { padding: 0 5px; color: var(--accent); font-size: 8px; font-weight: 900; }
+.texture-use-picker label, .texture-variant-picker label { color: var(--text); }
 .texture-import-actions { grid-column: 1 / -1; display: flex; justify-content: flex-end; gap: 7px; margin-top: 2px; }
 .texture-import-status { margin-top: 8px; padding: 9px 10px; border: 1px solid #526246; border-radius: 6px; color: var(--accent); background: #111610; font-size: 8px; line-height: 1.45; }
 .texture-import-status.error { color: #ff8b83; border-color: #73463f; }
