@@ -73,8 +73,9 @@ The hosted editor can securely pair with the Windows companion for **Build & Tes
 - Capture selections in Custom Prefab Studio with generated miniatures, categories, tags, pivot choice, rotation/mirroring, editing, and JSON import/export
 - Work from organized Start, Build, Game, Logic, and Assets toolspaces, switch between Beginner and All-tools modes, and recall recently used tools
 - Find any tool globally with the toolbox search or `Ctrl+K`, while advanced project actions stay grouped in the structured **More** menu
-- Drop a top-down plan into **Blueprint Architect** to trace enclosed playable space into editable rooms, reconnect nearby pieces, infer optional height bands, add a first 5v5 setup, and preview the result before replacing the current map
-- Generate a four-material wall/floor/trim/accent kit from the blueprint palette; with the local companion connected, the kit is installed as compile-ready `USR_` textures and applied to the generated map automatically
+- Drop a top-down plan into **Blueprint Architect** to trace the connected playable floor, preserve architectural voids and boundaries, read colored spawns/sites/cover/elevation areas, add a reachable 5v5 setup, and preview the result before replacing the current map
+- Select a standardized six-image bundle together: blueprint geometry, route analysis, elevation sections, a 20-tile categorized material sheet, a 12-piece prefab sheet, and a visual target
+- With the local companion connected, bundle materials are split, quantized, installed in five GoldSrc-safe batches, categorized by surface use, and applied automatically; the prefab sheet adds twelve editable personal prefabs
 - Browse 60 included materials plus every mapping texture detected in official CS 1.6/Half-Life Steam WADs and hundreds of embedded textures from installed BSP maps, with on-demand miniatures, map/WAD grouping, surface-use recommendations, search, and locally saved favorites
 - Drag in PNG, JPG, WebP, or GIF images to create new compile-ready GoldSrc materials, with local category and name suggestions
 - Analyze CT/T timings to bombsites and flag direct spawn-to-objective sightlines
@@ -224,11 +225,11 @@ Choose **Layouts** in the top bar to start from one of 6 editable blockouts. Sea
 
 ### Blueprint Architect
 
-Open **More > Import map blueprint** and drop a PNG, JPG, or WebP top-down plan. Set the measured plan width, choose trace detail and wall sensitivity, then review the highlighted geometry before selecting **Create editable map**. Dark enclosing lines are treated as walls; enclosed light or colored regions become GoldSrc-safe room brushes. Short gaps between detected spaces become editable connector rooms and centered openings. The optional setup pass adds five CT spawns, five T spawns, buy zones, and two bomb targets; the optional cover pass adds only a small number of editable brushes in large spaces.
+Open **More > Import map blueprint** and drop a PNG, JPG, or WebP top-down plan, or select all six standardized bundle sheets at once. Set the measured plan width, choose trace detail, then review the highlighted geometry before selecting **Create editable map**. On clean technical boards, the largest connected light/colored floor becomes the authoritative playable mask; letter-sized marks are removed while courtyards and interior wall islands are preserved. Orange and blue regions anchor the two teams, red and yellow anchor A/B, green regions become safe-clearance cover, and purple/orange bands describe lower/elevated areas. Older dark-wall plans continue to use the legacy enclosed-area fallback.
 
 The generated material kit samples the plan palette and synthesizes separate seamless 256×256 wall, floor, metal-trim, and accent textures. If the companion is connected, they are atomically installed into Blockout's custom WAD and assigned to the generated geometry. Browser-only use falls back to categorized included materials, so map creation never depends on a cloud service or a secret API key.
 
-Blueprint Architect is a local computer-vision starting pass, not an infallible architectural parser. Decorative text, route arrows, artwork, thin or broken outlines, and ambiguous elevation colors can affect tracing. Confidence and brush counts are shown before creation, elevation inference is opt-in, and every generated room, connector, opening, gameplay marker, cover brush, and material remains editable afterward. The compact source preview and calibration metadata are stored with the project JSON.
+Blueprint Architect is a local computer-vision starting pass, not an infallible architectural parser. Confidence, boundary counts, and detected bundle roles are shown before creation, and every generated wall, gameplay marker, cover brush, vertical prop, material, and prefab remains editable afterward. The source blueprint plus supplied route, elevation, prefab, and visual-target references are retained in project metadata.
 
 ## Texture library
 

@@ -29,7 +29,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 
-VERSION = "1.14.0"
+VERSION = "1.15.0"
 HOST = "127.0.0.1"
 PORT = 41716
 GOLDSRC_MAP_NAME_MAX = 31
@@ -765,6 +765,9 @@ def install_texture_family(payloads, family=""):
     manifest_path = MANIFEST_FILE
     wad_path = CUSTOM_WAD_FILE
     with TEXTURE_IMPORT_LOCK:
+        manifest_path.parent.mkdir(parents=True, exist_ok=True)
+        (ROOT / "textures" / "sources").mkdir(parents=True, exist_ok=True)
+        (ROOT / "textures" / "previews").mkdir(parents=True, exist_ok=True)
         manifest = texture_manifest()
         existing = SUNBURST_TEXTURE_NAMES | {str(item.get("name", "")).upper() for item in manifest["textures"] if isinstance(item, dict)}
         for clean_name, _, _ in normalized:

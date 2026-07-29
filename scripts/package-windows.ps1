@@ -32,7 +32,7 @@ if (Test-Path -LiteralPath (Join-Path $root "dist-app\Blockout.exe")) {
 
 New-Item -ItemType Directory -Path (Join-Path $stage "textures\previews") -Force | Out-Null
 Get-ChildItem -LiteralPath (Join-Path $root "textures\previews") -File |
-    Where-Object { $_.Name -notlike "USR_*" -and $_.Extension -in @(".png", ".svg") } |
+    Where-Object { $_.Extension -in @(".png", ".svg") } |
     Copy-Item -Destination (Join-Path $stage "textures\previews")
 Copy-Item -LiteralPath (Join-Path $root "textures\asset-manifest.base.json") -Destination (Join-Path $stage "textures\asset-manifest.base.json")
 
@@ -42,13 +42,25 @@ Copy-Item -LiteralPath (Join-Path $root "assets\sunburst-base.wad") -Destination
 New-Item -ItemType Directory -Path (Join-Path $stage "tools") -Force | Out-Null
 $toolFiles = @(
     "PUT_COMPILERS_HERE.txt", "SDHLT_LICENSE.md", "SDHLT_README.md", "SDHLT_SOURCE.txt",
-    "build_sunburst_wad.js", "install-sdhlt.ps1", "package.json", "requirements-build.txt"
+    "build_sunburst_wad.js", "install-sdhlt.ps1", "package.json", "requirements-build.txt",
+    "sdHLCSG_x64.exe", "sdHLBSP_x64.exe", "sdHLVIS_x64.exe", "sdHLRAD_x64.exe", "sdhlt.wad"
 )
 foreach ($relative in $toolFiles) {
     $source = Join-Path $root "tools\$relative"
     if (Test-Path -LiteralPath $source) {
         Copy-Item -LiteralPath $source -Destination (Join-Path $stage "tools\$relative")
     }
+}
+
+if (Test-Path -LiteralPath (Join-Path $root "sunburst.wad")) {
+    Copy-Item -LiteralPath (Join-Path $root "sunburst.wad") -Destination (Join-Path $stage "sunburst.wad")
+}
+if (Test-Path -LiteralPath (Join-Path $root "textures\asset-manifest.json")) {
+    Copy-Item -LiteralPath (Join-Path $root "textures\asset-manifest.json") -Destination (Join-Path $stage "textures\asset-manifest.json")
+}
+if (Test-Path -LiteralPath (Join-Path $root "generated-assets\de_solstice")) {
+    New-Item -ItemType Directory -Path (Join-Path $stage "samples") -Force | Out-Null
+    Copy-Item -LiteralPath (Join-Path $root "generated-assets\de_solstice") -Destination (Join-Path $stage "samples\de_solstice") -Recurse
 }
 
 Compress-Archive -LiteralPath $stage -DestinationPath $archive -CompressionLevel Optimal

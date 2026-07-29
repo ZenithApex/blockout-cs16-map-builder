@@ -6,6 +6,7 @@ const samplePath=process.argv[4]||"";
 const sampleWidth=Number(process.argv[5]||0);
 const sampleLevels=process.argv[6]||"";
 const sampleMapOutput=process.argv[7]||"";
+const liveBundleTextures=process.argv[8]==="live";
 const delay=(milliseconds)=>new Promise((resolve)=>setTimeout(resolve,milliseconds));
 
 async function targetForPort(){
@@ -102,23 +103,37 @@ const result=await evaluate(`(async()=>{
 
 let sample=null;
 if(samplePath){
+  const samplePaths=samplePath.split("|").filter(Boolean);
   const previousFileName=await evaluate("Blockout.getBlueprintState()?.fileName||''");
   if(sampleWidth)await evaluate(`document.querySelector("#blueprintWidthMeters").value=${JSON.stringify(String(sampleWidth))}`);
   if(sampleLevels)await evaluate(`document.querySelector("#blueprintLevels").checked=${sampleLevels==="levels"}`);
+  if(samplePaths.length>1)await evaluate(`document.querySelector("#blueprintTextures").checked=true`);
   await command("DOM.enable");
   const document=await command("DOM.getDocument",{depth:2}),input=await command("DOM.querySelector",{nodeId:document.root.nodeId,selector:"#blueprintFileInput"});
-  await command("DOM.setFileInputFiles",{nodeId:input.nodeId,files:[samplePath]});
+  await command("DOM.setFileInputFiles",{nodeId:input.nodeId,files:samplePaths});
   const selectedSampleName=await evaluate("document.querySelector('#blueprintFileInput').files[0]?.name||''");
   if(!selectedSampleName)throw new Error(`Chrome could not attach the real blueprint sample: ${samplePath}`);
   await evaluate("document.querySelector('#blueprintFileInput').dispatchEvent(new Event('change',{bubbles:true}))");
   for(let attempt=0;attempt<80;attempt+=1){await delay(75);sample=await evaluate("Blockout.getBlueprintState()");if(sample?.analysis&&sample.fileName!==previousFileName)break;}
   if(!sample?.analysis||sample.analysis.rooms<3||sample.fileName===previousFileName)throw new Error(`Real blueprint sample did not produce a usable blockout: selected=${selectedSampleName} state=${JSON.stringify(sample)}`);
+  if(samplePaths.length>1&&!liveBundleTextures)await evaluate(`(()=>{
+    const nativeFetch=window.fetch.bind(window);window.__bundleTextureBatches=0;
+    window.fetch=async(input,init)=>{
+      const request=input instanceof Request?input:new Request(input,init);
+      if(request.url.includes("/api/textures/alchemize")){
+        const payload=await request.clone().json();window.__bundleTextureBatches+=1;
+        return new Response(JSON.stringify({textures:(payload.textures||[]).map((item)=>({name:item.name,label:item.label,category:item.category,uses:item.uses}))}),{status:200,headers:{"Content-Type":"application/json"}});
+      }
+      return nativeFetch(input,init);
+    };
+  })()`);
   sample.created=await evaluate(`(async()=>{
     const created=await Blockout.createMapFromBlueprint(),project=Blockout.getProject(),preflight=Blockout.getPreflight();
     const spawns=project.entities.filter((item)=>item.kind==="ct"||item.kind==="t");
-    return {created,spawns:spawns.length,spawnErrors:preflight.issues.filter((issue)=>issue.severity==="error"&&/spawn/i.test(issue.title)).map((issue)=>issue.title),errors:preflight.errors,warnings:preflight.warnings,mapBytes:Blockout.generateMapText()?.length||0};
+    return {created,textureBatches:window.__bundleTextureBatches||0,spawns:spawns.length,prefabs:Blockout.getCustomPrefabs().filter((item)=>item.bundleKey).length,bundleReferences:Object.keys(project.blueprint?.bundleReferences||{}),spawnErrors:preflight.issues.filter((issue)=>issue.severity==="error"&&/spawn/i.test(issue.title)).map((issue)=>issue.title),warningTitles:preflight.issues.filter((issue)=>issue.severity==="warning").map((issue)=>issue.title),errors:preflight.errors,warnings:preflight.warnings,mapBytes:Blockout.generateMapText()?.length||0};
   })()`);
   if(sample.created.spawns!==10||sample.created.spawnErrors.length||sample.created.errors||sample.created.mapBytes<5000)throw new Error(`Real blueprint sample generated an invalid map: ${JSON.stringify(sample.created)}`);
+  if(samplePaths.length>1&&(sample.analysis.materials.length!==20||sample.created.created.textures!==20||(!liveBundleTextures&&sample.created.textureBatches!==5)||sample.created.prefabs!==12||sample.created.bundleReferences.length<3))throw new Error(`Blueprint bundle sheets were not consumed: ${JSON.stringify({materials:sample.analysis.materials.length,created:sample.created})}`);
   if(sampleMapOutput)writeFileSync(sampleMapOutput,await evaluate("Blockout.generateMapText()"),"utf8");
 }
 if(pageErrors.length)throw new Error(`Page errors:\n${pageErrors.join("\n")}`);
