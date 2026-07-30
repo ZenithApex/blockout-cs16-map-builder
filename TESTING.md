@@ -26,13 +26,14 @@ the archive and executable SHA-256 hashes before installation.
 
 ## Suggested test pass
 
-- Open **More > Import map blueprint**, select the six `de_solstice` bundle images together, calibrate its measured width, and confirm all six role badges plus the semantic overlay appear before the current map changes.
+- Open **More > Import map blueprint**, select the six `de_solstice` bundle images together, calibrate its measured width, and confirm all six role badges plus the semantic overlay appear before the current map changes. The summary should say that blueprint, routes, and elevation contributed aligned evidence.
 - On a plan with legends or margins, confirm tracing stays on the main wall network. Compare Measured, Competitive, and Extra roomy scales and verify the overlay remains aligned.
 - Generate a 5v5 setup and confirm all ten player starts have at least 35 units between them, clear surrounding walls/cover, and can leave both spawn rooms.
 - Confirm a flat competitive import creates one playfield room rather than dozens of room shells, ignores decorative text/logo holes, keeps spawns and both sites in the largest reachable component, and exports merged boundary walls.
 - Run `node scripts/compile-map-regression.mjs <generated.map>` with the companion active and confirm HLCSG, HLBSP, HLVIS, and HLRAD all succeed without launching the game.
 - Toggle wall sensitivity and trace detail; confirm room/opening counts and confidence refresh. Enable color-band levels only on a plan that clearly encodes elevation.
-- Create the blueprint map and verify five CT spawns, five T spawns, two buy zones, semantically anchored A/B objectives, detected cover, preserved internal wall islands, and the elevated access prop.
+- Create the blueprint map and verify five CT spawns, five T spawns, two buy zones, semantically anchored A/B objectives, detected crates/cover, preserved internal wall islands, stairs, ramps, ladders, platforms, and valid top landings.
+- With matching textures enabled, confirm all generated physical geometry uses materials from the installed 20-role bundle kit and that unused variants remain available in the categorized material selectors.
 - With the companion connected, enable bundle materials and confirm twenty categorized `USR_` textures are installed in five batches, previewed, assigned, embedded during compilation, and retained in exported project metadata.
 - Open **My prefabs** and confirm the prefab sheet created twelve editable Solstice prefabs. Export/import the project and confirm route, elevation, prefab, and visual-target references remain attached.
 - Create, resize, rotate, duplicate, and delete rectangular and polygon rooms.

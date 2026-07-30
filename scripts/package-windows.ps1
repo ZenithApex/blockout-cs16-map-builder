@@ -32,12 +32,14 @@ if (Test-Path -LiteralPath (Join-Path $root "dist-app\Blockout.exe")) {
 
 New-Item -ItemType Directory -Path (Join-Path $stage "textures\previews") -Force | Out-Null
 Get-ChildItem -LiteralPath (Join-Path $root "textures\previews") -File |
-    Where-Object { $_.Extension -in @(".png", ".svg") } |
+    Where-Object { $_.Extension -in @(".png", ".svg") -and $_.BaseName -notlike "USR_*" } |
     Copy-Item -Destination (Join-Path $stage "textures\previews")
 Copy-Item -LiteralPath (Join-Path $root "textures\asset-manifest.base.json") -Destination (Join-Path $stage "textures\asset-manifest.base.json")
+Copy-Item -LiteralPath (Join-Path $root "textures\asset-manifest.base.json") -Destination (Join-Path $stage "textures\asset-manifest.json")
 
 New-Item -ItemType Directory -Path (Join-Path $stage "assets") -Force | Out-Null
 Copy-Item -LiteralPath (Join-Path $root "assets\sunburst-base.wad") -Destination (Join-Path $stage "assets\sunburst-base.wad")
+Copy-Item -LiteralPath (Join-Path $root "assets\sunburst-base.wad") -Destination (Join-Path $stage "sunburst.wad")
 
 New-Item -ItemType Directory -Path (Join-Path $stage "tools") -Force | Out-Null
 $toolFiles = @(
@@ -52,12 +54,6 @@ foreach ($relative in $toolFiles) {
     }
 }
 
-if (Test-Path -LiteralPath (Join-Path $root "sunburst.wad")) {
-    Copy-Item -LiteralPath (Join-Path $root "sunburst.wad") -Destination (Join-Path $stage "sunburst.wad")
-}
-if (Test-Path -LiteralPath (Join-Path $root "textures\asset-manifest.json")) {
-    Copy-Item -LiteralPath (Join-Path $root "textures\asset-manifest.json") -Destination (Join-Path $stage "textures\asset-manifest.json")
-}
 if (Test-Path -LiteralPath (Join-Path $root "generated-assets\de_solstice")) {
     New-Item -ItemType Directory -Path (Join-Path $stage "samples") -Force | Out-Null
     Copy-Item -LiteralPath (Join-Path $root "generated-assets\de_solstice") -Destination (Join-Path $stage "samples\de_solstice") -Recurse

@@ -732,6 +732,131 @@
     return {masks,regions};
   }
 
+  function blueprintSheetCanvas(image,maxWidth=720,maxHeight=520) {
+    const source=document.createElement("canvas"),context=source.getContext("2d",{willReadFrequently:true});
+    const scale=Math.min(1,maxWidth/(image.naturalWidth||image.width),maxHeight/(image.naturalHeight||image.height));
+    source.width=Math.max(80,Math.round((image.naturalWidth||image.width)*scale));source.height=Math.max(60,Math.round((image.naturalHeight||image.height)*scale));
+    context.drawImage(image,0,0,source.width,source.height);return {source,context,width:source.width,height:source.height};
+  }
+
+  function blueprintSheetPlayableBounds(context,width,height) {
+    const pixels=context.getImageData(0,0,width,height).data,floorCandidates=new Uint8Array(width*height);
+    for(let index=0;index<floorCandidates.length;index+=1){
+      const offset=index*4,role=blueprintSemanticPixel(pixels[offset],pixels[offset+1],pixels[offset+2]);
+      floorCandidates[index]=pixels[offset+3]>90&&role!=="blocked"?1:0;
+    }
+    const component=largestBlueprintComponent(floorCandidates,width,height);
+    if(component.area<Math.max(160,width*height*.018))return null;
+    return blueprintMaskBounds(component.mask,width,height,Math.max(2,Math.round(Math.min(width,height)*.006)));
+  }
+
+  function blueprintPredicateGrid(context,sourceBounds,gridWidth,gridHeight,predicate,minimumRatio=.05) {
+    const mask=new Uint8Array(gridWidth*gridHeight);
+    for(let gy=0;gy<gridHeight;gy+=1)for(let gx=0;gx<gridWidth;gx+=1){
+      const x1=Math.floor(sourceBounds.x+gx/gridWidth*sourceBounds.w),x2=Math.max(x1+1,Math.ceil(sourceBounds.x+(gx+1)/gridWidth*sourceBounds.w));
+      const y1=Math.floor(sourceBounds.y+gy/gridHeight*sourceBounds.d),y2=Math.max(y1+1,Math.ceil(sourceBounds.y+(gy+1)/gridHeight*sourceBounds.d));
+      const data=context.getImageData(x1,y1,Math.max(1,x2-x1),Math.max(1,y2-y1)).data;let matches=0,total=0;
+      for(let index=0;index<data.length;index+=8){if(predicate(data[index],data[index+1],data[index+2]))matches+=1;total+=1;}
+      if(matches/Math.max(1,total)>=minimumRatio)mask[gy*gridWidth+gx]=1;
+    }
+    return mask;
+  }
+
+  function blueprintStripeGrid(context,sourceBounds,gridWidth,gridHeight,playableMask) {
+    const mask=new Uint8Array(gridWidth*gridHeight),directions=new Map(),scores=new Map();
+    for(let gy=0;gy<gridHeight;gy+=1)for(let gx=0;gx<gridWidth;gx+=1){
+      const gridIndex=gy*gridWidth+gx;if(playableMask&&!playableMask[gridIndex])continue;
+      const x1=Math.floor(sourceBounds.x+gx/gridWidth*sourceBounds.w),x2=Math.max(x1+3,Math.ceil(sourceBounds.x+(gx+1)/gridWidth*sourceBounds.w));
+      const y1=Math.floor(sourceBounds.y+gy/gridHeight*sourceBounds.d),y2=Math.max(y1+3,Math.ceil(sourceBounds.y+(gy+1)/gridHeight*sourceBounds.d));
+      const sampleWidth=Math.min(context.canvas.width,x2)-x1,sampleHeight=Math.min(context.canvas.height,y2)-y1;
+      if(sampleWidth<3||sampleHeight<3)continue;
+      const data=context.getImageData(x1,y1,sampleWidth,sampleHeight).data,dark=new Uint8Array(sampleWidth*sampleHeight);let darkCount=0;
+      for(let index=0;index<dark.length;index+=1){const offset=index*4,luma=data[offset]*.2126+data[offset+1]*.7152+data[offset+2]*.0722;if(luma<88){dark[index]=1;darkCount+=1;}}
+      const darkRatio=darkCount/dark.length;if(darkRatio<.08||darkRatio>.58)continue;
+      let xTransitions=0,yTransitions=0,xSamples=0,ySamples=0;
+      for(let y=0;y<sampleHeight;y+=2)for(let x=1;x<sampleWidth;x+=1){xTransitions+=dark[y*sampleWidth+x]!==dark[y*sampleWidth+x-1]?1:0;xSamples+=1;}
+      for(let x=0;x<sampleWidth;x+=2)for(let y=1;y<sampleHeight;y+=1){yTransitions+=dark[y*sampleWidth+x]!==dark[(y-1)*sampleWidth+x]?1:0;ySamples+=1;}
+      const xRate=xTransitions/Math.max(1,xSamples),yRate=yTransitions/Math.max(1,ySamples),strong=Math.max(xRate,yRate),weak=Math.min(xRate,yRate);
+      if(strong<.19||strong<weak*1.28)continue;
+      mask[gridIndex]=1;directions.set(gridIndex,yRate>xRate?"s":"e");scores.set(gridIndex,strong-weak+darkRatio*.15);
+    }
+    return {mask,directions,scores};
+  }
+
+  function blueprintStructureRegions(mask,width,height,metadata={}) {
+    const visited=new Uint8Array(mask.length),queue=new Int32Array(mask.length),regions=[];
+    for(let seed=0;seed<mask.length;seed+=1){
+      if(!mask[seed]||visited[seed])continue;
+      let head=0,tail=0,minX=width,minY=height,maxX=0,maxY=0,score=0,east=0,south=0;const cells=[];visited[seed]=1;queue[tail++]=seed;
+      while(head<tail){
+        const index=queue[head++],x=index%width,y=Math.floor(index/width);cells.push(index);minX=Math.min(minX,x);maxX=Math.max(maxX,x);minY=Math.min(minY,y);maxY=Math.max(maxY,y);
+        score+=metadata.scores?.get(index)||0;if(metadata.directions?.get(index)==="s")south+=1;else east+=1;
+        [[x-1,y],[x+1,y],[x,y-1],[x,y+1]].forEach(([nx,ny])=>{if(nx<0||ny<0||nx>=width||ny>=height)return;const next=ny*width+nx;if(mask[next]&&!visited[next]){visited[next]=1;queue[tail++]=next;}});
+      }
+      const w=maxX-minX+1,d=maxY-minY+1,fill=cells.length/(w*d);
+      if(cells.length<=18&&w<=6&&d<=6&&fill>=.2)regions.push({x:minX,y:minY,w,d,area:cells.length,fill,cx:(minX+maxX+1)/2,cy:(minY+maxY+1)/2,direction:south>east?"s":"e",score:score/Math.max(1,cells.length)});
+    }
+    return regions;
+  }
+
+  function mergeBlueprintRegions(groups,maximum=40) {
+    const merged=[];
+    groups.flat().sort((a,b)=>(b.score||b.area||0)-(a.score||a.area||0)).forEach((region)=>{
+      const existing=merged.find((item)=>Math.hypot(item.cx-region.cx,item.cy-region.cy)<=Math.max(1.25,Math.min(3,Math.max(item.w,item.d,region.w,region.d)*.55)));
+      if(existing){
+        existing.sources=[...new Set([...(existing.sources||[]),...(region.sources||[])])];
+        if((region.score||region.area||0)>(existing.score||existing.area||0))Object.assign(existing,{...region,sources:existing.sources});
+      }else merged.push({...region,sources:[...(region.sources||[])]});
+    });
+    return merged.slice(0,maximum);
+  }
+
+  function blueprintBundleEvidence(primaryContext,primaryBounds,gridWidth,gridHeight,playableMask) {
+    const semanticSheets=[],stairSheets=[],ladderSheets=[],used=["blueprint"];
+    const collect=(context,bounds,role)=>{
+      const semantic=blueprintSemanticGrid(context,bounds,gridWidth,gridHeight);semanticSheets.push({role,semantic});
+      const stripes=blueprintStripeGrid(context,bounds,gridWidth,gridHeight,playableMask);
+      stairSheets.push(blueprintStructureRegions(stripes.mask,gridWidth,gridHeight,stripes).map((region)=>({...region,sources:[role]})));
+      const ladderMask=blueprintPredicateGrid(context,bounds,gridWidth,gridHeight,(red,green,blue)=>{
+        const info=blueprintColorInfo([red,green,blue]);return info.hue>=166&&info.hue<=195&&info.saturation>.42&&info.brightness>.38;
+      },.035);
+      ladderSheets.push(blueprintStructureRegions(ladderMask,gridWidth,gridHeight).filter((region)=>region.area<=14&&Math.max(region.w,region.d)>=1).map((region)=>({...region,sources:[role]})));
+    };
+    collect(primaryContext,primaryBounds,"blueprint");
+    ["routes","elevation"].forEach((role)=>{
+      const item=pendingBlueprint?.bundle?.[role];if(!item?.image)return;
+      const sheet=blueprintSheetCanvas(item.image),bounds=blueprintSheetPlayableBounds(sheet.context,sheet.width,sheet.height);if(!bounds)return;
+      used.push(role);collect(sheet.context,bounds,role);
+    });
+    const regions={};
+    ["t","ct","siteA","siteB","cover","lower","elevated"].forEach((role)=>{
+      const groups=semanticSheets.map((sheet)=>(sheet.semantic.regions[role]||[]).map((region)=>({...region,sources:[sheet.role]})));
+      regions[role]=mergeBlueprintRegions(groups,role==="cover"?36:8);
+      if(["t","ct"].includes(role)&&regions[role].length)regions[role]=[regions[role][0]];
+    });
+    const stairs=mergeBlueprintRegions(stairSheets,18).filter((region)=>{
+      const corroborated=(region.sources||[]).length>1;
+      const nearTransition=[...(regions.lower||[]),...(regions.elevated||[])].some((level)=>Math.hypot(level.cx-region.cx,level.cy-region.cy)<=Math.max(3,Math.max(level.w,level.d)*.7));
+      return corroborated||nearTransition;
+    }).slice(0,8);
+    const ladders=mergeBlueprintRegions(ladderSheets,12).filter((region)=>(region.sources||[]).length>1||region.area>=2);
+    return {semantic:{regions},structures:{stairs,ladders},sheetsUsed:used};
+  }
+
+  function blueprintFitOnMask(region,mask,width,height,footprintWidth=1,footprintDepth=1) {
+    const valid=(x,y)=>{
+      if(x<0||y<0||x+footprintWidth>width||y+footprintDepth>height)return false;
+      for(let gy=Math.floor(y);gy<Math.ceil(y+footprintDepth);gy+=1)for(let gx=Math.floor(x);gx<Math.ceil(x+footprintWidth);gx+=1)if(!mask?.[gy*width+gx])return false;
+      return true;
+    };
+    for(let radius=0;radius<=3;radius+=1)for(let oy=-radius;oy<=radius;oy+=1)for(let ox=-radius;ox<=radius;ox+=1){
+      const x=Math.max(0,Math.min(width-footprintWidth,Math.round((region.cx+ox-footprintWidth/2)*4)/4));
+      const y=Math.max(0,Math.min(height-footprintDepth,Math.round((region.cy+oy-footprintDepth/2)*4)/4));
+      if(valid(x,y))return {x,y,w:footprintWidth,d:footprintDepth};
+    }
+    return null;
+  }
+
   function largestBlueprintRectangle(mask,width,height) {
     const heights=new Int16Array(width);let best=null;
     for(let y=0;y<height;y+=1){
@@ -1001,7 +1126,9 @@
     }
     const cleanupPasses=detail<=40?2:detail>=72?0:1;
     for(let pass=0;pass<cleanupPasses;pass+=1){const next=new Uint8Array(mask);for(let y=1;y<gridHeight-1;y+=1)for(let x=1;x<gridWidth-1;x+=1){let neighbors=0;for(let oy=-1;oy<=1;oy+=1)for(let ox=-1;ox<=1;ox+=1)if(ox||oy)neighbors+=mask[(y+oy)*gridWidth+x+ox];const index=y*gridWidth+x;if(!mask[index]&&neighbors>=6)next[index]=1;if(mask[index]&&neighbors<=1)next[index]=0;}mask.set(next);}
-    const inferLevels=$("#blueprintLevels").checked,cleanMask=inferLevels?mask:fillBlueprintMaskHoles(mask,gridWidth,gridHeight,semanticFirst ? .012 : .08),semantic=blueprintSemanticGrid(context,sourceBounds,gridWidth,gridHeight),rectangles=decomposeBlueprintMask(cleanMask,gridWidth,gridHeight,detail<=40?64:detail>=72?112:88);
+    const inferLevels=$("#blueprintLevels").checked,cleanMask=inferLevels?mask:fillBlueprintMaskHoles(mask,gridWidth,gridHeight,semanticFirst ? .012 : .08);
+    const bundleEvidence=blueprintBundleEvidence(context,sourceBounds,gridWidth,gridHeight,cleanMask),semantic={...blueprintSemanticGrid(context,sourceBounds,gridWidth,gridHeight),regions:bundleEvidence.semantic.regions};
+    const rectangles=decomposeBlueprintMask(cleanMask,gridWidth,gridHeight,detail<=40?64:detail>=72?112:88);
     const rooms=rectangles.map((rectangle,index)=>{
       const color=blueprintRoomAverage(context,width,height,sourceBounds,gridWidth,gridHeight,rectangle),floorLevel=inferLevels?blueprintLevelFromColor(color):0;
       return {...rectangle,id:crypto.randomUUID(),kind:"room",label:`TRACED SPACE ${index+1}`,height:floorLevel?5:4,floorLevel,color,sourceArea:rectangle.area,blueprintConnector:false};
@@ -1020,24 +1147,47 @@
     if($("#blueprintCover").checked){
       const excluded=new Set([...(gameplay.spawnRooms||[]),...(gameplay.objectiveRooms||[])].map((room)=>room.id));
       const protectedPoints=(gameplay.entities||[]).filter((entity)=>["ct","t","bombA","bombB"].includes(entity.kind)).map((entity)=>({x:entity.x+.5,y:entity.y+.5}));
-      const coverHasClearance=(region)=>{
-        for(let y=Math.max(0,region.y-1);y<Math.min(gridHeight,region.y+region.d+1);y+=1)for(let x=Math.max(0,region.x-1);x<Math.min(gridWidth,region.x+region.w+1);x+=1)if(!navigableMask?.[y*gridWidth+x])return false;
-        return true;
-      };
-      const detectedCover=(semantic.regions.cover||[]).filter((region)=>region.area<=32&&coverHasClearance(region)&&protectedPoints.every((point)=>Math.hypot(point.x-region.cx,point.y-region.cy)>3)).slice(0,20);
-      if(detectedCover.length)detectedCover.forEach((region,index)=>props.push(prefabProp(index%3?"crate":"wall",region.x,region.y,Math.max(.75,Math.min(2.5,region.w)),Math.max(.5,Math.min(1.75,region.d)),index%3?1:.75,0,"BO_RUSTIRON",{label:"DETECTED COVER",blueprintSemantic:"cover"})));
+      const buildMask=navigableMask||cleanMask,detectedCover=(semantic.regions.cover||[]).filter((region)=>region.area<=32&&protectedPoints.every((point)=>Math.hypot(point.x-region.cx,point.y-region.cy)>2.25)).slice(0,28);
+      if(detectedCover.length)detectedCover.forEach((region,index)=>{
+        const elongated=Math.max(region.w,region.d)>=2.5,footprint=blueprintFitOnMask(region,buildMask,gridWidth,gridHeight,elongated?Math.min(2,Math.max(1,region.w)):.9,elongated?Math.min(1.25,Math.max(.65,region.d)):.9);
+        if(!footprint)return;
+        if(props.some((prop)=>rectanglesOverlap(prop,footprint)))return;
+        props.push(prefabProp(elongated&&index%4===0?"wall":"crate",footprint.x,footprint.y,footprint.w,footprint.d,elongated&&index%4===0?.75:1,0,"BO_RUSTIRON",{label:"DETECTED COVER",blueprintSemantic:"cover",blueprintSources:region.sources||[]}));
+      });
       else competitiveRooms.filter((room)=>!excluded.has(room.id)&&room.w*room.d>=24&&protectedPoints.every((point)=>Math.hypot(point.x-(room.x+room.w/2),point.y-(room.y+room.d/2))>4)).sort((a,b)=>b.w*b.d-a.w*a.d).slice(0,10).forEach((room,index)=>{
         props.push(prefabProp(index%3?"crate":"wall",Math.floor(room.x+room.w/2),Math.floor(room.y+room.d/2),index%3?1:Math.min(2,Math.max(1,room.w/3)),1,index%3?1:.75,room.floorLevel||0,"BO_RUSTIRON",{label:"AUTO COVER"}));
       });
     }
-    if(!inferLevels&&semantic.regions.elevated?.length){
-      const region=semantic.regions.elevated[0],platformW=Math.max(2,Math.min(5,region.w)),platformD=Math.max(2,Math.min(4,region.d));
-      props.push(prefabProp("platform",region.x,region.y,platformW,platformD,1,0,"BO_PAVEMENT",{label:"DETECTED ELEVATED PLATFORM",blueprintSemantic:"elevated"}));
-      props.push(prefabProp("ramp",Math.max(0,region.x-2),region.y,2,Math.max(2,Math.min(3,platformD)),1,0,"BO_CONCRETE",{label:"DETECTED ACCESS RAMP",direction:"e",blueprintSemantic:"vertical"}));
+    const buildMask=navigableMask||cleanMask,physicalProps=()=>props.filter((prop)=>!prop.blueprintWall);
+    bundleEvidence.structures.stairs.forEach((region)=>{
+      const alongX=region.direction==="e",footprint=blueprintFitOnMask(region,buildMask,gridWidth,gridHeight,alongX?Math.max(1.5,Math.min(3,region.w+1)):1,alongX?1:Math.max(1.5,Math.min(3,region.d+1)));
+      if(!footprint||physicalProps().some((prop)=>rectanglesOverlap(prop,footprint)))return;
+      const landingCenter=region.direction==="e"?{cx:footprint.x+footprint.w+.5,cy:footprint.y+footprint.d/2}:{cx:footprint.x+footprint.w/2,cy:footprint.y+footprint.d+.5};
+      const landing=blueprintFitOnMask(landingCenter,buildMask,gridWidth,gridHeight,region.direction==="e"?1:footprint.w,region.direction==="e"?footprint.d:1);
+      if(!landing||physicalProps().some((prop)=>rectanglesOverlap(prop,landing)))return;
+      props.push(prefabProp("stairs",footprint.x,footprint.y,footprint.w,footprint.d,1,0,"BO_CONCRETE",{label:"DETECTED STAIRS",direction:region.direction,steps:8,blueprintSemantic:"vertical",blueprintSources:region.sources||[]}));
+      props.push(prefabProp("platform",landing.x,landing.y,landing.w,landing.d,1,0,"BO_PAVEMENT",{label:"DETECTED STAIR LANDING",blueprintSemantic:"elevated",blueprintSources:region.sources||[]}));
+    });
+    bundleEvidence.structures.ladders.forEach((region)=>{
+      const vertical=region.d>=region.w,footprint=blueprintFitOnMask(region,buildMask,gridWidth,gridHeight,vertical ? .5 : 1,vertical ? 1 : .5);
+      if(!footprint||physicalProps().some((prop)=>rectanglesOverlap(prop,footprint)))return;
+      const direction=vertical?"e":"s",landingCenter=direction==="e"?{cx:footprint.x+footprint.w+.5,cy:footprint.y+footprint.d/2}:{cx:footprint.x+footprint.w/2,cy:footprint.y+footprint.d+.5};
+      const landing=blueprintFitOnMask(landingCenter,buildMask,gridWidth,gridHeight,direction==="e"?1:footprint.w,direction==="e"?footprint.d:1);
+      if(!landing||physicalProps().some((prop)=>rectanglesOverlap(prop,landing)))return;
+      props.push(prefabProp("ladder",footprint.x,footprint.y,footprint.w,footprint.d,2,0,"BO_RUSTIRON",{label:"DETECTED LADDER",direction,blueprintSemantic:"vertical",blueprintSources:region.sources||[]}));
+      props.push(prefabProp("platform",landing.x,landing.y,landing.w,landing.d,2,0,"BO_PAVEMENT",{label:"DETECTED LADDER LANDING",blueprintSemantic:"elevated",blueprintSources:region.sources||[]}));
+    });
+    if(!inferLevels&&(semantic.regions.elevated||[]).length){
+      (semantic.regions.elevated||[]).slice(0,4).forEach((region)=>{
+        const platform=blueprintFitOnMask(region,buildMask,gridWidth,gridHeight,Math.max(2,Math.min(5,region.w)),Math.max(2,Math.min(4,region.d)));if(!platform)return;
+        if(!physicalProps().some((prop)=>rectanglesOverlap(prop,platform)))props.push(prefabProp("platform",platform.x,platform.y,platform.w,platform.d,1,0,"BO_PAVEMENT",{label:"DETECTED ELEVATED PLATFORM",blueprintSemantic:"elevated",blueprintSources:region.sources||[]}));
+        const rampRegion={...region,cx:platform.x-1,cy:platform.y+platform.d/2},ramp=blueprintFitOnMask(rampRegion,buildMask,gridWidth,gridHeight,2,Math.max(1.5,Math.min(3,platform.d)));
+        if(ramp&&!physicalProps().some((prop)=>rectanglesOverlap(prop,ramp)))props.push(prefabProp("ramp",ramp.x,ramp.y,ramp.w,ramp.d,1,0,"BO_CONCRETE",{label:"DETECTED ACCESS RAMP",direction:"e",blueprintSemantic:"vertical",blueprintSources:region.sources||[]}));
+      });
     }
     const palette=blueprintPaletteFromPixels(context,width,height,interior),materials=pendingBlueprint.bundle?.materials?.image?blueprintBundleMaterialKit(pendingBlueprint.bundle.materials.image,pendingBlueprint.fileName):blueprintMaterialKit(palette,pendingBlueprint.fileName),coverage=mask.reduce((sum,value)=>sum+value,0)/Math.max(1,mask.length),levelCount=new Set(rooms.map((room)=>room.floorLevel||0)).size;
     let confidence=86;if(coverage<.08||coverage>.82)confidence-=24;if(rectangles.length>78)confidence-=14;if(rectangles.length<3)confidence-=25;if(connectors.length>20)confidence-=10;confidence=Math.max(28,Math.min(94,confidence));
-    pendingBlueprint.analysis={source,sourceWidth:width,sourceHeight:height,sourceBounds,gridWidth,gridHeight,widthMeters,playabilityScale,rooms,openings,props,entities:gameplay.entities,zones:gameplay.zones,palette,materials,semantic,semanticFirst,confidence,coverage,levelCount:inferLevels?levelCount:Math.max(1,semantic.regions.elevated?.length||semantic.regions.lower?.length?2:1),connectorCount:connectors.length,minimumSpawnSeparation:gameplay.minimumSpawnSeparation||0,spawnWarning:gameplay.spawnWarning||"",shellMode:inferLevels?"rooms":"competitive",navigableMask,componentCount:component?.components||1,wallCount:props.filter((prop)=>prop.blueprintWall).length};
+    pendingBlueprint.analysis={source,sourceWidth:width,sourceHeight:height,sourceBounds,gridWidth,gridHeight,widthMeters,playabilityScale,rooms,openings,props,entities:gameplay.entities,zones:gameplay.zones,palette,materials,semantic,semanticFirst,bundleEvidence,confidence,coverage,levelCount:inferLevels?levelCount:Math.max(1,semantic.regions.elevated?.length||semantic.regions.lower?.length?2:1),connectorCount:connectors.length,minimumSpawnSeparation:gameplay.minimumSpawnSeparation||0,spawnWarning:gameplay.spawnWarning||"",shellMode:inferLevels?"rooms":"competitive",navigableMask,componentCount:component?.components||1,wallCount:props.filter((prop)=>prop.blueprintWall).length};
     renderBlueprintAnalysis();
     return pendingBlueprint.analysis;
   }
@@ -1050,6 +1200,10 @@
     if(analysis.shellMode==="competitive"&&analysis.navigableMask){
       context.fillStyle="rgba(215,244,90,.2)";for(let y=0;y<analysis.gridHeight;y+=1){let start=-1;for(let x=0;x<=analysis.gridWidth;x+=1){const filled=x<analysis.gridWidth&&analysis.navigableMask[y*analysis.gridWidth+x];if(filled&&start<0)start=x;if(!filled&&start>=0){context.fillRect(offsetX+start*sx,offsetY+y*sy,(x-start)*sx,sy);start=-1;}}}
       context.fillStyle="rgba(114,200,192,.72)";analysis.props.filter((prop)=>prop.blueprintWall).forEach((prop)=>context.fillRect(offsetX+prop.x*sx,offsetY+prop.y*sy,Math.max(1,prop.w*sx),Math.max(1,prop.d*sy)));
+      analysis.props.filter((prop)=>!prop.blueprintWall).forEach((prop)=>{
+        context.fillStyle=prop.kind==="stairs"?"rgba(215,244,90,.88)":prop.kind==="ramp"?"rgba(240,164,90,.88)":prop.kind==="ladder"?"rgba(114,221,236,.9)":prop.blueprintSemantic==="cover"?"rgba(122,176,105,.86)":"rgba(231,194,139,.75)";
+        context.fillRect(offsetX+prop.x*sx,offsetY+prop.y*sy,Math.max(2,prop.w*sx),Math.max(2,prop.d*sy));
+      });
     }else analysis.rooms.forEach((room)=>{context.fillStyle=room.blueprintConnector?"rgba(114,200,192,.3)":room.floorLevel>0?"rgba(240,164,90,.25)":room.floorLevel<0?"rgba(114,184,255,.24)":"rgba(215,244,90,.18)";context.strokeStyle=room.blueprintConnector?"#72c8c0":"#d7f45a";context.lineWidth=Math.max(1,scale);context.fillRect(offsetX+room.x*sx,offsetY+room.y*sy,room.w*sx,room.d*sy);context.strokeRect(offsetX+room.x*sx+.5,offsetY+room.y*sy+.5,Math.max(1,room.w*sx-1),Math.max(1,room.d*sy-1));});
     analysis.entities.forEach((entity)=>{const color=entity.kind==="ct"?"#62a9ff":entity.kind==="t"?"#f0a45a":"#d7f45a";context.fillStyle=color;context.beginPath();context.arc(offsetX+(entity.x+.5)*sx,offsetY+(entity.y+.5)*sy,Math.max(3,Math.min(sx,sy)*.28),0,Math.PI*2);context.fill();});
     $("#blueprintImageSize").textContent=`${pendingBlueprint.image.naturalWidth}×${pendingBlueprint.image.naturalHeight} px · ${analysis.gridWidth}×${analysis.gridHeight} editable grid`;
@@ -1059,7 +1213,8 @@
     $("#blueprintPalette").innerHTML=analysis.materials.map((material)=>`<div class="blueprint-swatch" title="${html(material.label)}"><img src="${material.imageData}" alt="${html(material.label)} texture preview"><span>${html(material.role)}</span></div>`).join("");
     const textureNote=$("#blueprintTextures").checked?(companionStatus?.connected?"The matching texture kit will be installed into your local Blockout WAD.":"The map will use matching built-in materials unless the Windows companion is paired before creation."):"Existing categorized Blockout materials will be used.";
     const calibrationNote=pendingBlueprint.widthDetected?"":` Plan width was not detected from the filename; verify the ${analysis.widthMeters} m value against the dimension printed on the plan.`;
-    $("#blueprintStatus").className=`blueprint-status${analysis.confidence<65||analysis.spawnWarning||!pendingBlueprint.widthDetected?" warning":""}`;$("#blueprintStatus").textContent=analysis.shellMode==="competitive"?`Built one continuous competitive playfield with ${analysis.wallCount} merged plan walls; ${Math.max(0,analysis.componentCount-1)} disconnected fragment${analysis.componentCount===2?" was":"s were"} discarded. Result: ${Math.round(analysis.gridWidth*GRID)} × ${Math.round(analysis.gridHeight*GRID)} units at ${analysis.playabilityScale.toFixed(2)}× playability scale.${calibrationNote} ${analysis.spawnWarning||textureNote} Review and edit the result after creation.`:`Detected ${analysis.rooms.length-analysis.connectorCount} spaces, ${analysis.connectorCount} short connections, ${analysis.openings.length} openings, and ${analysis.levelCount} levels. Result: ${Math.round(analysis.gridWidth*GRID)} × ${Math.round(analysis.gridHeight*GRID)} units.${calibrationNote} ${analysis.spawnWarning||textureNote}`;
+    const detectedStructures=analysis.props.filter((prop)=>["stairs","ramp","ladder","crate","platform"].includes(prop.kind)).length,sheetNote=` ${analysis.bundleEvidence?.sheetsUsed?.length||1} aligned sheet${analysis.bundleEvidence?.sheetsUsed?.length===1?"":"s"} contributed evidence; ${detectedStructures} physical structures detected.`;
+    $("#blueprintStatus").className=`blueprint-status${analysis.confidence<65||analysis.spawnWarning||!pendingBlueprint.widthDetected?" warning":""}`;$("#blueprintStatus").textContent=analysis.shellMode==="competitive"?`Built one continuous competitive playfield with ${analysis.wallCount} merged plan walls; ${Math.max(0,analysis.componentCount-1)} disconnected fragment${analysis.componentCount===2?" was":"s were"} discarded.${sheetNote} Result: ${Math.round(analysis.gridWidth*GRID)} × ${Math.round(analysis.gridHeight*GRID)} units at ${analysis.playabilityScale.toFixed(2)}× playability scale.${calibrationNote} ${analysis.spawnWarning||textureNote} Review and edit the result after creation.`:`Detected ${analysis.rooms.length-analysis.connectorCount} spaces, ${analysis.connectorCount} short connections, ${analysis.openings.length} openings, and ${analysis.levelCount} levels.${sheetNote} Result: ${Math.round(analysis.gridWidth*GRID)} × ${Math.round(analysis.gridHeight*GRID)} units.${calibrationNote} ${analysis.spawnWarning||textureNote}`;
     $("#reanalyzeBlueprint").classList.remove("hidden");$("#createBlueprintMap").classList.remove("hidden");$("#replaceBlueprintImage").classList.remove("hidden");
   }
 
@@ -1159,6 +1314,21 @@
     customPrefabs=[...created,...customPrefabs.filter((prefab)=>prefab.bundleKey!==bundleKey)];persistCustomPrefabs();renderPrefabLibrary();return created.length;
   }
 
+  function blueprintAssignedMaterial(materials,role,fallback) {
+    return materials[role]||materials.catalog?.[role]||fallback;
+  }
+
+  function blueprintPropMaterial(prop,index,materials) {
+    const cycle=(roles,fallback)=>blueprintAssignedMaterial(materials,roles[index%roles.length],fallback);
+    if(prop.blueprintWall)return cycle(["wall1","wall2","wall3","wall4"],materials.wall);
+    if(prop.blueprintSemantic==="cover")return cycle(["wood1","wood2","metal1","wall2"],materials.trim);
+    if(prop.kind==="ladder")return blueprintAssignedMaterial(materials,"metal1",materials.trim);
+    if(prop.kind==="stairs")return blueprintAssignedMaterial(materials,"floor4",materials.floor);
+    if(prop.kind==="ramp")return blueprintAssignedMaterial(materials,"floor2",materials.floor);
+    if(prop.kind==="platform")return blueprintAssignedMaterial(materials,"floor3",materials.floor);
+    return cycle(["trim1","trim2","metal2","accentA","accentB"],materials.accent);
+  }
+
   async function createMapFromBlueprint() {
     const analysis=pendingBlueprint?.analysis;if(!analysis)return;
     if(state.rooms.length&&!confirm("Replace the current map with this generated blueprint blockout? The current map remains available through Undo and autosave."))return;
@@ -1166,11 +1336,12 @@
     const materials=await installBlueprintMaterialKit(analysis),before=snapshot(),openSky=$("#blueprintOpenSky").checked,cleanName=String(pendingBlueprint.fileName||"Blueprint map").replace(/\.[^.]+$/,"").replace(/[_-]+/g," ").trim().slice(0,40)||"Blueprint map";
     const roomSources=analysis.shellMode==="competitive"?[{id:crypto.randomUUID(),kind:"room",label:"COMPETITIVE PLAYFIELD",x:0,y:0,w:analysis.gridWidth,d:analysis.gridHeight,height:4,floorLevel:0,color:analysis.palette[0],sourceArea:analysis.gridWidth*analysis.gridHeight,blueprintConnector:false}]:analysis.rooms;
     const project=freshProject();project.name=cleanName;project.rooms=roomSources.map((source,index)=>{
-      const info=blueprintColorInfo(source.color),accent=info.saturation>.34&&index%3===0;
-      return {...source,id:crypto.randomUUID(),texture:accent?materials.accent:materials.wall,floorTexture:accent?materials.accent:materials.floor,ceilingTexture:materials.ceiling||materials.trim,ceilingMode:openSky?"sky":"ceiling",wallThickness:.25};
+      const wallRoles=["wall1","wall2","wall3","wall4"],floorRoles=["floor1","floor2","floor3","floor4"],ceilingRoles=["ceiling1","ceiling2"];
+      const wallTextures={north:blueprintAssignedMaterial(materials,wallRoles[index%4],materials.wall),east:blueprintAssignedMaterial(materials,wallRoles[(index+1)%4],materials.wall),south:blueprintAssignedMaterial(materials,wallRoles[(index+2)%4],materials.wall),west:blueprintAssignedMaterial(materials,wallRoles[(index+3)%4],materials.wall)};
+      return {...source,id:crypto.randomUUID(),texture:wallTextures.north,wallTextures,floorTexture:blueprintAssignedMaterial(materials,floorRoles[index%4],materials.floor),ceilingTexture:blueprintAssignedMaterial(materials,ceilingRoles[index%2],materials.ceiling||materials.trim),ceilingMode:openSky?"sky":"ceiling",wallThickness:.25};
     });
-    project.doors=analysis.openings.map((opening)=>({...structuredClone(opening),id:crypto.randomUUID(),texture:materials.trim}));
-    project.props=analysis.props.map((prop,index)=>({...structuredClone(prop),id:crypto.randomUUID(),texture:prop.blueprintWall?materials.wall:prop.blueprintSemantic==="cover"?(materials.wood1||materials.metal1||materials.trim):["platform","ramp","stairs"].includes(prop.kind)?materials.floor:(index%3?materials.accent:materials.trim)}));
+    project.doors=analysis.openings.map((opening,index)=>({...structuredClone(opening),id:crypto.randomUUID(),texture:blueprintAssignedMaterial(materials,index%2?"trim2":"trim1",materials.trim)}));
+    project.props=analysis.props.map((prop,index)=>({...structuredClone(prop),id:crypto.randomUUID(),texture:blueprintPropMaterial(prop,index,materials)}));
     project.entities=analysis.entities.map((entity)=>({...structuredClone(entity),id:crypto.randomUUID()}));project.zones=analysis.zones.map((zone)=>({...structuredClone(zone),id:crypto.randomUUID()}));
     project.stories=[...new Set(project.rooms.map((room)=>room.floorLevel||0))].sort((a,b)=>a-b).map((elevation,index)=>({id:crypto.randomUUID(),name:elevation===0?"Ground floor":elevation>0?`Upper level +${Math.round(elevation*GRID)}`:`Lower level ${Math.round(elevation*GRID)}`,elevation}));
     project.environment={...DEFAULT_ENVIRONMENT,groundEnabled:false,openSkyDefault:openSky,groundMaterial:materials.ground||DEFAULT_ENVIRONMENT.groundMaterial,groundSize:Math.max(32,Math.min(128,analysis.gridWidth+8))};
@@ -1178,7 +1349,8 @@
     const bundleReferences=Object.fromEntries(BLUEPRINT_BUNDLE_ROLES.filter((role)=>role.id!=="blueprint"&&role.id!=="materials").flatMap((role)=>{
       const item=pendingBlueprint.bundle?.[role.id];return item?[[role.id,{fileName:item.fileName,preview:blueprintImageData(item.image,560,.66)}]]:[];
     })),prefabCount=installBlueprintBundlePrefabs(materials);
-    project.blueprint={version:3,fileName:pendingBlueprint.fileName,widthMeters:analysis.widthMeters,playabilityScale:analysis.playabilityScale,gridWidth:analysis.gridWidth,gridHeight:analysis.gridHeight,sourceBounds:analysis.sourceBounds,confidence:analysis.confidence,generatedAt:new Date().toISOString(),semantic:{floor:analysis.semanticFirst,spawns:{t:analysis.semantic?.regions?.t?.length||0,ct:analysis.semantic?.regions?.ct?.length||0},sites:{a:analysis.semantic?.regions?.siteA?.length||0,b:analysis.semantic?.regions?.siteB?.length||0},cover:analysis.semantic?.regions?.cover?.length||0,lower:analysis.semantic?.regions?.lower?.length||0,elevated:analysis.semantic?.regions?.elevated?.length||0},textureKit:analysis.materials.map((material)=>({role:material.role,name:materials[material.role]||material.code,label:material.label,category:material.category,uses:material.uses})),bundleReferences,prefabCount,sourcePreview:sourcePreview.toDataURL("image/jpeg",.68)};
+    const materialUsage=project.rooms.flatMap((room)=>[room.floorTexture,room.ceilingTexture,...Object.values(room.wallTextures||{})]).concat(project.doors.map((door)=>door.texture),project.props.map((prop)=>prop.texture)).reduce((usage,texture)=>{if(texture)usage[texture]=(usage[texture]||0)+1;return usage;},{});
+    project.blueprint={version:4,fileName:pendingBlueprint.fileName,widthMeters:analysis.widthMeters,playabilityScale:analysis.playabilityScale,gridWidth:analysis.gridWidth,gridHeight:analysis.gridHeight,sourceBounds:analysis.sourceBounds,confidence:analysis.confidence,generatedAt:new Date().toISOString(),semantic:{floor:analysis.semanticFirst,spawns:{t:analysis.semantic?.regions?.t?.length||0,ct:analysis.semantic?.regions?.ct?.length||0},sites:{a:analysis.semantic?.regions?.siteA?.length||0,b:analysis.semantic?.regions?.siteB?.length||0},cover:analysis.semantic?.regions?.cover?.length||0,lower:analysis.semantic?.regions?.lower?.length||0,elevated:analysis.semantic?.regions?.elevated?.length||0,stairs:analysis.bundleEvidence?.structures?.stairs?.length||0,ladders:analysis.bundleEvidence?.structures?.ladders?.length||0,sheetsUsed:analysis.bundleEvidence?.sheetsUsed||["blueprint"]},textureKit:analysis.materials.map((material)=>({role:material.role,name:materials[material.role]||material.code,label:material.label,category:material.category,uses:material.uses,applied:materialUsage[materials[material.role]||material.code]||0})),materialUsage,bundleReferences,prefabCount,sourcePreview:sourcePreview.toDataURL("image/jpeg",.68)};
     state=project;selected=null;selection=[];planLevel=null;previewLevelOnly=false;analysisOverlay=null;commit(before);saveProjectNow({announce:false});$("#blueprintDialog").close();requestAnimationFrame(fitView);
     button.disabled=false;button.textContent="Create editable map";$("#blueprintCommitNote").textContent="The current map will stay untouched until you choose Create editable map.";
     showToast(materials.installed?`Blueprint map created with ${analysis.materials.length} custom textures`:`Blueprint map created with categorized built-in materials${materials.error?" — pair the companion to install its texture kit":""}`);
@@ -8372,7 +8544,8 @@
         props:pendingBlueprint.analysis.props.length,entities:pendingBlueprint.analysis.entities.length,
         zones:pendingBlueprint.analysis.zones.length,levels:pendingBlueprint.analysis.levelCount,
         confidence:pendingBlueprint.analysis.confidence,coverage:pendingBlueprint.analysis.coverage,semanticFirst:pendingBlueprint.analysis.semanticFirst,
-        semantics:{t:pendingBlueprint.analysis.semantic?.regions?.t?.length||0,ct:pendingBlueprint.analysis.semantic?.regions?.ct?.length||0,siteA:pendingBlueprint.analysis.semantic?.regions?.siteA?.length||0,siteB:pendingBlueprint.analysis.semantic?.regions?.siteB?.length||0,cover:pendingBlueprint.analysis.semantic?.regions?.cover?.length||0,lower:pendingBlueprint.analysis.semantic?.regions?.lower?.length||0,elevated:pendingBlueprint.analysis.semantic?.regions?.elevated?.length||0},
+        semantics:{t:pendingBlueprint.analysis.semantic?.regions?.t?.length||0,ct:pendingBlueprint.analysis.semantic?.regions?.ct?.length||0,siteA:pendingBlueprint.analysis.semantic?.regions?.siteA?.length||0,siteB:pendingBlueprint.analysis.semantic?.regions?.siteB?.length||0,cover:pendingBlueprint.analysis.semantic?.regions?.cover?.length||0,lower:pendingBlueprint.analysis.semantic?.regions?.lower?.length||0,elevated:pendingBlueprint.analysis.semantic?.regions?.elevated?.length||0,stairs:pendingBlueprint.analysis.bundleEvidence?.structures?.stairs?.length||0,ladders:pendingBlueprint.analysis.bundleEvidence?.structures?.ladders?.length||0},
+        sheetsUsed:[...(pendingBlueprint.analysis.bundleEvidence?.sheetsUsed||["blueprint"])],
         materials:pendingBlueprint.analysis.materials.map((material)=>({role:material.role,code:material.code,label:material.label,category:material.category,uses:[...material.uses],imageBytes:material.imageData.length}))
       } : null
     } : null,

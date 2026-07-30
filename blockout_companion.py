@@ -29,7 +29,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 
-VERSION = "1.15.0"
+VERSION = "1.16.0"
 HOST = "127.0.0.1"
 PORT = 41716
 GOLDSRC_MAP_NAME_MAX = 31
