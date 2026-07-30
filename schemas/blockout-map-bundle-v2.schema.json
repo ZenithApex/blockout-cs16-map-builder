@@ -1,0 +1,203 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://blockout-cs16-map-builder-2026.zenithapex.chatgpt.site/schemas/blockout-map-bundle-v2.schema.json",
+  "title": "Blockout Map Bundle Contract v2",
+  "type": "object",
+  "required": ["format", "version", "map", "coordinateSystem", "entities"],
+  "properties": {
+    "format": { "const": "blockout-map-bundle" },
+    "version": { "const": 2 },
+    "map": {
+      "type": "object",
+      "required": ["name", "width", "height"],
+      "properties": {
+        "name": { "type": "string", "pattern": "^[A-Za-z][A-Za-z0-9_]{0,30}$" },
+        "mode": { "enum": ["defuse", "hostage", "training"] },
+        "width": { "type": "number", "minimum": 20, "maximum": 250 },
+        "height": { "type": "number", "minimum": 20, "maximum": 250 },
+        "openSky": { "type": "boolean" },
+        "skyName": { "type": "string" },
+        "defaultWallHeight": { "type": "number", "exclusiveMinimum": 0 },
+        "groundEnabled": { "type": "boolean" },
+        "groundElevation": { "type": "number" },
+        "groundMaterial": { "type": "string" }
+      },
+      "additionalProperties": true
+    },
+    "coordinateSystem": {
+      "type": "object",
+      "required": ["units"],
+      "properties": {
+        "units": { "enum": ["metres", "grid"] },
+        "origin": { "const": "top-left" },
+        "north": { "const": "up" },
+        "horizontalMetresPerCell": { "type": "number", "exclusiveMinimum": 0 },
+        "verticalMetresPerCell": { "type": "number", "exclusiveMinimum": 0 }
+      },
+      "additionalProperties": true
+    },
+    "shell": { "$ref": "#/$defs/room" },
+    "rooms": {
+      "type": "array",
+      "maxItems": 320,
+      "items": { "$ref": "#/$defs/room" }
+    },
+    "walls": {
+      "type": "array",
+      "maxItems": 900,
+      "items": {
+        "type": "object",
+        "required": ["from", "to", "thickness"],
+        "properties": {
+          "id": { "type": "string" },
+          "label": { "type": "string" },
+          "from": { "$ref": "#/$defs/point" },
+          "to": { "$ref": "#/$defs/point" },
+          "thickness": { "type": "number", "exclusiveMinimum": 0 },
+          "base": { "type": "number" },
+          "height": { "type": "number", "exclusiveMinimum": 0 },
+          "material": { "type": "string" }
+        },
+        "additionalProperties": true
+      }
+    },
+    "openings": {
+      "type": "array",
+      "maxItems": 320,
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "kind": { "enum": ["door", "window"] },
+          "axis": { "enum": ["h", "v"] },
+          "boundary": { "type": "number" },
+          "along": { "type": "number" },
+          "from": { "$ref": "#/$defs/point" },
+          "to": { "$ref": "#/$defs/point" },
+          "width": { "type": "number", "exclusiveMinimum": 0 },
+          "base": { "type": "number" },
+          "mode": { "enum": ["opening", "door"] },
+          "material": { "type": "string" }
+        },
+        "anyOf": [
+          { "required": ["axis", "boundary", "along", "width"] },
+          { "required": ["from", "to"] }
+        ],
+        "additionalProperties": true
+      }
+    },
+    "structures": {
+      "type": "array",
+      "maxItems": 600,
+      "items": {
+        "type": "object",
+        "required": ["kind", "x", "y", "width", "depth", "height"],
+        "properties": {
+          "id": { "type": "string" },
+          "label": { "type": "string" },
+          "kind": { "enum": ["crate", "wall", "platform", "stairs", "ramp", "ladder", "diagonal", "cylinder", "wedge", "arch", "floor", "breakable"] },
+          "x": { "type": "number" },
+          "y": { "type": "number" },
+          "width": { "type": "number", "exclusiveMinimum": 0 },
+          "depth": { "type": "number", "exclusiveMinimum": 0 },
+          "base": { "type": "number" },
+          "height": { "type": "number", "exclusiveMinimum": 0 },
+          "direction": { "enum": ["n", "e", "s", "w"] },
+          "steps": { "type": "integer", "minimum": 2, "maximum": 32 },
+          "material": { "type": "string" },
+          "semantic": { "type": "string" }
+        },
+        "additionalProperties": true
+      }
+    },
+    "entities": {
+      "type": "array",
+      "maxItems": 160,
+      "items": {
+        "type": "object",
+        "required": ["kind", "x", "y"],
+        "properties": {
+          "kind": { "enum": ["ct", "t", "bombA", "bombB", "light", "spotlight", "hostage", "decal", "ambient", "targetDummy"] },
+          "x": { "type": "number" },
+          "y": { "type": "number" },
+          "base": { "type": "number" },
+          "angle": { "type": "number" },
+          "count": { "type": "integer", "minimum": 1, "maximum": 16 }
+        },
+        "additionalProperties": true
+      }
+    },
+    "zones": {
+      "type": "array",
+      "maxItems": 160,
+      "items": {
+        "type": "object",
+        "required": ["kind", "x", "y", "width", "depth"],
+        "properties": {
+          "kind": { "enum": ["buyCt", "buyT", "rescue", "triggerHurt", "teleport", "water"] },
+          "x": { "type": "number" },
+          "y": { "type": "number" },
+          "width": { "type": "number", "exclusiveMinimum": 0 },
+          "depth": { "type": "number", "exclusiveMinimum": 0 },
+          "base": { "type": "number" },
+          "height": { "type": "number", "exclusiveMinimum": 0 },
+          "damage": { "type": "number" },
+          "target": { "type": "string" }
+        },
+        "additionalProperties": true
+      }
+    },
+    "routes": {
+      "type": "array",
+      "maxItems": 96,
+      "items": {
+        "type": "object",
+        "required": ["name", "points"],
+        "properties": {
+          "name": { "type": "string" },
+          "team": { "enum": ["T", "CT", "both"] },
+          "type": { "enum": ["primary", "secondary", "rotation", "retake"] },
+          "targetSeconds": { "type": "number", "minimum": 0 },
+          "points": { "type": "array", "minItems": 2, "items": { "$ref": "#/$defs/point" } }
+        },
+        "additionalProperties": true
+      }
+    },
+    "notes": { "type": "object" }
+  },
+  "anyOf": [
+    { "required": ["shell"] },
+    { "required": ["rooms"], "properties": { "rooms": { "minItems": 1 } } }
+  ],
+  "additionalProperties": true,
+  "$defs": {
+    "point": {
+      "type": "array",
+      "prefixItems": [{ "type": "number" }, { "type": "number" }],
+      "items": false
+    },
+    "room": {
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "label": { "type": "string" },
+        "x": { "type": "number" },
+        "y": { "type": "number" },
+        "width": { "type": "number", "exclusiveMinimum": 0 },
+        "depth": { "type": "number", "exclusiveMinimum": 0 },
+        "points": { "type": "array", "minItems": 3, "maxItems": 16, "items": { "$ref": "#/$defs/point" } },
+        "floor": { "type": "number" },
+        "height": { "type": "number", "exclusiveMinimum": 0 },
+        "openSky": { "type": "boolean" },
+        "wallMaterial": { "type": "string" },
+        "floorMaterial": { "type": "string" },
+        "ceilingMaterial": { "type": "string" }
+      },
+      "anyOf": [
+        { "required": ["x", "y", "width", "depth"] },
+        { "required": ["points"] }
+      ],
+      "additionalProperties": true
+    }
+  }
+}

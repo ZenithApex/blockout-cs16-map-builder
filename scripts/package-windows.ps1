@@ -26,6 +26,9 @@ $files = @(
 foreach ($relative in $files) {
     Copy-Item -LiteralPath (Join-Path $root $relative) -Destination (Join-Path $stage $relative)
 }
+foreach ($folder in @("schemas", "examples")) {
+    Copy-Item -LiteralPath (Join-Path $root $folder) -Destination (Join-Path $stage $folder) -Recurse
+}
 if (Test-Path -LiteralPath (Join-Path $root "dist-app\Blockout.exe")) {
     Copy-Item -LiteralPath (Join-Path $root "dist-app\Blockout.exe") -Destination (Join-Path $stage "Blockout.exe")
 }

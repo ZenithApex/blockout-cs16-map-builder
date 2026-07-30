@@ -41,6 +41,12 @@ After updating Blockout, close any older companion console and double-click `Sta
 
 Open `index.html` in a current version of Chrome, Edge, or Firefox. No installation or build step is needed.
 
+## One-shot AI map bundles
+
+The Blueprint Architect accepts either ordinary plan images or a **Bundle Contract v2** package. Drop the six consistently named image sheets plus `map.bundle.json` together. The images provide the visual plan, route/elevation evidence, 20 categorized materials, prefab reference, and visual target; the JSON is authoritative for exact dimensions, diagonal and straight walls, rooms, openings, cover, stairs, ramps, ladders, platforms, elevations, five-player spawns, objectives, buy zones, and tactical routes.
+
+Use **Copy one-shot generation prompt** in the Blueprint Architect for the current prompt and **Download JSON template** for a starter manifest. The public contract is documented in [`schemas/blockout-map-bundle-v2.schema.json`](schemas/blockout-map-bundle-v2.schema.json), with a complete fixture in [`examples/map.bundle.example.json`](examples/map.bundle.example.json) and a reusable prompt in [`examples/BUNDLE_GENERATION_PROMPT.md`](examples/BUNDLE_GENERATION_PROMPT.md). When no JSON is present, local multi-sheet image detection remains available as a best-effort fallback.
+
 For browser features that restrict local `file://` pages, serve this folder locally instead:
 
 ```powershell

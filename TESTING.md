@@ -70,6 +70,7 @@ the archive and executable SHA-256 hashes before installation.
 - Verify Texture Alchemist requires at least one Wall/Floor/Tile/Ground/Ceiling/Props use and preserves every selected use after companion restart.
 - Select a wall, floor, ceiling, ground plane, and crate; verify each material dropdown and Recommended browser view only offers suitable surface categories.
 - Open **Project** and verify Save now, local versions, editable `.blockout.json` download/import, `.map` export, and portable package download.
+- Open **Blueprint Architect**, drop `examples/map.bundle.example.json`, and verify it reports **100% CONTRACT** before creating an editable map with exact polygon walls, five T and five CT spawns, A/B sites, buy zones, stairs, a ladder, a platform, and saved route polylines.
 - Import a downloaded project after making a visible edit and verify rooms, geometry, materials, entities, layers, and levels remain editable.
 - Change crop, rotation, zoom, offsets, color corrections, and edge blend; every preview and the edge-mismatch score should update.
 - Install Base, Dark, Light, and Weathered together and confirm all four cards appear after a single successful WAD rebuild.

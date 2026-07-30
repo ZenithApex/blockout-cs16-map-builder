@@ -628,7 +628,9 @@ dialog::backdrop { background: rgba(5,7,4,.8); backdrop-filter: blur(4px); }
 @media (max-width: 760px) { .production-tabs { flex-wrap: wrap; } .production-tabs button { flex: 1 1 30%; } .production-toolbar { flex-wrap: wrap; } }
 
 .blueprint-dialog { width: min(1120px,calc(100vw - 28px)); max-height: calc(100vh - 28px); }
-.blueprint-card { max-height: calc(100vh - 42px); display: grid; grid-template-rows: auto auto minmax(0,1fr) auto; gap: 11px; overflow: hidden; }
+.blueprint-card { max-height: calc(100vh - 42px); display: grid; grid-template-rows: auto auto auto minmax(0,1fr) auto; gap: 11px; overflow: hidden; }
+.blueprint-contract-actions { display: flex; flex-wrap: wrap; gap: 7px; }
+.blueprint-contract-actions .button { min-height: 30px; }
 .blueprint-drop-zone { min-height: 390px; display: grid; place-items: center; align-content: center; gap: 9px; padding: 35px; border: 1px dashed #617052; border-radius: 12px; outline: 0; background: radial-gradient(circle at 50% 42%,rgba(215,244,90,.08),transparent 42%),#0d120d; color: var(--muted); text-align: center; cursor: pointer; transition: border-color .15s,background .15s,transform .15s; }
 .blueprint-drop-zone:hover,.blueprint-drop-zone:focus-visible,.blueprint-drop-zone.drag-over { border-color: var(--accent); background-color: #111710; transform: translateY(-1px); }
 .blueprint-drop-zone strong { color: var(--text); font-size: 16px; }.blueprint-drop-zone small { font-size: 9px; }.blueprint-drop-zone .button { margin-top: 7px; }

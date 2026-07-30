@@ -101,6 +101,58 @@ const result=await evaluate(`(async()=>{
   return {analysis:analyzed.analysis,created,project:{rooms:project.rooms.length,doors:project.doors.length,props:project.props.length,entities:project.entities.length,zones:project.zones.length,stories:project.stories.length},preflight:{errors:preflight.errors,warnings:preflight.warnings}};
 })()`);
 
+const contract=await evaluate(`(async()=>{
+  const assert=(condition,message)=>{if(!condition)throw new Error(message);};
+  const manifest=Blockout.getBundleContractTemplate();
+  manifest.map={...manifest.map,name:"de_contract_test",width:60,height:40,openSky:true};
+  manifest.shell={x:0,y:0,width:60,depth:40,floor:0,height:3.2,wallMaterial:"wall1",floorMaterial:"floor1",ceilingMaterial:"ceiling1"};
+  manifest.walls=[
+    {id:"diagonal",from:[22,12],to:[30,18],thickness:.5,base:0,height:1.3,material:"wall2"},
+    {id:"site-divider",from:[38,9],to:[38,15],thickness:.4,base:0,height:2.2,material:"wall3"}
+  ];
+  manifest.structures=[
+    {id:"crate",kind:"crate",x:42,y:8,width:2,depth:2,base:0,height:1.2,material:"wood1"},
+    {id:"stairs",kind:"stairs",x:22,y:25,width:6,depth:4,base:0,height:1.5,direction:"e",steps:8,material:"floor4"},
+    {id:"landing",kind:"platform",x:28,y:25,width:4,depth:4,base:0,height:1.5,material:"floor3"},
+    {id:"ladder",kind:"ladder",x:42,y:29,width:1,depth:2,base:0,height:1.5,direction:"e",material:"metal1"}
+  ];
+  manifest.entities=[
+    {kind:"t",x:8,y:20,angle:0,count:5},{kind:"ct",x:52,y:20,angle:180,count:5},
+    {kind:"bombA",x:44,y:8},{kind:"bombB",x:44,y:32}
+  ];
+  manifest.zones=[
+    {kind:"buyT",x:4,y:16,width:9,depth:8,base:0,height:2.5},
+    {kind:"buyCt",x:47,y:16,width:9,depth:8,base:0,height:2.5}
+  ];
+  manifest.routes=[
+    {name:"T to A",team:"T",type:"primary",targetSeconds:11,points:[[8,20],[22,12],[44,8]]},
+    {name:"T to B",team:"T",type:"primary",targetSeconds:12,points:[[8,20],[22,28],[44,32]]}
+  ];
+  const sheet=document.createElement("canvas");sheet.width=600;sheet.height=400;const context=sheet.getContext("2d");
+  context.fillStyle="#ece9dc";context.fillRect(0,0,600,400);context.strokeStyle="#171b18";context.lineWidth=10;context.strokeRect(5,5,590,390);
+  const imageBlob=await new Promise((resolve)=>sheet.toBlob(resolve,"image/png"));
+  const imageFile=new File([imageBlob],"01-blockout-blueprint.png",{type:"image/png"});
+  const jsonFile=new File([JSON.stringify(manifest)],"map.bundle.json",{type:"application/json"});
+  document.querySelector("#blueprintTextures").checked=false;
+  assert(await Blockout.prepareBlueprintImage([imageFile,jsonFile]),"Bundle Contract import was rejected");
+  await new Promise((resolve)=>setTimeout(resolve,350));
+  const analyzed=Blockout.getBlueprintState();
+  assert(analyzed.bundleContract?.version===2&&analyzed.analysis?.contractExact,"Contract was not selected as authoritative");
+  assert(analyzed.analysis.confidence===100&&analyzed.analysis.contractCounts.walls===2,"Contract analysis summary is wrong");
+  const validation=Blockout.validateBundleContract(manifest);assert(!validation.errors.length,"Valid contract failed validation");
+  const created=await Blockout.createMapFromBlueprint(),project=Blockout.getProject(),preflight=Blockout.getPreflight();
+  assert(project.name==="de_contract_test","Manifest map name was not used");
+  assert(project.blueprint?.contract?.exactGeometry===true&&project.blueprint.routes.length===2,"Contract metadata or tactical routes were lost");
+  assert(project.props.filter((item)=>item.kind==="wallPolygon"&&item.blueprintWall).length===2,"Exact wall segments were not created");
+  assert(project.props.some((item)=>item.kind==="stairs")&&project.props.some((item)=>item.kind==="platform")&&project.props.some((item)=>item.kind==="ladder"),"Vertical structures were not created");
+  assert(project.entities.filter((item)=>item.kind==="t").length===5&&project.entities.filter((item)=>item.kind==="ct").length===5,"Five-player spawn anchors were not expanded");
+  assert(project.entities.some((item)=>item.kind==="bombA")&&project.entities.some((item)=>item.kind==="bombB"),"Bomb sites were not created");
+  assert(project.zones.some((item)=>item.kind==="buyT")&&project.zones.some((item)=>item.kind==="buyCt"),"Buy zones were not created");
+  assert(Blockout.generateMapText().length>5000,"Contract project did not export a usable MAP");
+  assert(preflight.errors===0,"Contract project has preflight errors: "+preflight.issues.filter((item)=>item.severity==="error").map((item)=>item.title).join(", "));
+  return {created,contract:project.blueprint.contract,routes:project.blueprint.routes.length,rooms:project.rooms.length,props:project.props.length,entities:project.entities.length,zones:project.zones.length,preflight:{errors:preflight.errors,warnings:preflight.warnings,issues:preflight.issues.filter((item)=>item.severity==="error").map((item)=>({title:item.title,detail:item.detail}))}};
+})()`);
+
 let sample=null;
 if(samplePath){
   const samplePaths=samplePath.split("|").filter(Boolean);
@@ -139,5 +191,5 @@ if(samplePath){
   if(sampleMapOutput)writeFileSync(sampleMapOutput,await evaluate("Blockout.generateMapText()"),"utf8");
 }
 if(pageErrors.length)throw new Error(`Page errors:\n${pageErrors.join("\n")}`);
-console.log(JSON.stringify({...result,...(sample?{sample:{fileName:sample.fileName,...sample.analysis,created:sample.created}}:{})},null,2));
+console.log(JSON.stringify({...result,contract,...(sample?{sample:{fileName:sample.fileName,...sample.analysis,created:sample.created}}:{})},null,2));
 socket.close();

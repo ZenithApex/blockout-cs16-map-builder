@@ -632,6 +632,56 @@
     ["accentB","B-site marking","architecture",["wall","floor","props"]]
   ];
 
+  const BUNDLE_CONTRACT_FORMAT="blockout-map-bundle",BUNDLE_CONTRACT_VERSION=2;
+  const BUNDLE_CONTRACT_TEMPLATE={
+    format:BUNDLE_CONTRACT_FORMAT,
+    version:BUNDLE_CONTRACT_VERSION,
+    map:{name:"de_example",mode:"defuse",width:120,height:90,openSky:true,skyName:"desert",defaultWallHeight:3.2},
+    coordinateSystem:{units:"metres",origin:"top-left",north:"up",horizontalMetresPerCell:2,verticalMetresPerCell:1.5},
+    shell:{x:0,y:0,width:120,depth:90,floor:0,height:3.2,wallMaterial:"wall1",floorMaterial:"floor1",ceilingMaterial:"ceiling1"},
+    rooms:[],
+    walls:[
+      {id:"example_wall",from:[30,20],to:[45,28],thickness:.4,base:0,height:3.2,material:"wall2"}
+    ],
+    openings:[],
+    structures:[
+      {id:"example_crate",kind:"crate",x:38,y:30,width:1.5,depth:1.5,base:0,height:1.2,material:"wood1"}
+    ],
+    entities:[
+      {kind:"t",x:12,y:45,angle:0,count:5},
+      {kind:"ct",x:108,y:45,angle:180,count:5},
+      {kind:"bombA",x:72,y:18},
+      {kind:"bombB",x:72,y:72}
+    ],
+    zones:[
+      {kind:"buyT",x:7,y:38,width:10,depth:14,base:0,height:2.5},
+      {kind:"buyCt",x:103,y:38,width:10,depth:14,base:0,height:2.5}
+    ],
+    routes:[
+      {name:"T to A",team:"T",type:"primary",targetSeconds:10,points:[[12,45],[30,35],[50,25],[72,18]]}
+    ],
+    notes:{theme:"Replace with the requested original theme.",sourceImages:["01-blockout-blueprint.png","02-route-analysis.png","03-elevation-sections.png","04-material-sheet.png","05-prefab-sheet.png","06-visual-target.png"]}
+  };
+  const BUNDLE_GENERATION_PROMPT=`Create an original professional Counter-Strike 1.6 5v5 defusal map bundle from the supplied thematic reference.
+
+Return exactly seven separate files:
+01-blockout-blueprint.png
+02-route-analysis.png
+03-elevation-sections.png
+04-material-sheet.png
+05-prefab-sheet.png
+06-visual-target.png
+map.bundle.json
+
+The first three images must show the same orthographic map panel at the same scale, aspect ratio, orientation, and north direction. Keep labels and arrows outside playable floors. Use flat exact colors: light floor, dark walls, blue CT, orange T, red A, yellow B, green cover, purple lower areas, light-orange elevated areas, and cyan ladders. Draw stairs as alternating black/white bars. Use no perspective, gradients, shadows, logos, characters, or decorative marks inside the blueprint.
+
+The material sheet must be exactly five columns by four rows: wall1-wall4, floor1-floor4, ceiling1-ceiling2, ground1-ground2, metal1-metal2, wood1-wood2, trim1-trim2, accentA-accentB. Every tile is square, isolated, seamless, front-facing, evenly lit, and labelled beneath.
+
+Also output valid map.bundle.json using format "${BUNDLE_CONTRACT_FORMAT}" and version ${BUNDLE_CONTRACT_VERSION}. Coordinates use metres from the top-left with north up. It must describe exact shell or rooms, continuous wall segments with explicit doorway gaps, openings, every crate/cover/stair/ramp/ladder/platform, five-player spawn anchors, A/B objectives, buy zones, elevations, material roles, and route polylines with target timings. Keep main routes 4-6m wide, secondary routes 3-4m, doors/chokes at least 2m, three exits per spawn, connected A/mid/B routes, two rotations, practical vertical transitions, and no trapped or isolated areas.
+
+Use this JSON structure and replace the example data while preserving keys:
+${JSON.stringify(BUNDLE_CONTRACT_TEMPLATE,null,2)}`;
+
   function blueprintBundleRole(file,index,total) {
     const name=String(file?.name||"");
     const matched=BLUEPRINT_BUNDLE_ROLES.find((role)=>role.pattern.test(name));
@@ -660,13 +710,67 @@
     });
   }
 
+  function validateBlueprintBundleManifest(value) {
+    const errors=[],warnings=[],manifest=value&&typeof value==="object"&&!Array.isArray(value)?structuredClone(value):null;
+    if(!manifest)return {manifest:null,errors:["The JSON root must be an object."],warnings};
+    if(manifest.format!==BUNDLE_CONTRACT_FORMAT)errors.push(`format must be "${BUNDLE_CONTRACT_FORMAT}".`);
+    if(Number(manifest.version)!==BUNDLE_CONTRACT_VERSION)errors.push(`version must be ${BUNDLE_CONTRACT_VERSION}.`);
+    manifest.map=manifest.map&&typeof manifest.map==="object"?manifest.map:{};
+    const number=(value)=>Number.isFinite(Number(value)),within=(value,min,max)=>number(value)&&Number(value)>=min&&Number(value)<=max;
+    if(!/^[a-z][a-z0-9_]{0,30}$/i.test(String(manifest.map.name||"")))errors.push("map.name must be a short GoldSrc-safe name.");
+    if(!within(manifest.map.width,20,250)||!within(manifest.map.height,20,250))errors.push("map.width and map.height must be between 20 and 250.");
+    manifest.coordinateSystem=manifest.coordinateSystem&&typeof manifest.coordinateSystem==="object"?manifest.coordinateSystem:{units:"metres"};
+    if(!["metres","grid"].includes(manifest.coordinateSystem.units))errors.push('coordinateSystem.units must be "metres" or "grid".');
+    const arrays={rooms:320,walls:900,openings:320,structures:600,entities:160,zones:160,routes:96};
+    Object.entries(arrays).forEach(([key,maximum])=>{
+      if(manifest[key]==null)manifest[key]=[];
+      if(!Array.isArray(manifest[key]))errors.push(`${key} must be an array.`);
+      else if(manifest[key].length>maximum)errors.push(`${key} exceeds the ${maximum}-item safety limit.`);
+    });
+    if(!manifest.shell&&!manifest.rooms?.length)errors.push("Provide shell or at least one room.");
+    const pointValid=(point)=>Array.isArray(point)&&point.length===2&&point.every(number);
+    (manifest.rooms||[]).forEach((room,index)=>{
+      if(room.points&&!Array.isArray(room.points))errors.push(`rooms[${index}].points must be an array.`);
+      if(room.points&&(!room.points.every(pointValid)||room.points.length<3||room.points.length>16))errors.push(`rooms[${index}] needs 3-16 numeric points.`);
+      if(!room.points&&![room.x,room.y,room.width,room.depth].every(number))errors.push(`rooms[${index}] needs x, y, width and depth.`);
+    });
+    (manifest.walls||[]).forEach((wall,index)=>{if(!pointValid(wall.from)||!pointValid(wall.to)||!number(wall.thickness))errors.push(`walls[${index}] needs from, to and thickness.`);});
+    const structureKinds=new Set(["crate","wall","platform","stairs","ramp","ladder","diagonal","cylinder","wedge","arch","floor","breakable"]);
+    (manifest.structures||[]).forEach((item,index)=>{
+      if(!structureKinds.has(item.kind))errors.push(`structures[${index}].kind is unsupported.`);
+      if(![item.x,item.y,item.width,item.depth,item.height].every(number))errors.push(`structures[${index}] needs x, y, width, depth and height.`);
+    });
+    const entityKinds=new Set(["ct","t","bombA","bombB","light","spotlight","hostage","decal","ambient","targetDummy"]);
+    (manifest.entities||[]).forEach((item,index)=>{if(!entityKinds.has(item.kind)||![item.x,item.y].every(number))errors.push(`entities[${index}] is invalid.`);});
+    const zoneKinds=new Set(["buyCt","buyT","rescue","triggerHurt","teleport","water"]);
+    (manifest.zones||[]).forEach((item,index)=>{if(!zoneKinds.has(item.kind)||![item.x,item.y,item.width,item.depth].every(number))errors.push(`zones[${index}] is invalid.`);});
+    (manifest.routes||[]).forEach((route,index)=>{if(!Array.isArray(route.points)||route.points.length<2||!route.points.every(pointValid))errors.push(`routes[${index}] needs at least two numeric points.`);});
+    const teamCounts={t:(manifest.entities||[]).filter((item)=>item.kind==="t").reduce((sum,item)=>sum+Math.max(1,Math.min(16,Number(item.count)||1)),0),ct:(manifest.entities||[]).filter((item)=>item.kind==="ct").reduce((sum,item)=>sum+Math.max(1,Math.min(16,Number(item.count)||1)),0)};
+    if(teamCounts.t<5||teamCounts.ct<5)warnings.push("Spawn anchors provide fewer than five players for one or both teams; Blockout will expand them.");
+    if(!(manifest.entities||[]).some((item)=>item.kind==="bombA")||!(manifest.entities||[]).some((item)=>item.kind==="bombB"))warnings.push("A or B objective is missing; image analysis will provide a fallback.");
+    return {manifest:errors.length?null:manifest,errors,warnings};
+  }
+
+  async function blueprintManifestPreviewImage(manifest) {
+    const width=Math.max(20,Number(manifest.map?.width)||120),height=Math.max(20,Number(manifest.map?.height)||90),canvas=document.createElement("canvas"),context=canvas.getContext("2d");
+    canvas.width=960;canvas.height=Math.max(540,Math.round(960*height/width));const sx=canvas.width/width,sy=canvas.height/height;
+    context.fillStyle="#080b09";context.fillRect(0,0,canvas.width,canvas.height);
+    const shell=manifest.shell||{x:0,y:0,width,depth:height};context.fillStyle="#e9ece5";context.fillRect((Number(shell.x)||0)*sx,(Number(shell.y)||0)*sy,(Number(shell.width)||width)*sx,(Number(shell.depth)||height)*sy);
+    context.strokeStyle="#171b18";context.lineCap="square";
+    (manifest.walls||[]).forEach((wall)=>{context.lineWidth=Math.max(4,(Number(wall.thickness)||.4)*(sx+sy)/2);context.beginPath();context.moveTo(wall.from[0]*sx,wall.from[1]*sy);context.lineTo(wall.to[0]*sx,wall.to[1]*sy);context.stroke();});
+    const colors={crate:"#75a866",wall:"#303632",platform:"#efb15c",stairs:"#d7f45a",ramp:"#ef9f52",ladder:"#72ddec"};
+    (manifest.structures||[]).forEach((item)=>{context.fillStyle=colors[item.kind]||"#7aa86b";context.fillRect(item.x*sx,item.y*sy,Math.max(2,item.width*sx),Math.max(2,item.depth*sy));});
+    (manifest.entities||[]).forEach((item)=>{context.fillStyle=item.kind==="ct"?"#62a9ff":item.kind==="t"?"#f0a45a":item.kind==="bombA"?"#ef6658":"#e8d04f";context.beginPath();context.arc(item.x*sx,item.y*sy,8,0,Math.PI*2);context.fill();});
+    const image=new Image();image.src=canvas.toDataURL("image/png");await image.decode();return image;
+  }
+
   function renderBlueprintBundleRoles() {
     const container=$("#blueprintBundleRoles");if(!container)return;
     const bundle=pendingBlueprint?.bundle||{};
-    container.innerHTML=BLUEPRINT_BUNDLE_ROLES.map((role)=>{
+    container.innerHTML=[...BLUEPRINT_BUNDLE_ROLES.map((role)=>{
       const item=bundle[role.id];
       return `<span class="blueprint-bundle-role ${item?"ready":""}">${html(role.label)}<strong>${item?html(item.fileName):"not supplied"}</strong></span>`;
-    }).join("");
+    }),`<span class="blueprint-bundle-role ${pendingBlueprint?.bundleManifest?"ready":""}">Bundle Contract v2<strong>${pendingBlueprint?.manifestFileName?html(pendingBlueprint.manifestFileName):"not supplied"}</strong></span>`].join("");
   }
 
   function blueprintMaskBounds(mask,width,height,padding=0) {
@@ -1187,7 +1291,18 @@
     }
     const palette=blueprintPaletteFromPixels(context,width,height,interior),materials=pendingBlueprint.bundle?.materials?.image?blueprintBundleMaterialKit(pendingBlueprint.bundle.materials.image,pendingBlueprint.fileName):blueprintMaterialKit(palette,pendingBlueprint.fileName),coverage=mask.reduce((sum,value)=>sum+value,0)/Math.max(1,mask.length),levelCount=new Set(rooms.map((room)=>room.floorLevel||0)).size;
     let confidence=86;if(coverage<.08||coverage>.82)confidence-=24;if(rectangles.length>78)confidence-=14;if(rectangles.length<3)confidence-=25;if(connectors.length>20)confidence-=10;confidence=Math.max(28,Math.min(94,confidence));
-    pendingBlueprint.analysis={source,sourceWidth:width,sourceHeight:height,sourceBounds,gridWidth,gridHeight,widthMeters,playabilityScale,rooms,openings,props,entities:gameplay.entities,zones:gameplay.zones,palette,materials,semantic,semanticFirst,bundleEvidence,confidence,coverage,levelCount:inferLevels?levelCount:Math.max(1,semantic.regions.elevated?.length||semantic.regions.lower?.length?2:1),connectorCount:connectors.length,minimumSpawnSeparation:gameplay.minimumSpawnSeparation||0,spawnWarning:gameplay.spawnWarning||"",shellMode:inferLevels?"rooms":"competitive",navigableMask,componentCount:component?.components||1,wallCount:props.filter((prop)=>prop.blueprintWall).length};
+    pendingBlueprint.analysis={source,sourceWidth:width,sourceHeight:height,sourceBounds,gridWidth,gridHeight,widthMeters,playabilityScale,rooms,openings,props,entities:gameplay.entities,zones:gameplay.zones,palette,materials,semantic,semanticFirst,bundleEvidence,confidence,coverage,levelCount:inferLevels?levelCount:Math.max(1,semantic.regions.elevated?.length||semantic.regions.lower?.length?2:1),connectorCount:connectors.length,minimumSpawnSeparation:gameplay.minimumSpawnSeparation||0,spawnWarning:gameplay.spawnWarning||"",shellMode:inferLevels?"rooms":"competitive",navigableMask,componentCount:component?.components||1,wallCount:props.filter((prop)=>prop.blueprintWall).length,bundleManifest:pendingBlueprint.bundleManifest||null,manifestWarnings:[...(pendingBlueprint.manifestWarnings||[])]};
+    if(pendingBlueprint.bundleManifest){
+      const manifest=pendingBlueprint.bundleManifest,horizontal=manifest.coordinateSystem?.units==="grid"?1:1/Math.max(.25,Number(manifest.coordinateSystem?.horizontalMetresPerCell)||2);
+      pendingBlueprint.analysis.widthMeters=Number(manifest.map.width)||widthMeters;
+      pendingBlueprint.analysis.playabilityScale=1;
+      pendingBlueprint.analysis.gridWidth=Math.max(1,Math.round((Number(manifest.map.width)||widthMeters)*horizontal));
+      pendingBlueprint.analysis.gridHeight=Math.max(1,Math.round((Number(manifest.map.height)||widthMeters*.75)*horizontal));
+      pendingBlueprint.analysis.confidence=100;
+      pendingBlueprint.analysis.levelCount=new Set([0,...(manifest.rooms||[]).map((item)=>Number(item.floor)||0),...(manifest.structures||[]).map((item)=>Number(item.base)||0)]).size;
+      pendingBlueprint.analysis.wallCount=(manifest.walls||[]).length;
+      pendingBlueprint.analysis.shellMode="contract";
+    }
     renderBlueprintAnalysis();
     return pendingBlueprint.analysis;
   }
@@ -1197,6 +1312,25 @@
     const canvas=$("#blueprintCanvas"),context=canvas.getContext("2d"),maxWidth=760,maxHeight=500,scale=Math.min(maxWidth/analysis.sourceWidth,maxHeight/analysis.sourceHeight);canvas.width=Math.round(analysis.sourceWidth*scale);canvas.height=Math.round(analysis.sourceHeight*scale);
     context.drawImage(analysis.source,0,0,canvas.width,canvas.height);context.fillStyle="rgba(4,8,5,.18)";context.fillRect(0,0,canvas.width,canvas.height);
     const bounds=analysis.sourceBounds||{x:0,y:0,w:analysis.sourceWidth,d:analysis.sourceHeight},offsetX=bounds.x/analysis.sourceWidth*canvas.width,offsetY=bounds.y/analysis.sourceHeight*canvas.height,sx=bounds.w/analysis.sourceWidth*canvas.width/analysis.gridWidth,sy=bounds.d/analysis.sourceHeight*canvas.height/analysis.gridHeight;
+    if(analysis.bundleManifest){
+      const manifest=analysis.bundleManifest,mapWidth=Math.max(1,Number(manifest.map.width)||1),mapHeight=Math.max(1,Number(manifest.map.height)||1),mx=canvas.width/mapWidth,my=canvas.height/mapHeight;
+      context.strokeStyle="#d7f45a";context.lineCap="round";
+      (manifest.walls||[]).forEach((wall)=>{context.lineWidth=Math.max(2,(Number(wall.thickness)||.4)*(mx+my)/2);context.beginPath();context.moveTo(wall.from[0]*mx,wall.from[1]*my);context.lineTo(wall.to[0]*mx,wall.to[1]*my);context.stroke();});
+      const colors={crate:"#78ad69",wall:"#d7f45a",platform:"#efb15c",stairs:"#f5f3dc",ramp:"#ef9f52",ladder:"#72ddec",floor:"#75a866"};
+      (manifest.structures||[]).forEach((item)=>{context.fillStyle=colors[item.kind]||"#d7f45a";context.fillRect(Number(item.x)*mx,Number(item.y)*my,Math.max(2,Number(item.width)*mx),Math.max(2,Number(item.depth)*my));});
+      (manifest.entities||[]).forEach((entity)=>{context.fillStyle=entity.kind==="ct"?"#62a9ff":entity.kind==="t"?"#f0a45a":entity.kind==="bombA"?"#ef6658":"#e8d04f";context.beginPath();context.arc(Number(entity.x)*mx,Number(entity.y)*my,Math.max(3,Math.min(mx,my)*.8),0,Math.PI*2);context.fill();});
+      $("#blueprintImageSize").textContent=`${pendingBlueprint.image.naturalWidth}×${pendingBlueprint.image.naturalHeight} px · ${analysis.gridWidth}×${analysis.gridHeight} exact grid`;
+      const confidence=$("#blueprintConfidence");confidence.textContent="100% CONTRACT";confidence.classList.remove("low");
+      const values=[(manifest.rooms||[]).length||1,(manifest.walls||[]).length,analysis.levelCount,"100%"];$("#blueprintMetrics").querySelectorAll("strong").forEach((element,index)=>{element.textContent=values[index];});
+      const metricLabels=$("#blueprintMetrics").querySelectorAll("small");if(metricLabels.length>=2){metricLabels[0].textContent="SPACES";metricLabels[1].textContent="EXACT WALLS";}
+      $("#blueprintPalette").innerHTML=analysis.materials.map((material)=>`<div class="blueprint-swatch" title="${html(material.label)}"><img src="${material.imageData}" alt="${html(material.label)} texture preview"><span>${html(material.role)}</span></div>`).join("");
+      const totals=(manifest.structures||[]).reduce((summary,item)=>{summary[item.kind]=(summary[item.kind]||0)+1;return summary;},{});
+      const warning=analysis.manifestWarnings.length?` ${analysis.manifestWarnings.join(" ")}`:"";
+      $("#blueprintStatus").className=`blueprint-status${warning?" warning":""}`;
+      $("#blueprintStatus").textContent=`Bundle Contract v2 verified: ${(manifest.walls||[]).length} exact wall segments, ${(manifest.openings||[]).length} openings, ${(manifest.structures||[]).length} structures (${totals.stairs||0} stairs, ${totals.ramp||0} ramps, ${totals.ladder||0} ladders), ${(manifest.entities||[]).length} gameplay anchors, and ${(manifest.routes||[]).length} tactical routes.${warning}`;
+      $("#reanalyzeBlueprint").classList.remove("hidden");$("#createBlueprintMap").classList.remove("hidden");$("#replaceBlueprintImage").classList.remove("hidden");
+      return;
+    }
     if(analysis.shellMode==="competitive"&&analysis.navigableMask){
       context.fillStyle="rgba(215,244,90,.2)";for(let y=0;y<analysis.gridHeight;y+=1){let start=-1;for(let x=0;x<=analysis.gridWidth;x+=1){const filled=x<analysis.gridWidth&&analysis.navigableMask[y*analysis.gridWidth+x];if(filled&&start<0)start=x;if(!filled&&start>=0){context.fillRect(offsetX+start*sx,offsetY+y*sy,(x-start)*sx,sy);start=-1;}}}
       context.fillStyle="rgba(114,200,192,.72)";analysis.props.filter((prop)=>prop.blueprintWall).forEach((prop)=>context.fillRect(offsetX+prop.x*sx,offsetY+prop.y*sy,Math.max(1,prop.w*sx),Math.max(1,prop.d*sy)));
@@ -1242,8 +1376,19 @@
   }
 
   async function prepareBlueprintImport(files) {
-    const incoming=Array.from(files instanceof File?[files]:files||[]).filter((file)=>/^image\/(png|jpeg|webp)$/.test(file.type));
-    if(!incoming.length){showToast("Choose one or more PNG, JPG, or WebP map sheets");return false;}
+    const raw=Array.from(files instanceof File?[files]:files||[]);
+    const manifestFile=raw.find((file)=>file.type==="application/json"||/\.json$/i.test(file.name));
+    const incoming=raw.filter((file)=>/^image\/(png|jpeg|webp)$/.test(file.type));
+    let bundleManifest=null,manifestWarnings=[];
+    if(manifestFile){
+      if(manifestFile.size>2_000_000){showToast("map.bundle.json must be smaller than 2 MB");return false;}
+      try{
+        const validation=validateBlueprintBundleManifest(JSON.parse(await manifestFile.text()));
+        if(validation.errors.length){showToast(`Bundle Contract invalid: ${validation.errors[0]}`);return false;}
+        bundleManifest=validation.manifest;manifestWarnings=validation.warnings;
+      }catch(error){showToast(`Could not read map.bundle.json: ${error.message}`);return false;}
+    }
+    if(!incoming.length&&!bundleManifest){showToast("Choose map sheets, map.bundle.json, or both");return false;}
     if(incoming.some((file)=>file.size>20_000_000)){showToast("Each bundle sheet must be smaller than 20 MB");return false;}
     const loaded=[];
     for(let index=0;index<Math.min(12,incoming.length);index+=1){
@@ -1251,16 +1396,28 @@
       try{image.src=objectUrl;await image.decode();loaded.push({role:blueprintBundleRole(file,index,incoming.length),fileName:file.name,image,objectUrl});}
       catch(_){URL.revokeObjectURL(objectUrl);}
     }
-    if(!loaded.length){showToast("The selected map sheets could not be decoded");return false;}
+    if(incoming.length&&!loaded.length){showToast("The selected map sheets could not be decoded");return false;}
     const bundle={};loaded.forEach((item)=>{if(!bundle[item.role])bundle[item.role]=item;});
-    if(!bundle.blueprint){bundle.blueprint=loaded[0];bundle.blueprint.role="blueprint";}
+    if(!bundle.blueprint&&loaded.length){bundle.blueprint=loaded[0];bundle.blueprint.role="blueprint";}
+    if(!bundle.blueprint&&bundleManifest){
+      const image=await blueprintManifestPreviewImage(bundleManifest);
+      bundle.blueprint={role:"blueprint",fileName:manifestFile.name,image,objectUrl:null,generated:true};loaded.push(bundle.blueprint);
+    }
     (pendingBlueprint?.objectUrls||[pendingBlueprint?.objectUrl]).filter(Boolean).forEach((url)=>URL.revokeObjectURL(url));
     const primary=bundle.blueprint,widthText=String(primary.fileName).match(/(?:^|[^0-9])(\d{2,3})\s*m(?:[^a-z]|$)/i);
-    pendingBlueprint={fileName:primary.fileName,image:primary.image,objectUrl:primary.objectUrl,objectUrls:loaded.map((item)=>item.objectUrl),bundle,analysis:null,widthDetected:Boolean(widthText)};
-    if(widthText)$("#blueprintWidthMeters").value=Math.max(20,Math.min(250,Number(widthText[1])));
+    pendingBlueprint={fileName:bundleManifest?.map?.name||primary.fileName,image:primary.image,objectUrl:primary.objectUrl,objectUrls:loaded.map((item)=>item.objectUrl).filter(Boolean),bundle,bundleManifest,manifestFileName:manifestFile?.name||"",manifestWarnings,analysis:null,widthDetected:Boolean(widthText)||Boolean(bundleManifest)};
+    if(bundleManifest){
+      $("#blueprintWidthMeters").value=Math.max(20,Math.min(250,Number(bundleManifest.map.width)||80));
+      $("#blueprintPlayabilityScale").value="1";
+    }else if(widthText)$("#blueprintWidthMeters").value=Math.max(20,Math.min(250,Number(widthText[1])));
     $("#blueprintFileName").textContent=loaded.length>1?`${primary.fileName} · ${loaded.length}-sheet bundle`:primary.fileName;
     $("#blueprintDropZone").classList.add("hidden");$("#blueprintWorkspace").classList.remove("hidden");$("#replaceBlueprintImage").classList.remove("hidden");$("#blueprintStatus").className="blueprint-status";
     $("#blueprintStatus").textContent=loaded.length>1?"Reading geometry, gameplay colors, materials, prefabs, elevations, and references…":"Reading playable floor, boundaries, and gameplay colors…";
+    if(bundleManifest){
+      const suppliedCount=incoming.length+1;
+      $("#blueprintFileName").textContent=`${bundleManifest.map.name} · Bundle Contract v2 · ${suppliedCount} file${suppliedCount===1?"":"s"}`;
+      $("#blueprintStatus").textContent="Valid Bundle Contract v2 loaded. Verifying exact geometry, gameplay, elevations, and supplied asset sheets…";
+    }
     renderBlueprintBundleRoles();scheduleBlueprintAnalysis(20);return true;
   }
 
@@ -1329,6 +1486,60 @@
     return cycle(["trim1","trim2","metal2","accentA","accentB"],materials.accent);
   }
 
+  function bundleProjectFromManifest(manifest,materials,openSky) {
+    const project=freshProject(),coordinate=manifest.coordinateSystem||{},horizontal=coordinate.units==="grid"?1:1/Math.max(.25,Number(coordinate.horizontalMetresPerCell)||2),vertical=coordinate.units==="grid"?1:1/Math.max(.25,Number(coordinate.verticalMetresPerCell)||1.5);
+    const xy=(value)=>Number(value||0)*horizontal,z=(value)=>Number(value||0)*vertical,dimension=(value,minimum=.125)=>Math.max(minimum,xy(value)),material=(role,fallback)=>blueprintAssignedMaterial(materials,String(role||""),fallback);
+    const map=manifest.map||{},roomSources=(manifest.rooms||[]).length?manifest.rooms:[manifest.shell];
+    project.name=String(map.name||"Bundle map").replace(/[^a-z0-9_ -]/gi,"").slice(0,40)||"Bundle map";
+    project.rooms=roomSources.filter(Boolean).map((source,index)=>{
+      const points=Array.isArray(source.points)?source.points.map((point)=>[xy(point[0]),xy(point[1])]):null;
+      const bounds=points?polygonBounds(points):{x:xy(source.x),y:xy(source.y),w:dimension(source.width,.5),d:dimension(source.depth,.5)};
+      const wallTexture=material(source.wallMaterial||`wall${index%4+1}`,materials.wall),floorTexture=material(source.floorMaterial||`floor${index%4+1}`,materials.floor),ceilingTexture=material(source.ceilingMaterial||`ceiling${index%2+1}`,materials.ceiling);
+      return {id:crypto.randomUUID(),kind:"room",label:String(source.label||source.id||`SPACE ${index+1}`).slice(0,64),...bounds,...(points?{points}:{}),height:Math.max(1,z(source.height??map.defaultWallHeight??3.2)),floorLevel:z(source.floor),texture:wallTexture,wallTextures:{north:wallTexture,east:wallTexture,south:wallTexture,west:wallTexture},floorTexture,ceilingTexture,ceilingMode:(source.openSky??map.openSky??openSky)?"sky":"ceiling",wallThickness:Math.max(.125,dimension(source.wallThickness??.25,.125))};
+    });
+    project.props=(manifest.walls||[]).map((wall,index)=>{
+      const a=[xy(wall.from[0]),xy(wall.from[1])],b=[xy(wall.to[0]),xy(wall.to[1])],dx=b[0]-a[0],dy=b[1]-a[1],length=Math.max(.001,Math.hypot(dx,dy)),half=dimension(wall.thickness??.4,.625)/2,px=-dy/length*half,py=dx/length*half,points=[[a[0]+px,a[1]+py],[b[0]+px,b[1]+py],[b[0]-px,b[1]-py],[a[0]-px,a[1]-py]];
+      return {id:crypto.randomUUID(),kind:"wallPolygon",label:String(wall.label||wall.id||`EXACT WALL ${index+1}`).slice(0,64),points,...polygonBounds(points),height:Math.max(.25,z(wall.height??map.defaultWallHeight??3.2)),floorLevel:z(wall.base),texture:material(wall.material||`wall${index%4+1}`,materials.wall),direction:"e",blueprintWall:true,bundleId:wall.id||null};
+    });
+    const structureKinds={diagonal:"diagonal",cylinder:"cylinder",wedge:"wedge",arch:"arch",breakable:"breakable"};
+    (manifest.structures||[]).forEach((item,index)=>{
+      const kind=structureKinds[item.kind]||item.kind,x=xy(item.x),y=xy(item.y),w=dimension(item.width),d=dimension(item.depth),base=z(item.base),height=Math.max(.125,z(item.height)),role=item.material||({crate:"wood1",stairs:"floor4",ramp:"floor2",ladder:"metal1",platform:"floor3",floor:"floor1",wall:"wall2",breakable:"wood2"}[item.kind]||"trim1"),texture=material(role,blueprintPropMaterial({kind:item.kind,blueprintSemantic:item.semantic},index,materials)),extra={label:String(item.label||item.id||item.kind).slice(0,64),direction:["n","e","s","w"].includes(item.direction)?item.direction:"e",bundleId:item.id||null,blueprintSemantic:item.semantic||"contract"};
+      if(item.kind==="floor")project.props.push(prefabProp("floor",x,y,w,d,height,base,texture,{...extra,elevation:base,thickness:Math.max(.125,height)}));
+      else if(item.kind==="cylinder"){
+        const points=octagonPoints(x,y,w,d,Math.min(w,d)*.28);project.props.push({id:crypto.randomUUID(),kind:"cylinder",points,...polygonBounds(points),height,floorLevel:base,texture,...extra});
+      }else{
+        const stairExtra=item.kind==="stairs"?{steps:Math.max(2,Math.min(32,Number(item.steps)||Math.ceil(height*GRID/16)))}:{};
+        project.props.push(prefabProp(kind,x,y,w,d,height,base,texture,{...extra,...stairExtra}));
+      }
+    });
+    project.props.filter((item)=>["stairs","ramp","ladder"].includes(item.kind)).forEach((connector)=>{
+      const landing=connectorLandingRect(connector),top=(Number(connector.floorLevel)||0)+(Number(connector.height)||1),cx=landing.x+landing.w/2,cy=landing.y+landing.d/2;
+      const supplied=project.props.some((item)=>["platform","platformPolygon","floor","floorPolygon"].includes(item.kind)&&Math.abs((["floor","floorPolygon"].includes(item.kind)?Number(item.elevation)||0:(Number(item.floorLevel)||0)+(Number(item.height)||1))-top)<.13&&footprintContains(item,cx,cy));
+      if(!supplied)project.props.push(prefabProp("platform",landing.x,landing.y,landing.w,landing.d,Math.max(.25,top-(Number(connector.floorLevel)||0)),Number(connector.floorLevel)||0,material("floor3",materials.floor),{label:"AUTO SAFETY LANDING",bundleRepair:true}));
+    });
+    const openingFor=(opening)=>{
+      if(["h","v"].includes(opening.axis)&&Number.isFinite(Number(opening.boundary))&&Number.isFinite(Number(opening.along)))return {...layoutDoor(opening.axis,xy(opening.boundary),xy(opening.along),dimension(opening.width??2,.5)),floorLevel:z(opening.base),mode:opening.mode||"opening",texture:material(opening.material||"trim1",materials.trim)};
+      if(Array.isArray(opening.from)&&Array.isArray(opening.to)){
+        const [x1,y1]=opening.from,[x2,y2]=opening.to,vertical=Math.abs(Number(y2)-Number(y1))>Math.abs(Number(x2)-Number(x1));
+        return {...layoutDoor(vertical?"v":"h",vertical?xy((Number(x1)+Number(x2))/2):xy((Number(y1)+Number(y2))/2),vertical?xy(Math.min(y1,y2)):xy(Math.min(x1,x2)),dimension(opening.width??Math.hypot(Number(x2)-Number(x1),Number(y2)-Number(y1)),.5)),floorLevel:z(opening.base),mode:opening.mode||"opening",texture:material(opening.material||"trim1",materials.trim)};
+      }
+      return null;
+    };
+    (manifest.openings||[]).forEach((opening)=>{const converted=openingFor(opening);if(!converted)return;(opening.kind==="window"?project.windows:project.doors).push(converted);});
+    const spawnOffsets=[[0,0],[.8,0],[-.8,0],[0,.8],[0,-.8],[.8,.8],[-.8,.8],[.8,-.8],[-.8,-.8]];
+    project.entities=[];
+    (manifest.entities||[]).forEach((entity)=>{
+      const count=["ct","t"].includes(entity.kind)?Math.max(1,Math.min(16,Number(entity.count)||1)):1;
+      for(let index=0;index<count;index+=1){const offset=spawnOffsets[index%spawnOffsets.length],ring=Math.floor(index/spawnOffsets.length)+1;project.entities.push({id:crypto.randomUUID(),kind:entity.kind,x:xy(entity.x)+offset[0]*ring,y:xy(entity.y)+offset[1]*ring,floorLevel:z(entity.base),...(["ct","t"].includes(entity.kind)?{angle:Number(entity.angle)||0}:{})});}
+    });
+    ["t","ct"].forEach((kind)=>{const existing=project.entities.filter((item)=>item.kind===kind),anchor=existing[0];if(anchor)for(let index=existing.length;index<5;index+=1){const offset=spawnOffsets[index];project.entities.push({...anchor,id:crypto.randomUUID(),x:anchor.x+offset[0],y:anchor.y+offset[1]});}});
+    project.zones=(manifest.zones||[]).map((zone)=>({id:crypto.randomUUID(),kind:zone.kind,x:xy(zone.x),y:xy(zone.y),w:dimension(zone.width,.5),d:dimension(zone.depth,.5),floorLevel:z(zone.base),height:Math.max(.25,z(zone.height??2.5)),damage:Number(zone.damage)||25,target:String(zone.target||"")}));
+    project.stories=[...new Set([0,...project.rooms.map(roomFloor),...project.props.map((prop)=>Number(prop.floorLevel)||0)])].sort((a,b)=>a-b).map((elevation)=>({id:crypto.randomUUID(),name:elevation===0?"Ground floor":elevation>0?`Upper level +${Math.round(elevation*GRID)}`:`Lower level ${Math.round(elevation*GRID)}`,elevation}));
+    project.environment={...DEFAULT_ENVIRONMENT,groundEnabled:Boolean(map.groundEnabled),groundElevation:z(map.groundElevation),groundMaterial:material(map.groundMaterial||"ground1",materials.ground),groundSize:Math.max(16,Math.min(256,Math.max(xy(map.width),xy(map.height))+8)),openSkyDefault:Boolean(map.openSky??openSky),skyName:String(map.skyName||DEFAULT_ENVIRONMENT.skyName)};
+    project.bundleRoutes=(manifest.routes||[]).map((route)=>({...structuredClone(route),points:route.points.map((point)=>[xy(point[0]),xy(point[1])])}));
+    return project;
+  }
+
   async function createMapFromBlueprint() {
     const analysis=pendingBlueprint?.analysis;if(!analysis)return;
     if(state.rooms.length&&!confirm("Replace the current map with this generated blueprint blockout? The current map remains available through Undo and autosave."))return;
@@ -1345,12 +1556,13 @@
     project.entities=analysis.entities.map((entity)=>({...structuredClone(entity),id:crypto.randomUUID()}));project.zones=analysis.zones.map((zone)=>({...structuredClone(zone),id:crypto.randomUUID()}));
     project.stories=[...new Set(project.rooms.map((room)=>room.floorLevel||0))].sort((a,b)=>a-b).map((elevation,index)=>({id:crypto.randomUUID(),name:elevation===0?"Ground floor":elevation>0?`Upper level +${Math.round(elevation*GRID)}`:`Lower level ${Math.round(elevation*GRID)}`,elevation}));
     project.environment={...DEFAULT_ENVIRONMENT,groundEnabled:false,openSkyDefault:openSky,groundMaterial:materials.ground||DEFAULT_ENVIRONMENT.groundMaterial,groundSize:Math.max(32,Math.min(128,analysis.gridWidth+8))};
+    if(analysis.bundleManifest)Object.assign(project,bundleProjectFromManifest(analysis.bundleManifest,materials,openSky));
     const sourcePreview=document.createElement("canvas"),previewContext=sourcePreview.getContext("2d");sourcePreview.width=Math.min(480,analysis.sourceWidth);sourcePreview.height=Math.round(sourcePreview.width*analysis.sourceHeight/analysis.sourceWidth);previewContext.drawImage(analysis.source,0,0,sourcePreview.width,sourcePreview.height);
     const bundleReferences=Object.fromEntries(BLUEPRINT_BUNDLE_ROLES.filter((role)=>role.id!=="blueprint"&&role.id!=="materials").flatMap((role)=>{
       const item=pendingBlueprint.bundle?.[role.id];return item?[[role.id,{fileName:item.fileName,preview:blueprintImageData(item.image,560,.66)}]]:[];
     })),prefabCount=installBlueprintBundlePrefabs(materials);
     const materialUsage=project.rooms.flatMap((room)=>[room.floorTexture,room.ceilingTexture,...Object.values(room.wallTextures||{})]).concat(project.doors.map((door)=>door.texture),project.props.map((prop)=>prop.texture)).reduce((usage,texture)=>{if(texture)usage[texture]=(usage[texture]||0)+1;return usage;},{});
-    project.blueprint={version:4,fileName:pendingBlueprint.fileName,widthMeters:analysis.widthMeters,playabilityScale:analysis.playabilityScale,gridWidth:analysis.gridWidth,gridHeight:analysis.gridHeight,sourceBounds:analysis.sourceBounds,confidence:analysis.confidence,generatedAt:new Date().toISOString(),semantic:{floor:analysis.semanticFirst,spawns:{t:analysis.semantic?.regions?.t?.length||0,ct:analysis.semantic?.regions?.ct?.length||0},sites:{a:analysis.semantic?.regions?.siteA?.length||0,b:analysis.semantic?.regions?.siteB?.length||0},cover:analysis.semantic?.regions?.cover?.length||0,lower:analysis.semantic?.regions?.lower?.length||0,elevated:analysis.semantic?.regions?.elevated?.length||0,stairs:analysis.bundleEvidence?.structures?.stairs?.length||0,ladders:analysis.bundleEvidence?.structures?.ladders?.length||0,sheetsUsed:analysis.bundleEvidence?.sheetsUsed||["blueprint"]},textureKit:analysis.materials.map((material)=>({role:material.role,name:materials[material.role]||material.code,label:material.label,category:material.category,uses:material.uses,applied:materialUsage[materials[material.role]||material.code]||0})),materialUsage,bundleReferences,prefabCount,sourcePreview:sourcePreview.toDataURL("image/jpeg",.68)};
+    project.blueprint={version:5,fileName:pendingBlueprint.fileName,widthMeters:analysis.widthMeters,playabilityScale:analysis.playabilityScale,gridWidth:analysis.gridWidth,gridHeight:analysis.gridHeight,sourceBounds:analysis.sourceBounds,confidence:analysis.confidence,generatedAt:new Date().toISOString(),contract:analysis.bundleManifest?{format:BUNDLE_CONTRACT_FORMAT,version:BUNDLE_CONTRACT_VERSION,fileName:pendingBlueprint.manifestFileName,warnings:[...(analysis.manifestWarnings||[])],exactGeometry:true}:null,routes:project.bundleRoutes||[],semantic:{floor:analysis.semanticFirst,spawns:{t:analysis.bundleManifest?project.entities.filter((item)=>item.kind==="t").length:analysis.semantic?.regions?.t?.length||0,ct:analysis.bundleManifest?project.entities.filter((item)=>item.kind==="ct").length:analysis.semantic?.regions?.ct?.length||0},sites:{a:analysis.bundleManifest?project.entities.filter((item)=>item.kind==="bombA").length:analysis.semantic?.regions?.siteA?.length||0,b:analysis.bundleManifest?project.entities.filter((item)=>item.kind==="bombB").length:analysis.semantic?.regions?.siteB?.length||0},cover:analysis.bundleManifest?project.props.filter((item)=>["crate","wall","wallPolygon","diagonal","breakable"].includes(item.kind)).length:analysis.semantic?.regions?.cover?.length||0,lower:analysis.semantic?.regions?.lower?.length||0,elevated:analysis.semantic?.regions?.elevated?.length||0,stairs:analysis.bundleManifest?project.props.filter((item)=>item.kind==="stairs").length:analysis.bundleEvidence?.structures?.stairs?.length||0,ladders:analysis.bundleManifest?project.props.filter((item)=>item.kind==="ladder").length:analysis.bundleEvidence?.structures?.ladders?.length||0,sheetsUsed:analysis.bundleEvidence?.sheetsUsed||["blueprint"]},textureKit:analysis.materials.map((material)=>({role:material.role,name:materials[material.role]||material.code,label:material.label,category:material.category,uses:material.uses,applied:materialUsage[materials[material.role]||material.code]||0})),materialUsage,bundleReferences,prefabCount,sourcePreview:sourcePreview.toDataURL("image/jpeg",.68)};
     state=project;selected=null;selection=[];planLevel=null;previewLevelOnly=false;analysisOverlay=null;commit(before);saveProjectNow({announce:false});$("#blueprintDialog").close();requestAnimationFrame(fitView);
     button.disabled=false;button.textContent="Create editable map";$("#blueprintCommitNote").textContent="The current map will stay untouched until you choose Create editable map.";
     showToast(materials.installed?`Blueprint map created with ${analysis.materials.length} custom textures`:`Blueprint map created with categorized built-in materials${materials.error?" — pair the companion to install its texture kit":""}`);
@@ -8028,6 +8240,11 @@
   });
   $("#blueprintButton").addEventListener("click",()=>{$("#blueprintDialog").showModal();});
   $("#closeBlueprintDialog").addEventListener("click",()=>$("#blueprintDialog").close());
+  $("#copyBundlePrompt").addEventListener("click",async()=>{
+    try{await navigator.clipboard.writeText(BUNDLE_GENERATION_PROMPT);showToast("One-shot bundle prompt copied");}
+    catch(_){downloadBlob(BUNDLE_GENERATION_PROMPT,"text/plain","BLOCKOUT_BUNDLE_PROMPT.txt");showToast("Clipboard unavailable; prompt downloaded instead");}
+  });
+  $("#downloadBundleTemplate").addEventListener("click",()=>{downloadBlob(JSON.stringify(BUNDLE_CONTRACT_TEMPLATE,null,2),"application/json","map.bundle.json");showToast("Bundle Contract v2 template downloaded");});
   $("#chooseBlueprintImage").addEventListener("click",(event)=>{event.stopPropagation();$("#blueprintFileInput").click();});
   $("#replaceBlueprintImage").addEventListener("click",()=>$("#blueprintFileInput").click());
   $("#blueprintDropZone").addEventListener("click",(event)=>{if(!event.target.closest("button"))$("#blueprintFileInput").click();});
@@ -8531,10 +8748,13 @@
     getBrokenWalkWindows: () => [...brokenWalkWindows],
     getCustomPrefabs: () => structuredClone(customPrefabs),
     getPrefabPlacement: () => ({activePrefabId,rotation:customPrefabRotation,mirrored:customPrefabMirrored}),
+    getBundleContractTemplate: () => structuredClone(BUNDLE_CONTRACT_TEMPLATE),
+    getBundleGenerationPrompt: () => BUNDLE_GENERATION_PROMPT,
+    validateBundleContract: (document) => validateBlueprintBundleManifest(document),
     prepareBlueprintImage: (file) => prepareBlueprintImport(file),
     analyzeBlueprint: () => {analyzeBlueprintImage();return window.Blockout.getBlueprintState();},
     getBlueprintState: () => pendingBlueprint ? {
-      fileName:pendingBlueprint.fileName,widthDetected:pendingBlueprint.widthDetected,bundleRoles:Object.keys(pendingBlueprint.bundle||{}),
+      fileName:pendingBlueprint.fileName,widthDetected:pendingBlueprint.widthDetected,bundleRoles:Object.keys(pendingBlueprint.bundle||{}),bundleContract:pendingBlueprint.bundleManifest?{format:pendingBlueprint.bundleManifest.format,version:pendingBlueprint.bundleManifest.version,fileName:pendingBlueprint.manifestFileName,warnings:[...(pendingBlueprint.manifestWarnings||[])]}:null,
       imageWidth:pendingBlueprint.image?.naturalWidth||0,
       imageHeight:pendingBlueprint.image?.naturalHeight||0,
       analysis:pendingBlueprint.analysis ? {
@@ -8543,7 +8763,7 @@
         connectors:pendingBlueprint.analysis.connectorCount,openings:pendingBlueprint.analysis.openings.length,
         props:pendingBlueprint.analysis.props.length,entities:pendingBlueprint.analysis.entities.length,
         zones:pendingBlueprint.analysis.zones.length,levels:pendingBlueprint.analysis.levelCount,
-        confidence:pendingBlueprint.analysis.confidence,coverage:pendingBlueprint.analysis.coverage,semanticFirst:pendingBlueprint.analysis.semanticFirst,
+        confidence:pendingBlueprint.analysis.confidence,coverage:pendingBlueprint.analysis.coverage,semanticFirst:pendingBlueprint.analysis.semanticFirst,contractExact:!!pendingBlueprint.analysis.bundleManifest,contractCounts:pendingBlueprint.analysis.bundleManifest?{rooms:pendingBlueprint.analysis.bundleManifest.rooms?.length||0,walls:pendingBlueprint.analysis.bundleManifest.walls?.length||0,openings:pendingBlueprint.analysis.bundleManifest.openings?.length||0,structures:pendingBlueprint.analysis.bundleManifest.structures?.length||0,entities:pendingBlueprint.analysis.bundleManifest.entities?.length||0,zones:pendingBlueprint.analysis.bundleManifest.zones?.length||0,routes:pendingBlueprint.analysis.bundleManifest.routes?.length||0}:null,
         semantics:{t:pendingBlueprint.analysis.semantic?.regions?.t?.length||0,ct:pendingBlueprint.analysis.semantic?.regions?.ct?.length||0,siteA:pendingBlueprint.analysis.semantic?.regions?.siteA?.length||0,siteB:pendingBlueprint.analysis.semantic?.regions?.siteB?.length||0,cover:pendingBlueprint.analysis.semantic?.regions?.cover?.length||0,lower:pendingBlueprint.analysis.semantic?.regions?.lower?.length||0,elevated:pendingBlueprint.analysis.semantic?.regions?.elevated?.length||0,stairs:pendingBlueprint.analysis.bundleEvidence?.structures?.stairs?.length||0,ladders:pendingBlueprint.analysis.bundleEvidence?.structures?.ladders?.length||0},
         sheetsUsed:[...(pendingBlueprint.analysis.bundleEvidence?.sheetsUsed||["blueprint"])],
         materials:pendingBlueprint.analysis.materials.map((material)=>({role:material.role,code:material.code,label:material.label,category:material.category,uses:[...material.uses],imageBytes:material.imageData.length}))

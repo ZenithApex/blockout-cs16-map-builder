@@ -760,14 +760,18 @@
           <div><span class="welcome-badge">BLUEPRINT ARCHITECT</span><h2>Turn a plan image into an editable map</h2></div>
           <button class="icon-button" id="closeBlueprintDialog" type="button" aria-label="Close">×</button>
         </div>
-        <p class="analysis-intro">Drop one top-down plan, or select a complete six-image map bundle. Blockout reads playable floor, blocked space, gameplay zones, cover, and level colors; bundle sheets also supply categorized materials, reusable prefabs, tactical notes, elevations, and the visual target.</p>
+        <p class="analysis-intro">Drop one top-down plan, or select a complete Bundle Contract v2: six reference images plus <code>map.bundle.json</code>. The JSON supplies exact geometry and gameplay data while the images supply detection evidence, materials, prefabs, elevations, routes, and the visual target.</p>
+        <div class="blueprint-contract-actions">
+          <button class="button secondary" id="copyBundlePrompt" type="button">Copy one-shot generation prompt</button>
+          <button class="button secondary" id="downloadBundleTemplate" type="button">Download JSON template</button>
+        </div>
 
         <div class="blueprint-drop-zone" id="blueprintDropZone" tabindex="0" role="button" aria-label="Choose or drop a blueprint image">
           <span class="blueprint-drop-icon">⌗</span>
-          <strong>Drop your map plan or six-image bundle here</strong>
-          <small>PNG, JPG, or WebP · select all six generated sheets together</small>
+          <strong>Drop your plan, six images, and map.bundle.json here</strong>
+          <small>PNG, JPG, WebP, or JSON · select the complete bundle together</small>
           <button class="button primary" id="chooseBlueprintImage" type="button">Choose plan or bundle</button>
-          <input class="visually-hidden" id="blueprintFileInput" type="file" multiple accept="image/png,image/jpeg,image/webp" />
+          <input class="visually-hidden" id="blueprintFileInput" type="file" multiple accept="image/png,image/jpeg,image/webp,application/json,.json" />
         </div>
 
         <div class="blueprint-workspace hidden" id="blueprintWorkspace">

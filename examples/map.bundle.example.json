@@ -1,0 +1,119 @@
+{
+  "format": "blockout-map-bundle",
+  "version": 2,
+  "map": {
+    "name": "de_contract_test",
+    "mode": "defuse",
+    "width": 60,
+    "height": 40,
+    "openSky": true,
+    "skyName": "desert",
+    "defaultWallHeight": 3.2
+  },
+  "coordinateSystem": {
+    "units": "metres",
+    "origin": "top-left",
+    "north": "up",
+    "horizontalMetresPerCell": 2,
+    "verticalMetresPerCell": 1.5
+  },
+  "shell": {
+    "x": 0,
+    "y": 0,
+    "width": 60,
+    "depth": 40,
+    "floor": 0,
+    "height": 3.2,
+    "wallMaterial": "wall1",
+    "floorMaterial": "floor1",
+    "ceilingMaterial": "ceiling1"
+  },
+  "rooms": [],
+  "walls": [
+    {
+      "id": "diagonal_mid_cover",
+      "from": [25, 14],
+      "to": [32, 19],
+      "thickness": 0.5,
+      "base": 0,
+      "height": 1.3,
+      "material": "wall2"
+    }
+  ],
+  "openings": [],
+  "structures": [
+    {
+      "id": "a_crate",
+      "kind": "crate",
+      "x": 40,
+      "y": 8,
+      "width": 2,
+      "depth": 2,
+      "base": 0,
+      "height": 1.2,
+      "material": "wood1"
+    },
+    {
+      "id": "mid_stairs",
+      "kind": "stairs",
+      "x": 25,
+      "y": 24,
+      "width": 6,
+      "depth": 4,
+      "base": 0,
+      "height": 1.5,
+      "direction": "e",
+      "steps": 8,
+      "material": "floor4"
+    },
+    {
+      "id": "mid_landing",
+      "kind": "platform",
+      "x": 31,
+      "y": 24,
+      "width": 4,
+      "depth": 4,
+      "base": 0,
+      "height": 1.5,
+      "material": "floor3"
+    },
+    {
+      "id": "b_ladder",
+      "kind": "ladder",
+      "x": 42,
+      "y": 28,
+      "width": 1,
+      "depth": 2,
+      "base": 0,
+      "height": 1.5,
+      "direction": "e",
+      "material": "metal1"
+    }
+  ],
+  "entities": [
+    { "kind": "t", "x": 8, "y": 20, "angle": 0, "count": 5 },
+    { "kind": "ct", "x": 52, "y": 20, "angle": 180, "count": 5 },
+    { "kind": "bombA", "x": 44, "y": 8 },
+    { "kind": "bombB", "x": 44, "y": 32 }
+  ],
+  "zones": [
+    { "kind": "buyT", "x": 4, "y": 16, "width": 9, "depth": 8, "base": 0, "height": 2.5 },
+    { "kind": "buyCt", "x": 47, "y": 16, "width": 9, "depth": 8, "base": 0, "height": 2.5 }
+  ],
+  "routes": [
+    { "name": "T to A", "team": "T", "type": "primary", "targetSeconds": 11, "points": [[8, 20], [22, 12], [32, 8], [44, 8]] },
+    { "name": "T to B", "team": "T", "type": "primary", "targetSeconds": 12, "points": [[8, 20], [22, 28], [34, 32], [44, 32]] },
+    { "name": "CT rotation", "team": "CT", "type": "rotation", "targetSeconds": 8, "points": [[44, 8], [52, 20], [44, 32]] }
+  ],
+  "notes": {
+    "theme": "Original observatory-industrial test bundle",
+    "sourceImages": [
+      "01-blockout-blueprint.png",
+      "02-route-analysis.png",
+      "03-elevation-sections.png",
+      "04-material-sheet.png",
+      "05-prefab-sheet.png",
+      "06-visual-target.png"
+    ]
+  }
+}
