@@ -150,8 +150,31 @@ const contract=await evaluate(`(async()=>{
   assert(project.zones.some((item)=>item.kind==="buyT")&&project.zones.some((item)=>item.kind==="buyCt"),"Buy zones were not created");
   assert(Blockout.generateMapText().length>5000,"Contract project did not export a usable MAP");
   assert(preflight.errors===0,"Contract project has preflight errors: "+preflight.issues.filter((item)=>item.severity==="error").map((item)=>item.title).join(", "));
-  return {created,contract:project.blueprint.contract,routes:project.blueprint.routes.length,rooms:project.rooms.length,props:project.props.length,entities:project.entities.length,zones:project.zones.length,preflight:{errors:preflight.errors,warnings:preflight.warnings,issues:preflight.issues.filter((item)=>item.severity==="error").map((item)=>({title:item.title,detail:item.detail}))}};
+  await Blockout.prepareBlueprintImage([imageFile,jsonFile]);await new Promise((resolve)=>setTimeout(resolve,350));
+  const nativeFetch=window.fetch.bind(window);window.__autoBuildRequests=0;
+  window.fetch=async(input,init)=>{
+    const request=input instanceof Request?input:new Request(input,init),url=request.url;
+    if(url.includes("/api/status"))return new Response(JSON.stringify({connected:true,version:"1.18.0",gameFound:true,compilersFound:true,stockWadsFound:true,mapsWritable:true,missingTools:[],missingWads:[],buildProfiles:[{id:"playtest",label:"Playtest"}]}),{status:200,headers:{"Content-Type":"application/json"}});
+    if(url.includes("/api/build/status"))return new Response(JSON.stringify({running:false,stageLabel:"Complete",profile:"playtest",elapsed:.4}),{status:200,headers:{"Content-Type":"application/json"}});
+    if(url.includes("/api/build")){window.__autoBuildRequests+=1;return new Response(JSON.stringify({profile:"playtest",launched:true,log:"Mock compile complete",stages:[{name:"csg",seconds:.1},{name:"bsp",seconds:.1},{name:"vis",seconds:.1},{name:"rad",seconds:.1}]}),{status:200,headers:{"Content-Type":"application/json"}});}
+    return nativeFetch(input,init);
+  };
+  const automatic=await Blockout.autoBuildBlueprint(),automaticProject=Blockout.getProject(),automaticReport=Blockout.getAutoBuildReport();
+  window.fetch=nativeFetch;
+  assert(automatic.ok&&automatic.stage==="complete","One-click Auto Build did not finish: "+JSON.stringify(automatic));
+  assert(window.__autoBuildRequests===1&&automaticReport.status==="success","Auto Build did not compile exactly once");
+  assert(automaticProject.blueprint.autoBuildReport.status==="success","Auto Build report was not stored in the editable project");
+  assert(document.querySelectorAll("#autoBuildReportSteps .auto-build-step.good").length===5,"Auto Build phase report is incomplete");
+  const encoder=new TextEncoder(),nameBytes=encoder.encode("map.bundle.json"),dataBytes=encoder.encode(JSON.stringify(manifest));
+  const u16=(value)=>new Uint8Array([value&255,(value>>>8)&255]),u32=(value)=>new Uint8Array([value&255,(value>>>8)&255,(value>>>16)&255,(value>>>24)&255]),join=(items)=>{const output=new Uint8Array(items.reduce((sum,item)=>sum+item.length,0));let at=0;items.forEach((item)=>{output.set(item,at);at+=item.length;});return output;};
+  const local=join([u32(0x04034b50),u16(20),u16(0x800),u16(0),u16(0),u16(0),u32(0),u32(dataBytes.length),u32(dataBytes.length),u16(nameBytes.length),u16(0),nameBytes,dataBytes]);
+  const central=join([u32(0x02014b50),u16(20),u16(20),u16(0x800),u16(0),u16(0),u16(0),u32(0),u32(dataBytes.length),u32(dataBytes.length),u16(nameBytes.length),u16(0),u16(0),u16(0),u16(0),u32(0),u32(0),nameBytes]);
+  const end=join([u32(0x06054b50),u16(0),u16(0),u16(1),u16(1),u32(central.length),u32(local.length),u16(0)]),zipFile=new File([join([local,central,end])],"de_contract_test_bundle.zip",{type:"application/zip"});
+  assert(await Blockout.prepareBlueprintImage(zipFile),"One-file ZIP bundle import failed");await new Promise((resolve)=>setTimeout(resolve,350));
+  const zipState=Blockout.getBlueprintState();assert(zipState.bundleContract?.version===2&&zipState.analysis?.contractExact,"ZIP bundle did not load its exact contract");
+  return {created,contract:project.blueprint.contract,routes:project.blueprint.routes.length,rooms:project.rooms.length,props:project.props.length,entities:project.entities.length,zones:project.zones.length,preflight:{errors:preflight.errors,warnings:preflight.warnings,issues:preflight.issues.filter((item)=>item.severity==="error").map((item)=>({title:item.title,detail:item.detail}))},automatic:{ok:automatic.ok,status:automaticReport.status,repairs:automaticReport.repairs.length,requests:window.__autoBuildRequests,stored:automaticProject.blueprint.autoBuildReport.status,zipContract:zipState.analysis.contractExact}};
 })()`);
+if(process.env.BLOCKOUT_CONTRACT_MAP_OUTPUT)writeFileSync(process.env.BLOCKOUT_CONTRACT_MAP_OUTPUT,await evaluate("Blockout.generateMapText()"),"utf8");
 
 let sample=null;
 if(samplePath){

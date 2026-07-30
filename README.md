@@ -47,6 +47,10 @@ The Blueprint Architect accepts either ordinary plan images or a **Bundle Contra
 
 Use **Copy one-shot generation prompt** in the Blueprint Architect for the current prompt and **Download JSON template** for a starter manifest. The public contract is documented in [`schemas/blockout-map-bundle-v2.schema.json`](schemas/blockout-map-bundle-v2.schema.json), with a complete fixture in [`examples/map.bundle.example.json`](examples/map.bundle.example.json) and a reusable prompt in [`examples/BUNDLE_GENERATION_PROMPT.md`](examples/BUNDLE_GENERATION_PROMPT.md). When no JSON is present, local multi-sheet image detection remains available as a best-effort fallback.
 
+### AI Auto Build
+
+Bundle Contract v2 can be imported as seven selected files or as one standard ZIP containing those files. After analysis, **AI Auto Build & Launch** performs the complete unattended path: exact editable construction, safe spawn normalization, missing vertical landing assistance, trigger/brush fitting, disconnected-opening cleanup, GoldSrc preflight, MAP generation, BSP compilation, installation, and CS 1.6 launch. The phase report is stored in the editable project. Compilation is never attempted while blocking errors remain; if the companion needs setup or an issue cannot be safely repaired, the generated map is preserved for review.
+
 For browser features that restrict local `file://` pages, serve this folder locally instead:
 
 ```powershell

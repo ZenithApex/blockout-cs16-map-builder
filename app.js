@@ -389,6 +389,7 @@
   let pendingTextureImport = null;
   let pendingBlueprint = null;
   let blueprintAnalyzeTimer = null;
+  let lastAutoBuildReport = null;
   let toolWorkspace = ["start","build","gameplay","logic","assets"].includes(localStorage.getItem("blockout-tool-workspace")) ? localStorage.getItem("blockout-tool-workspace") : "start";
   let beginnerToolMode = localStorage.getItem("blockout-tool-mode") !== "advanced";
   let recentToolIds = [];
@@ -672,6 +673,8 @@ Return exactly seven separate files:
 05-prefab-sheet.png
 06-visual-target.png
 map.bundle.json
+
+If your interface supports file archives, also package those exact seven files into one ZIP without changing their names.
 
 The first three images must show the same orthographic map panel at the same scale, aspect ratio, orientation, and north direction. Keep labels and arrows outside playable floors. Use flat exact colors: light floor, dark walls, blue CT, orange T, red A, yellow B, green cover, purple lower areas, light-orange elevated areas, and cyan ladders. Draw stairs as alternating black/white bars. Use no perspective, gradients, shadows, logos, characters, or decorative marks inside the blueprint.
 
@@ -1328,7 +1331,7 @@ ${JSON.stringify(BUNDLE_CONTRACT_TEMPLATE,null,2)}`;
       const warning=analysis.manifestWarnings.length?` ${analysis.manifestWarnings.join(" ")}`:"";
       $("#blueprintStatus").className=`blueprint-status${warning?" warning":""}`;
       $("#blueprintStatus").textContent=`Bundle Contract v2 verified: ${(manifest.walls||[]).length} exact wall segments, ${(manifest.openings||[]).length} openings, ${(manifest.structures||[]).length} structures (${totals.stairs||0} stairs, ${totals.ramp||0} ramps, ${totals.ladder||0} ladders), ${(manifest.entities||[]).length} gameplay anchors, and ${(manifest.routes||[]).length} tactical routes.${warning}`;
-      $("#reanalyzeBlueprint").classList.remove("hidden");$("#createBlueprintMap").classList.remove("hidden");$("#replaceBlueprintImage").classList.remove("hidden");
+      $("#reanalyzeBlueprint").classList.remove("hidden");$("#createBlueprintMap").classList.remove("hidden");$("#autoBuildBlueprint").classList.remove("hidden");$("#replaceBlueprintImage").classList.remove("hidden");
       return;
     }
     if(analysis.shellMode==="competitive"&&analysis.navigableMask){
@@ -1349,7 +1352,7 @@ ${JSON.stringify(BUNDLE_CONTRACT_TEMPLATE,null,2)}`;
     const calibrationNote=pendingBlueprint.widthDetected?"":` Plan width was not detected from the filename; verify the ${analysis.widthMeters} m value against the dimension printed on the plan.`;
     const detectedStructures=analysis.props.filter((prop)=>["stairs","ramp","ladder","crate","platform"].includes(prop.kind)).length,sheetNote=` ${analysis.bundleEvidence?.sheetsUsed?.length||1} aligned sheet${analysis.bundleEvidence?.sheetsUsed?.length===1?"":"s"} contributed evidence; ${detectedStructures} physical structures detected.`;
     $("#blueprintStatus").className=`blueprint-status${analysis.confidence<65||analysis.spawnWarning||!pendingBlueprint.widthDetected?" warning":""}`;$("#blueprintStatus").textContent=analysis.shellMode==="competitive"?`Built one continuous competitive playfield with ${analysis.wallCount} merged plan walls; ${Math.max(0,analysis.componentCount-1)} disconnected fragment${analysis.componentCount===2?" was":"s were"} discarded.${sheetNote} Result: ${Math.round(analysis.gridWidth*GRID)} × ${Math.round(analysis.gridHeight*GRID)} units at ${analysis.playabilityScale.toFixed(2)}× playability scale.${calibrationNote} ${analysis.spawnWarning||textureNote} Review and edit the result after creation.`:`Detected ${analysis.rooms.length-analysis.connectorCount} spaces, ${analysis.connectorCount} short connections, ${analysis.openings.length} openings, and ${analysis.levelCount} levels.${sheetNote} Result: ${Math.round(analysis.gridWidth*GRID)} × ${Math.round(analysis.gridHeight*GRID)} units.${calibrationNote} ${analysis.spawnWarning||textureNote}`;
-    $("#reanalyzeBlueprint").classList.remove("hidden");$("#createBlueprintMap").classList.remove("hidden");$("#replaceBlueprintImage").classList.remove("hidden");
+    $("#reanalyzeBlueprint").classList.remove("hidden");$("#createBlueprintMap").classList.remove("hidden");$("#autoBuildBlueprint").classList.remove("hidden");$("#replaceBlueprintImage").classList.remove("hidden");
   }
 
   function scheduleBlueprintAnalysis(delay=180) {
@@ -1361,7 +1364,7 @@ ${JSON.stringify(BUNDLE_CONTRACT_TEMPLATE,null,2)}`;
   function resetBlueprintImport() {
     clearTimeout(blueprintAnalyzeTimer);
     (pendingBlueprint?.objectUrls||[pendingBlueprint?.objectUrl]).filter(Boolean).forEach((url)=>URL.revokeObjectURL(url));
-    pendingBlueprint=null;$("#blueprintFileInput").value="";$("#blueprintDropZone").classList.remove("hidden","drag-over");$("#blueprintWorkspace").classList.add("hidden");$("#replaceBlueprintImage").classList.add("hidden");$("#reanalyzeBlueprint").classList.add("hidden");$("#createBlueprintMap").classList.add("hidden");$("#blueprintCommitNote").textContent="The current map will stay untouched until you choose Create editable map.";renderBlueprintBundleRoles();
+    pendingBlueprint=null;$("#blueprintFileInput").value="";$("#blueprintDropZone").classList.remove("hidden","drag-over");$("#blueprintWorkspace").classList.add("hidden");$("#replaceBlueprintImage").classList.add("hidden");$("#reanalyzeBlueprint").classList.add("hidden");$("#createBlueprintMap").classList.add("hidden");$("#autoBuildBlueprint").classList.add("hidden");$("#blueprintCommitNote").textContent="The current map will stay untouched until you choose Create editable map.";renderBlueprintBundleRoles();
   }
 
   async function prepareSingleBlueprintImportLegacy(file) {
@@ -1375,8 +1378,39 @@ ${JSON.stringify(BUNDLE_CONTRACT_TEMPLATE,null,2)}`;
     $("#blueprintFileName").textContent=file.name;$("#blueprintDropZone").classList.add("hidden");$("#blueprintWorkspace").classList.remove("hidden");$("#replaceBlueprintImage").classList.remove("hidden");$("#blueprintStatus").className="blueprint-status";$("#blueprintStatus").textContent="Tracing enclosed areas and reading the plan palette locally…";scheduleBlueprintAnalysis(20);return true;
   }
 
+  async function blueprintFilesFromZip(file) {
+    if(file.size>100_000_000)throw new Error("Bundle ZIP must be smaller than 100 MB.");
+    const bytes=new Uint8Array(await file.arrayBuffer()),view=new DataView(bytes.buffer,bytes.byteOffset,bytes.byteLength),decoder=new TextDecoder(),minimum=Math.max(0,bytes.length-65_557);let end=-1;
+    for(let offset=bytes.length-22;offset>=minimum;offset-=1)if(view.getUint32(offset,true)===0x06054b50){end=offset;break;}
+    if(end<0)throw new Error("ZIP directory was not found.");
+    const count=view.getUint16(end+10,true),centralOffset=view.getUint32(end+16,true),files=[];let cursor=centralOffset,totalOutput=0;
+    for(let index=0;index<count&&index<64;index+=1){
+      if(cursor+46>bytes.length||view.getUint32(cursor,true)!==0x02014b50)throw new Error("ZIP directory is damaged.");
+      const flags=view.getUint16(cursor+8,true),method=view.getUint16(cursor+10,true),compressedSize=view.getUint32(cursor+20,true),outputSize=view.getUint32(cursor+24,true),nameLength=view.getUint16(cursor+28,true),extraLength=view.getUint16(cursor+30,true),commentLength=view.getUint16(cursor+32,true),localOffset=view.getUint32(cursor+42,true),name=decoder.decode(bytes.subarray(cursor+46,cursor+46+nameLength)).replace(/\\/g,"/"),baseName=name.split("/").filter(Boolean).pop()||"";
+      cursor+=46+nameLength+extraLength+commentLength;
+      if(!baseName||name.endsWith("/")||!/\.(png|jpe?g|webp|json)$/i.test(baseName))continue;
+      if(flags&1)throw new Error("Encrypted ZIP bundles are not supported.");
+      if(localOffset+30>bytes.length||view.getUint32(localOffset,true)!==0x04034b50)throw new Error(`ZIP entry ${baseName} is damaged.`);
+      const localNameLength=view.getUint16(localOffset+26,true),localExtraLength=view.getUint16(localOffset+28,true),dataOffset=localOffset+30+localNameLength+localExtraLength,compressed=bytes.slice(dataOffset,dataOffset+compressedSize);let output;
+      if(method===0)output=compressed;
+      else if(method===8&&typeof DecompressionStream!=="undefined")output=new Uint8Array(await new Response(new Blob([compressed]).stream().pipeThrough(new DecompressionStream("deflate-raw"))).arrayBuffer());
+      else throw new Error(`ZIP compression method ${method} is not supported by this browser.`);
+      if(outputSize&&output.length!==outputSize)throw new Error(`ZIP entry ${baseName} did not decompress correctly.`);
+      totalOutput+=output.length;if(totalOutput>120_000_000)throw new Error("Bundle ZIP expands beyond the 120 MB safety limit.");
+      const extension=baseName.split(".").pop().toLowerCase(),type=extension==="json"?"application/json":extension==="png"?"image/png":extension==="webp"?"image/webp":"image/jpeg";
+      files.push(new File([output],baseName,{type}));
+    }
+    if(!files.length)throw new Error("The ZIP contains no supported map bundle files.");
+    return files;
+  }
+
   async function prepareBlueprintImport(files) {
-    const raw=Array.from(files instanceof File?[files]:files||[]);
+    let raw=Array.from(files instanceof File?[files]:files||[]);
+    const archives=raw.filter((file)=>file.type==="application/zip"||/\.zip$/i.test(file.name));
+    if(archives.length){
+      try{raw=[...raw.filter((file)=>!archives.includes(file)),...(await Promise.all(archives.map(blueprintFilesFromZip))).flat()];}
+      catch(error){showToast(`Bundle ZIP could not be opened: ${error.message}`);return false;}
+    }
     const manifestFile=raw.find((file)=>file.type==="application/json"||/\.json$/i.test(file.name));
     const incoming=raw.filter((file)=>/^image\/(png|jpeg|webp)$/.test(file.type));
     let bundleManifest=null,manifestWarnings=[];
@@ -1540,9 +1574,9 @@ ${JSON.stringify(BUNDLE_CONTRACT_TEMPLATE,null,2)}`;
     return project;
   }
 
-  async function createMapFromBlueprint() {
+  async function createMapFromBlueprint(options={}) {
     const analysis=pendingBlueprint?.analysis;if(!analysis)return;
-    if(state.rooms.length&&!confirm("Replace the current map with this generated blueprint blockout? The current map remains available through Undo and autosave."))return;
+    if(state.rooms.length&&!options.auto&&!confirm("Replace the current map with this generated blueprint blockout? The current map remains available through Undo and autosave."))return;
     const button=$("#createBlueprintMap");button.disabled=true;button.textContent="Building editable map…";$("#blueprintCommitNote").textContent="Preparing map geometry and material kit…";
     const materials=await installBlueprintMaterialKit(analysis),before=snapshot(),openSky=$("#blueprintOpenSky").checked,cleanName=String(pendingBlueprint.fileName||"Blueprint map").replace(/\.[^.]+$/,"").replace(/[_-]+/g," ").trim().slice(0,40)||"Blueprint map";
     const roomSources=analysis.shellMode==="competitive"?[{id:crypto.randomUUID(),kind:"room",label:"COMPETITIVE PLAYFIELD",x:0,y:0,w:analysis.gridWidth,d:analysis.gridHeight,height:4,floorLevel:0,color:analysis.palette[0],sourceArea:analysis.gridWidth*analysis.gridHeight,blueprintConnector:false}]:analysis.rooms;
@@ -1568,6 +1602,121 @@ ${JSON.stringify(BUNDLE_CONTRACT_TEMPLATE,null,2)}`;
     showToast(materials.installed?`Blueprint map created with ${analysis.materials.length} custom textures`:`Blueprint map created with categorized built-in materials${materials.error?" — pair the companion to install its texture kit":""}`);
     if(prefabCount)showToast(`Bundle map created with ${materials.installed?analysis.materials.length:0} installed textures and ${prefabCount} reusable prefabs`);
     return {rooms:project.rooms.length,openings:project.doors.length,textures:materials.installed?analysis.materials.length:0,prefabs:prefabCount,textureError:materials.error||""};
+  }
+
+  function renderAutoBuildReport() {
+    const report=lastAutoBuildReport,host=$("#autoBuildReport");if(!host)return;
+    host.classList.toggle("hidden",!report);if(!report)return;
+    const failed=report.status==="error",statusLabel=report.status==="success"?"PLAYABLE":report.status==="waiting"?"SETUP":report.status==="running"?"RUNNING":"STOPPED";
+    host.classList.toggle("error",failed);$("#autoBuildReportStatus").textContent=statusLabel;$("#autoBuildReportSummary").textContent=report.summary||"Preparing the automatic map pipeline.";
+    $("#autoBuildReportSteps").innerHTML=report.steps.map((step)=>`<div class="auto-build-step ${step.status}"><strong>${html(step.label)}</strong><small title="${html(step.detail||"")}">${html(step.detail||"Waiting")}</small></div>`).join("");
+  }
+
+  function beginAutoBuildReport() {
+    lastAutoBuildReport={status:"running",summary:"Validating the generated map bundle.",startedAt:new Date().toISOString(),finishedAt:null,repairs:[],preflight:null,build:null,steps:[
+      {id:"bundle",label:"1 · Bundle",status:"running",detail:"Validating contract"},
+      {id:"construct",label:"2 · Construct",status:"pending",detail:"Waiting"},
+      {id:"repair",label:"3 · Repair",status:"pending",detail:"Waiting"},
+      {id:"validate",label:"4 · Validate",status:"pending",detail:"Waiting"},
+      {id:"compile",label:"5 · Compile",status:"pending",detail:"Waiting"}
+    ]};renderAutoBuildReport();return lastAutoBuildReport;
+  }
+
+  function updateAutoBuildStep(id,status,detail,summary="") {
+    if(!lastAutoBuildReport)return;
+    const step=lastAutoBuildReport.steps.find((item)=>item.id===id);if(step){step.status=status;step.detail=detail;}
+    if(summary)lastAutoBuildReport.summary=summary;
+    renderAutoBuildReport();
+  }
+
+  function autoBuildPointBlocked(center,level) {
+    return state.props.some((prop)=>{
+      if(!["crate","wall","wallPolygon","cylinder","arch","breakable"].includes(prop.kind))return false;
+      const vertical=verticalBounds({type:"prop"},prop);if(!vertical||vertical.top<=level+.05||vertical.base>=level+1.5)return false;
+      return prop.points?.length?pointInPolygon(center.x,center.y,prop.points):center.x>=prop.x-.3&&center.x<=prop.x+(prop.w||1)+.3&&center.y>=prop.y-.3&&center.y<=prop.y+(prop.d||1)+.3;
+    });
+  }
+
+  function autoBuildSpawnCandidates(anchor,level,occupied=[]) {
+    const rooms=state.rooms.filter((room)=>Math.abs(roomFloor(room)-level)<.13),candidates=[];
+    rooms.forEach((room)=>{
+      const bounds=polygonBounds(roomPlanPoints(room)),step=.75;
+      for(let y=bounds.y+.75;y<=bounds.y+bounds.d-.75;y+=step)for(let x=bounds.x+.75;x<=bounds.x+bounds.w-.75;x+=step){
+        const center={x,y};if(!pointInRoom(x,y,room)||pointInFloorOpening(x,y,level,room.id)||autoBuildPointBlocked(center,level))continue;
+        if(occupied.some((point)=>Math.hypot(point.x-x,point.y-y)<.8))continue;
+        candidates.push({...center,distance:Math.hypot(x-anchor.x,y-anchor.y)});
+      }
+    });
+    return candidates.sort((a,b)=>a.distance-b.distance);
+  }
+
+  function autoRepairGeneratedMap() {
+    const before=snapshot(),repairs=[];
+    const previousSmartConnections=smartConnectionsEnabled;smartConnectionsEnabled=true;
+    state.props.filter((prop)=>["stairs","ramp","ladder"].includes(prop.kind)).forEach((prop)=>{const created=assistVerticalConnector(prop);if(created.length)repairs.push(`Added ${created.length} safe vertical connector part${created.length===1?"":"s"}.`);});
+    smartConnectionsEnabled=previousSmartConnections;
+    const disconnectedDoors=state.doors.filter((item)=>!doorIsConnected(item)),disconnectedWindows=state.windows.filter((item)=>!doorIsConnected(item));
+    if(disconnectedDoors.length||disconnectedWindows.length){
+      const invalid=new Set([...disconnectedDoors,...disconnectedWindows].map((item)=>item.id));state.doors=state.doors.filter((item)=>!invalid.has(item.id));state.windows=state.windows.filter((item)=>!invalid.has(item.id));repairs.push(`Removed ${invalid.size} disconnected opening${invalid.size===1?"":"s"}; JSON wall gaps remain authoritative.`);
+    }
+    state.props.forEach((prop)=>{
+      if(prop.points?.length||rectIsInsideSpace(prop))return;
+      const level=Number(prop.floorLevel)||0,center={x:prop.x+(prop.w||1)/2,y:prop.y+(prop.d||1)/2},host=state.rooms.filter((room)=>Math.abs(roomFloor(room)-level)<.13&&!room.points?.length).sort((a,b)=>Math.hypot(a.x+a.w/2-center.x,a.y+a.d/2-center.y)-Math.hypot(b.x+b.w/2-center.x,b.y+b.d/2-center.y))[0];
+      if(!host)return;const oldX=prop.x,oldY=prop.y;prop.w=Math.min(prop.w||1,Math.max(.125,host.w-.5));prop.d=Math.min(prop.d||1,Math.max(.125,host.d-.5));prop.x=Math.max(host.x+.25,Math.min(host.x+host.w-prop.w-.25,prop.x));prop.y=Math.max(host.y+.25,Math.min(host.y+host.d-prop.d-.25,prop.y));if(prop.x!==oldX||prop.y!==oldY)repairs.push(`Moved ${prop.label||prop.kind} inside its playable floor.`);
+    });
+    state.props.forEach((prop)=>{const host=state.rooms.find((room)=>Math.abs(roomFloor(room)-(Number(prop.floorLevel)||0))<.13&&pointInRoom(prop.x+(prop.w||1)/2,prop.y+(prop.d||1)/2,room));if(host&&verticalBounds({type:"prop"},prop).top>roomFloor(host)+host.height){prop.height=Math.max(.125,roomFloor(host)+host.height-(Number(prop.floorLevel)||0));repairs.push(`Reduced ${prop.label||prop.kind} to fit below the ceiling.`);}});
+    state.zones.forEach((zone)=>{
+      if(rectIsInsideSpace(zone))return;const center={x:zone.x+zone.w/2,y:zone.y+zone.d/2},host=state.rooms.filter((room)=>!room.points?.length).sort((a,b)=>Math.hypot(a.x+a.w/2-center.x,a.y+a.d/2-center.y)-Math.hypot(b.x+b.w/2-center.x,b.y+b.d/2-center.y))[0];if(!host)return;
+      zone.w=Math.min(zone.w||1,Math.max(.5,host.w-.5));zone.d=Math.min(zone.d||1,Math.max(.5,host.d-.5));zone.x=Math.max(host.x+.25,Math.min(host.x+host.w-zone.w-.25,zone.x));zone.y=Math.max(host.y+.25,Math.min(host.y+host.d-zone.d-.25,zone.y));repairs.push(`Fitted ${zone.kind} inside the playable floor.`);
+    });
+    const occupied=[];
+    ["t","ct"].forEach((kind)=>{
+      let spawns=state.entities.filter((item)=>item.kind===kind),anchorEntity=spawns[0];if(!anchorEntity)return;
+      while(spawns.length<5){const clone={...anchorEntity,id:crypto.randomUUID()};state.entities.push(clone);spawns.push(clone);repairs.push(`Expanded ${kind.toUpperCase()} to five player spawns.`);}
+      if(spawns.length>5){const extra=new Set(spawns.slice(5).map((item)=>item.id));state.entities=state.entities.filter((item)=>!extra.has(item.id));spawns=spawns.slice(0,5);repairs.push(`Reduced ${kind.toUpperCase()} to five player spawns.`);}
+      const level=Number(anchorEntity.floorLevel??floorLevelAt(anchorEntity.x+.5,anchorEntity.y+.5)),anchor={x:anchorEntity.x+.5,y:anchorEntity.y+.5},candidates=autoBuildSpawnCandidates(anchor,level,occupied);
+      spawns.forEach((spawn,index)=>{const point=candidates.find((candidate)=>!occupied.some((used)=>Math.hypot(used.x-candidate.x,used.y-candidate.y)<.8));if(!point)return;if(Math.hypot(spawn.x+.5-point.x,spawn.y+.5-point.y)>.05)repairs.push(`Placed ${kind.toUpperCase()} spawn ${index+1} in a safe position.`);spawn.x=point.x-.5;spawn.y=point.y-.5;spawn.floorLevel=level;occupied.push(point);});
+    });
+    state.entities.filter((item)=>["bombA","bombB","hostage"].includes(item.kind)).forEach((entity)=>{
+      const center={x:entity.x+.5,y:entity.y+.5};if(isPointInSpace(center.x,center.y)&&!autoBuildPointBlocked(center,Number(entity.floorLevel)||0))return;
+      const level=Number(entity.floorLevel)||0,candidate=autoBuildSpawnCandidates(center,level,occupied)[0];if(candidate){entity.x=candidate.x-.5;entity.y=candidate.y-.5;occupied.push(candidate);repairs.push(`Moved ${entity.kind} onto safe playable ground.`);}
+    });
+    if(repairs.length){commit(before);saveProjectNow({announce:false});}
+    return repairs;
+  }
+
+  async function autoBuildBlueprintMap() {
+    const analysis=pendingBlueprint?.analysis;if(!analysis)return {ok:false,stage:"bundle",error:"No analyzed bundle is loaded."};
+    const button=$("#autoBuildBlueprint"),report=beginAutoBuildReport();button.disabled=true;button.textContent="Auto building…";
+    if(!analysis.bundleManifest){
+      updateAutoBuildStep("bundle","error","map.bundle.json missing","Exact Bundle Contract v2 data is required for a dependable automatic build.");
+      report.status="error";report.finishedAt=new Date().toISOString();$("#blueprintStatus").className="blueprint-status error";$("#blueprintStatus").textContent="AI Auto Build requires map.bundle.json. Image-only detection remains editable, but is not reliable enough for unattended compilation.";renderAutoBuildReport();button.disabled=false;button.textContent="AI Auto Build & Launch";showToast("Auto Build requires map.bundle.json");return {ok:false,stage:"bundle",report:structuredClone(report)};
+    }
+    updateAutoBuildStep("bundle","good",`${analysis.bundleManifest.walls?.length||0} walls · ${analysis.bundleManifest.structures?.length||0} structures`);
+    updateAutoBuildStep("construct","running","Creating editable world");
+    if(state.rooms.length&&!confirm("AI Auto Build will replace the current map, validate it, compile it, and launch CS 1.6. Continue?")){button.disabled=false;button.textContent="AI Auto Build & Launch";return {ok:false,stage:"cancelled"};}
+    const created=await createMapFromBlueprint({auto:true});if(!created){button.disabled=false;button.textContent="AI Auto Build & Launch";return {ok:false,stage:"construct"};}
+    updateAutoBuildStep("construct","good",`${created.rooms} spaces · ${state.props.length} structures`);
+    if(!$("#buildDialog").open)$("#buildDialog").showModal();renderAutoBuildReport();
+    updateAutoBuildStep("repair","running","Checking safe placements");
+    const repairs=autoRepairGeneratedMap();report.repairs=[...repairs];updateAutoBuildStep("repair","good",repairs.length?`${repairs.length} safe repairs`:"No repairs needed");
+    updateAutoBuildStep("validate","running","Running GoldSrc preflight");
+    const preflight=calculatePreflight();report.preflight={errors:preflight.errors,warnings:preflight.warnings,issues:preflight.issues.map((item)=>({severity:item.severity,title:item.title,detail:item.detail}))};
+    if(preflight.errors){
+      updateAutoBuildStep("validate","error",`${preflight.errors} blocking error${preflight.errors===1?"":"s"}`,"Auto Build stopped safely: the editable map was kept, but unresolved issues need review before compilation.");updateAutoBuildStep("compile","error","Not started");report.status="error";report.finishedAt=new Date().toISOString();state.blueprint.autoBuildReport=structuredClone(report);saveProjectNow({announce:false});$("#buildLog").textContent=`AI Auto Build stopped before compilation.\n\n${preflight.issues.filter((item)=>item.severity==="error").map((item)=>`• ${item.title}: ${item.detail}`).join("\n")}`;renderAutoBuildReport();button.disabled=false;button.textContent="AI Auto Build & Launch";return {ok:false,stage:"preflight",report:structuredClone(report)};
+    }
+    updateAutoBuildStep("validate","good",`0 errors · ${preflight.warnings} warnings`);
+    updateAutoBuildStep("compile","running","Connecting to companion");
+    await refreshCompanionStatus();
+    const companionReady=!!companionStatus?.connected&&versionAtLeast(companionStatus.version,MIN_COMPANION_VERSION)&&companionStatus.gameFound&&companionStatus.compilersFound&&companionStatus.stockWadsFound&&companionStatus.mapsWritable;
+    if(!companionReady){
+      updateAutoBuildStep("compile","error","Companion setup required","Map generation is complete. Finish the highlighted companion setup, then press Build & launch.");report.status="waiting";report.finishedAt=new Date().toISOString();state.blueprint.autoBuildReport=structuredClone(report);saveProjectNow({announce:false});renderAutoBuildReport();updateBuildDialog();button.disabled=false;button.textContent="AI Auto Build & Launch";return {ok:false,stage:"companion",report:structuredClone(report)};
+    }
+    $("#launchAfterBuild").checked=true;$("#buildProfile").value="playtest";updateBuildDialog();
+    const build=await runBuildAndTest();report.build=build;
+    if(build?.ok){updateAutoBuildStep("compile","good",`${build.seconds.toFixed(1)}s · launched`,"Playable BSP compiled, installed, and launched in Counter-Strike 1.6.");report.status="success";}
+    else{updateAutoBuildStep("compile","error",build?.error||"Compiler stopped","The editable map was preserved. Review the compiler diagnostics and retry.");report.status="error";}
+    report.finishedAt=new Date().toISOString();state.blueprint.autoBuildReport=structuredClone(report);saveProjectNow({announce:false});renderAutoBuildReport();button.disabled=false;button.textContent="AI Auto Build & Launch";return {ok:report.status==="success",stage:report.status==="success"?"complete":"compile",report:structuredClone(report)};
   }
 
   function structureRun(prop) {
@@ -7514,9 +7663,9 @@ ${JSON.stringify(BUNDLE_CONTRACT_TEMPLATE,null,2)}`;
 
   async function runBuildAndTest() {
     const preflight=calculatePreflight();
-    if(preflight.errors){renderPreflight();$("#buildDialog").close();$("#preflightDialog").showModal();showToast("Build blocked — fix the preflight errors first");return;}
+    if(preflight.errors){renderPreflight();$("#buildDialog").close();$("#preflightDialog").showModal();showToast("Build blocked — fix the preflight errors first");return {ok:false,stage:"preflight",preflight};}
     const mapText = generateMapText();
-    if (!mapText) return;
+    if (!mapText) return {ok:false,stage:"export",error:"MAP generation returned no data."};
     const button = $("#runBuildButton");
     const launch = $("#launchAfterBuild").checked;
     const profile = $("#buildProfile").value;
@@ -7541,12 +7690,14 @@ ${JSON.stringify(BUNDLE_CONTRACT_TEMPLATE,null,2)}`;
       $("#buildProgress").querySelector("strong").textContent="Build complete";
       $("#buildProgress").querySelector("small").textContent=`${String(result.profile||profile).toUpperCase()} · ${seconds.toFixed(1)} seconds · ${(result.stages||[]).length} stages`;
       showToast(result.launched ? "Map built — launching CS 1.6" : "Map built successfully");
+      return {ok:true,...result,seconds,mapBytes:mapText.length};
     } catch (error) {
       renderBuildDiagnostics(error.diagnostics || []);
       $("#buildProgress").querySelector("strong").textContent=String(error.message).toLowerCase().includes("cancel")?"Build cancelled":"Build failed";
       $("#buildProgress").querySelector("small").textContent=error.diagnostics?.length?`${error.diagnostics.length} compiler issue${error.diagnostics.length===1?"":"s"} can be focused on the plan.`:"Review the compiler log.";
       $("#buildLog").textContent = `Build stopped:\n${error.message}${error.log?`\n\nCOMPILER LOG\n${error.log}`:""}`;
       showToast("Build failed — see the build log");
+      return {ok:false,stage:"compile",error:error.message,log:error.log||"",diagnostics:error.diagnostics||[]};
     } finally {
       buildRunning = false;
       clearInterval(buildProgressTimer);
@@ -8258,6 +8409,7 @@ ${JSON.stringify(BUNDLE_CONTRACT_TEMPLATE,null,2)}`;
   });
   $("#reanalyzeBlueprint").addEventListener("click",()=>scheduleBlueprintAnalysis(10));
   $("#createBlueprintMap").addEventListener("click",createMapFromBlueprint);
+  $("#autoBuildBlueprint").addEventListener("click",autoBuildBlueprintMap);
   $("#layoutsButton").addEventListener("click", () => {
     $("#layoutSearch").value = ""; $("#layoutCategory").value = "all"; renderLayoutLibrary(); $("#layoutDialog").showModal();
   });
@@ -8770,6 +8922,8 @@ ${JSON.stringify(BUNDLE_CONTRACT_TEMPLATE,null,2)}`;
       } : null
     } : null,
     createMapFromBlueprint: () => createMapFromBlueprint(),
+    autoBuildBlueprint: () => autoBuildBlueprintMap(),
+    getAutoBuildReport: () => lastAutoBuildReport?structuredClone(lastAutoBuildReport):null,
     prepareTextureImage: (file) => prepareTextureImport(file),
     getTextureAlchemyState: () => ({
       active:!!pendingTextureImport,

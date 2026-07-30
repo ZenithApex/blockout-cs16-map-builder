@@ -12,6 +12,8 @@ Return exactly seven separate files:
 6. `06-visual-target.png`
 7. `map.bundle.json`
 
+If the generation interface supports archives, also package those exact seven files into one ZIP without renaming them.
+
 The first three images must show the same orthographic map panel at the same scale, aspect ratio, orientation, and north direction. Keep labels and arrows outside playable floors. Use flat exact colors: light floor, dark walls, blue CT, orange T, red A, yellow B, green cover, purple lower areas, light-orange elevated areas, and cyan ladders. Draw stairs as alternating black/white bars. Use no perspective, gradients, shadows, logos, characters, or decorative marks inside the blueprint.
 
 The material sheet must be exactly five columns by four rows, in this order:
